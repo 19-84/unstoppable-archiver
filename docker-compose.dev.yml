@@ -1,0 +1,21 @@
+services:
+  app:
+    build:
+      context: .
+      target: dev
+    command: uv run uvicorn archiver.app:create_app --factory --host 0.0.0.0 --port 8000 --reload
+    volumes:
+      - ./src:/app/src
+      - ./tests:/app/tests
+      - artifacts:/data
+
+  worker:
+    build:
+      context: .
+      target: dev
+    volumes:
+      - ./src:/app/src
+      - artifacts:/data
+
+volumes:
+  artifacts:

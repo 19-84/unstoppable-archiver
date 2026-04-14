@@ -1,0 +1,7 @@
+failure-threshold: warning
+trustedRegistries:
+  - docker.io
+  - ghcr.io
+ignored:
+  - DL3008  # pin versions in apt-get — we use slim base, pinning is impractical
+  - DL3013  # pin pip versions — we use uv, not pip

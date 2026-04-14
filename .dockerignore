@@ -1,0 +1,15 @@
+.venv/
+__pycache__/
+*.pyc
+.git/
+.ruff_cache/
+.pytest_cache/
+.mypy_cache/
+.mutmut-cache/
+htmlcov/
+data/
+*.egg-info/
+dist/
+build/
+.env
+.env.*

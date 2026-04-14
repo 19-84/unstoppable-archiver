@@ -1,0 +1,74 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: archiver
+      POSTGRES_PASSWORD: archiver
+      POSTGRES_DB: archiver
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "15432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U archiver"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  app:
+    build:
+      context: .
+      target: dev
+    command: uv run uvicorn archiver.app:create_app --factory --host 0.0.0.0 --port 8000
+    ports:
+      - "8000:8000"
+    volumes:
+      - artifacts:/data
+    environment:
+      ARCHIVER_DB_URL: postgresql://archiver:archiver@postgres:5432/archiver
+      ARCHIVER_ARTIFACTS_DIR: /data/archives
+      ARCHIVER_LOG_FORMAT: console
+      ARCHIVER_LOG_LEVEL: INFO
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: .
+      target: dev
+    command: uv run python -m archiver
+    volumes:
+      - artifacts:/data
+    environment:
+      ARCHIVER_DB_URL: postgresql://archiver:archiver@postgres:5432/archiver
+      ARCHIVER_ARTIFACTS_DIR: /data/archives
+      ARCHIVER_LOG_FORMAT: console
+      ARCHIVER_LOG_LEVEL: INFO
+      ARCHIVER_WORKER_ID: worker-1
+      DISPLAY: ":99"
+    entrypoint: >
+      sh -c "Xvfb :99 -screen 0 1920x1080x24 &
+             exec uv run python -m archiver"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  tor:
+    image: leplusorg/tor:latest
+    restart: unless-stopped
+    profiles:
+      - darknet
+
+  i2p:
+    image: purplei2p/i2pd:latest
+    restart: unless-stopped
+    profiles:
+      - darknet
+
+volumes:
+  pgdata:
+  artifacts:
