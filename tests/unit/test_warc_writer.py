@@ -1,0 +1,160 @@
+# ABOUTME: Unit tests for WARC file writing and deduplication
+# ABOUTME: Verifies WARC output format, exchange collection, and digest-based dedup
+"""Tests for WARC writer."""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+from archiver.warc_writer import (
+    CapturedExchange,
+    PlaywrightWARCWriter,
+    is_valid_warc,
+)
+
+
+class TestPlaywrightWARCWriter:
+    def test_empty_writer_has_zero_exchanges(self) -> None:
+        writer = PlaywrightWARCWriter()
+        assert writer.exchange_count == 0
+
+    def test_add_exchange_increments_count(self) -> None:
+        writer = PlaywrightWARCWriter()
+        writer.add_exchange(
+            CapturedExchange(
+                url="https://example.com",
+                method="GET",
+                request_headers={"Host": "example.com"},
+                status=200,
+                response_headers={"Content-Type": "text/html"},
+                body=b"<html>Hello</html>",
+            )
+        )
+        assert writer.exchange_count == 1
+
+    def test_finalize_creates_warc_file(
+        self, tmp_path: Path
+    ) -> None:
+        writer = PlaywrightWARCWriter()
+        writer.add_exchange(
+            CapturedExchange(
+                url="https://example.com",
+                method="GET",
+                request_headers={"Host": "example.com"},
+                status=200,
+                response_headers={"Content-Type": "text/html"},
+                body=b"<html>Hello world</html>",
+            )
+        )
+
+        out = tmp_path / "test.warc.gz"
+        size = writer.finalize(out)
+
+        assert out.exists()
+        assert size > 0
+        assert is_valid_warc(out)
+
+    def test_finalize_with_multiple_exchanges(
+        self, tmp_path: Path
+    ) -> None:
+        writer = PlaywrightWARCWriter()
+        for i in range(3):
+            writer.add_exchange(
+                CapturedExchange(
+                    url=f"https://example.com/page{i}",
+                    method="GET",
+                    request_headers={},
+                    status=200,
+                    response_headers={},
+                    body=f"Page {i} content".encode(),
+                )
+            )
+
+        out = tmp_path / "multi.warc.gz"
+        writer.finalize(out)
+        assert is_valid_warc(out)
+
+    def test_dedup_identical_bodies_writes_revisit(
+        self, tmp_path: Path
+    ) -> None:
+        """Identical response bodies should produce revisit records."""
+        import gzip
+
+        writer = PlaywrightWARCWriter()
+        same_body = b"<html>Shared content for dedup test</html>"
+
+        writer.add_exchange(
+            CapturedExchange(
+                url="https://example.com/page1",
+                method="GET",
+                request_headers={},
+                status=200,
+                response_headers={},
+                body=same_body,
+            )
+        )
+        writer.add_exchange(
+            CapturedExchange(
+                url="https://example.com/page2",
+                method="GET",
+                request_headers={},
+                status=200,
+                response_headers={},
+                body=same_body,
+            )
+        )
+
+        out = tmp_path / "dedup.warc.gz"
+        writer.finalize(out)
+
+        # Parse the WARC and verify a revisit record exists
+        content = gzip.decompress(out.read_bytes()).decode(
+            "utf-8", errors="replace"
+        )
+        assert "revisit" in content
+        assert "identical-payload-digest" in content
+
+    def test_creates_parent_directories(
+        self, tmp_path: Path
+    ) -> None:
+        writer = PlaywrightWARCWriter()
+        writer.add_exchange(
+            CapturedExchange(
+                url="https://example.com",
+                method="GET",
+                request_headers={},
+                status=200,
+                response_headers={},
+                body=b"test",
+            )
+        )
+
+        nested = tmp_path / "a" / "b" / "c" / "test.warc.gz"
+        writer.finalize(nested)
+        assert nested.exists()
+
+
+class TestIsValidWarc:
+    def test_nonexistent_file(self, tmp_path: Path) -> None:
+        assert is_valid_warc(tmp_path / "missing.warc.gz") is False
+
+    def test_empty_file(self, tmp_path: Path) -> None:
+        empty = tmp_path / "empty.warc.gz"
+        empty.write_bytes(b"")
+        assert is_valid_warc(empty) is False
+
+    def test_valid_warc(self, tmp_path: Path) -> None:
+        writer = PlaywrightWARCWriter()
+        writer.add_exchange(
+            CapturedExchange(
+                url="https://example.com",
+                method="GET",
+                request_headers={},
+                status=200,
+                response_headers={},
+                body=b"test",
+            )
+        )
+        path = tmp_path / "valid.warc.gz"
+        writer.finalize(path)
+        assert is_valid_warc(path) is True
