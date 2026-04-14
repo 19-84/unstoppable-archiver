@@ -420,3 +420,41 @@ class TestJobRepository:
 
             fetched_job = await job_repo.get_by_id(conn, job.id)
             assert fetched_job is None
+
+
+class TestRepositoryEdgeCases:
+    async def test_update_status_unknown_field_raises(
+        self,
+        pool: asyncpg.pool.Pool,
+        archive_repo: ArchiveRepository,
+    ) -> None:
+        async with pool.acquire() as conn:
+            archive = await archive_repo.create(
+                conn, "https://example.com"
+            )
+            with pytest.raises(ValueError, match="Unknown"):
+                await archive_repo.update_status(
+                    conn,
+                    archive.id,
+                    ArchiveStatus.COMPLETE,
+                    bogus_field="x",
+                )
+
+    async def test_get_latest_complete(
+        self,
+        pool: asyncpg.pool.Pool,
+        archive_repo: ArchiveRepository,
+    ) -> None:
+        async with pool.acquire() as conn:
+            a1 = await archive_repo.create(
+                conn, "https://example.com"
+            )
+            await archive_repo.update_status(
+                conn, a1.id, ArchiveStatus.COMPLETE
+            )
+
+            result = await archive_repo.get_latest_complete(
+                conn, a1.url_hash
+            )
+            assert result is not None
+            assert result.id == a1.id

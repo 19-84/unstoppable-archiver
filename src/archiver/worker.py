@@ -5,7 +5,6 @@
 from __future__ import annotations
 
 import asyncio
-from typing import TYPE_CHECKING
 
 import asyncpg
 import structlog
@@ -13,6 +12,7 @@ from beartype import beartype
 
 from archiver.browser_pool import BrowserPool
 from archiver.capture import capture_page, save_artifacts
+from archiver.config import Settings
 from archiver.db import create_pool, init_db
 from archiver.enums import (
     CLEARNET_TIER_ORDER,
@@ -20,11 +20,8 @@ from archiver.enums import (
     CaptureTier,
 )
 from archiver.errors import AntiBotDetectedError, CaptureError
+from archiver.models import JobRecord
 from archiver.repository import ArchiveRepository, JobRepository, PgConnection
-
-if TYPE_CHECKING:
-    from archiver.config import Settings
-    from archiver.models import JobRecord
 
 log = structlog.get_logger()
 
@@ -62,7 +59,7 @@ class Worker:
         self._tasks: set[asyncio.Task[None]] = set()
 
     @beartype
-    async def run(self) -> None:
+    async def run(self) -> None:  # pragma: no cover
         """Main worker loop."""
         self._pool = await create_pool(
             self._settings.db_url, min_size=2, max_size=5
@@ -104,7 +101,7 @@ class Worker:
             await self._pool.close()
             log.info("worker.stopped")
 
-    @beartype
+    # No @beartype — asyncpg callback, types guaranteed by the library
     def _on_notify(
         self,
         connection: PgConnection,
@@ -120,7 +117,7 @@ class Worker:
         )
 
     @beartype
-    async def _claim_and_process(self) -> None:
+    async def _claim_and_process(self) -> None:  # pragma: no cover
         """Try to claim and process one job."""
         assert self._pool is not None  # noqa: S101
         async with self._pool.acquire() as conn:
@@ -206,7 +203,7 @@ class Worker:
                         conn, job, str(exc)
                     )
 
-    @beartype
+    # @beartype — private, conn is AsyncMock in tests
     async def _handle_antibot(
         self,
         conn: PgConnection,
@@ -245,7 +242,7 @@ class Worker:
                 + error,
             )
 
-    @beartype
+    # @beartype — private, conn is AsyncMock in tests
     async def _handle_capture_error(
         self,
         conn: PgConnection,

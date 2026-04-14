@@ -5,16 +5,14 @@
 from __future__ import annotations
 
 import asyncio
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import structlog
 from beartype import beartype
 from playwright.async_api import Browser, Playwright, async_playwright
 
+from archiver.config import Settings
 from archiver.enums import CaptureTier
-
-if TYPE_CHECKING:
-    from archiver.config import Settings
 
 log = structlog.get_logger()
 

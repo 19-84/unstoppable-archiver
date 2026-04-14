@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import AsyncIterator
+from pathlib import Path
 
 import asyncpg.pool
 import pytest
@@ -249,3 +250,54 @@ class TestArtifactEndpoints:
             "/api/archives/nonexistent/snapshot"
         )
         assert resp.status_code == 404  # noqa: PLR2004
+
+    async def test_serve_snapshot_file(
+        self,
+        client: AsyncClient,
+        pool: asyncpg.pool.Pool,
+        tmp_path: Path,
+    ) -> None:
+        """Create an archive with artifacts on disk and serve them."""
+        from archiver.enums import ArchiveStatus
+        from archiver.repository import ArchiveRepository
+
+        repo = ArchiveRepository()
+        async with pool.acquire() as conn:
+            archive = await repo.create(
+                conn, "https://example.com/serve"
+            )
+            # Create artifact files
+            art_dir = tmp_path / "artifacts" / "test"
+            art_dir.mkdir(parents=True)
+            (art_dir / "snapshot.html").write_text("<html>hi</html>")
+            (art_dir / "screenshot.png").write_bytes(b"\x89PNG")
+            (art_dir / "thumbnail.png").write_bytes(b"\x89PNG")
+
+            rel = str(art_dir.relative_to(tmp_path / "artifacts"))
+            await repo.update_status(
+                conn,
+                archive.id,
+                ArchiveStatus.COMPLETE,
+                artifact_dir=rel,
+            )
+
+        # Override artifacts_dir in settings
+        client._transport.app.state.settings.artifacts_dir = (  # type: ignore[union-attr]
+            tmp_path / "artifacts"
+        )
+
+        resp = await client.get(
+            f"/api/archives/{archive.id}/snapshot"
+        )
+        assert resp.status_code == 200  # noqa: PLR2004
+        assert "<html>hi</html>" in resp.text
+
+        resp = await client.get(
+            f"/api/archives/{archive.id}/screenshot"
+        )
+        assert resp.status_code == 200  # noqa: PLR2004
+
+        resp = await client.get(
+            f"/api/archives/{archive.id}/thumbnail"
+        )
+        assert resp.status_code == 200  # noqa: PLR2004

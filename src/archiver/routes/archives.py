@@ -110,11 +110,9 @@ async def delete_archive(
 
     # Delete artifacts from disk
     if archive.artifact_dir:
-        artifact_path = (
-            Path(request.app.state.settings.artifacts_dir)
-            / archive.artifact_dir
-        )
-        if artifact_path.exists():
+        base = Path(request.app.state.settings.artifacts_dir).resolve()
+        artifact_path = (base / archive.artifact_dir).resolve()
+        if artifact_path.is_relative_to(base) and artifact_path.exists():
             import shutil
 
             shutil.rmtree(artifact_path)
@@ -133,7 +131,12 @@ def _get_artifact_path(
             status_code=404,
             detail="Archive has no artifacts",
         )
-    path = settings_artifacts_dir / archive.artifact_dir / filename
+    base = settings_artifacts_dir.resolve()
+    path = (base / archive.artifact_dir / filename).resolve()
+    if not path.is_relative_to(base):
+        raise HTTPException(
+            status_code=400, detail="Invalid artifact path"
+        )
     if not path.exists():
         raise HTTPException(
             status_code=404,

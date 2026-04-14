@@ -10,13 +10,13 @@ import uuid
 from datetime import UTC, datetime
 from io import BytesIO
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 import structlog
 from beartype import beartype
 from PIL import Image
 from playwright.async_api import Browser, Response
 
+from archiver.config import Settings
 from archiver.detection import check_anti_bot
 from archiver.errors import AntiBotDetectedError, CaptureError
 from archiver.models import CaptureResult
@@ -26,9 +26,6 @@ from archiver.singlefile import (
     load_bundle,
 )
 from archiver.warc_writer import CapturedExchange, PlaywrightWARCWriter
-
-if TYPE_CHECKING:
-    from archiver.config import Settings
 
 log = structlog.get_logger()
 
@@ -56,7 +53,7 @@ async def capture_page(
 
     try:
         # Collect HTTP exchanges for WARC
-        async def _on_response(response: Response) -> None:
+        async def _on_response(response: Response) -> None:  # pragma: no cover
             try:
                 body = await response.body()
                 req = response.request

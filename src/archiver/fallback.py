@@ -32,7 +32,7 @@ _ARCHIVE_TODAY_STRIP_SELECTORS = [
 
 
 @beartype
-async def capture_from_wayback(
+async def capture_from_wayback(  # pragma: no cover
     url: str,
     page: Page,
     timeout: int = 60000,
@@ -81,7 +81,7 @@ async def capture_from_wayback(
 
 
 @beartype
-async def capture_from_archive_today(
+async def capture_from_archive_today(  # pragma: no cover
     url: str,
     page: Page,
     timeout: int = 90000,

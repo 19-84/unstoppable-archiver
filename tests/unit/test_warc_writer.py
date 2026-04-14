@@ -158,3 +158,24 @@ class TestIsValidWarc:
         path = tmp_path / "valid.warc.gz"
         writer.finalize(path)
         assert is_valid_warc(path) is True
+
+
+class TestWarcUnknownStatus:
+    def test_unknown_status_code_uses_unknown_reason(
+        self, tmp_path: Path
+    ) -> None:
+        """Status codes not in HTTPStatus should use 'Unknown'."""
+        writer = PlaywrightWARCWriter()
+        writer.add_exchange(
+            CapturedExchange(
+                url="https://example.com",
+                method="GET",
+                request_headers={},
+                status=999,
+                response_headers={},
+                body=b"weird response",
+            )
+        )
+        out = tmp_path / "unknown_status.warc.gz"
+        writer.finalize(out)
+        assert is_valid_warc(out)
