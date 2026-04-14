@@ -80,16 +80,16 @@ class Worker:
 
         # Set up LISTEN for new_job notifications
         listen_conn = await self._pool.acquire()
-        await listen_conn.add_listener(
-            "new_job", self._on_notify
-        )
-
-        log.info(
-            "worker.started",
-            worker_id=self._settings.worker_id,
-        )
-
         try:
+            await listen_conn.add_listener(
+                "new_job", self._on_notify
+            )
+
+            log.info(
+                "worker.started",
+                worker_id=self._settings.worker_id,
+            )
+
             while self._running:
                 await self._claim_and_process()
                 await asyncio.sleep(
@@ -104,6 +104,7 @@ class Worker:
             await self._pool.close()
             log.info("worker.stopped")
 
+    @beartype
     def _on_notify(
         self,
         connection: PgConnection,
@@ -146,17 +147,22 @@ class Worker:
                         ArchiveStatus.CAPTURING,
                     )
 
+                    archive = await self._archive_repo.get_by_id(
+                        conn, job.archive_id
+                    )
+                    if archive is None:
+                        await self._job_repo.fail(
+                            conn,
+                            job.id,
+                            "Archive deleted before capture",
+                        )
+                        return
+
                     browser = await self._browser_pool.get_browser(
                         job.tier
                     )
                     result = await capture_page(
-                        url=str(
-                            (
-                                await self._archive_repo.get_by_id(
-                                    conn, job.archive_id
-                                )
-                            ).url  # type: ignore[union-attr]
-                        ),
+                        url=archive.url,
                         browser=browser,
                         settings=self._settings,
                     )

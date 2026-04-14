@@ -81,7 +81,7 @@ def normalize_url(url: str, *, strip_www: bool = True) -> str:
         netloc = f"{netloc}:{port}"
     # Strip credentials from URLs to avoid leaking them in logs/DB/WARC
     if parsed.username:
-        log.warning("url.credentials_stripped", url=url)
+        log.warning("url.credentials_stripped", host=host)
 
     # Normalize path: remove trailing slash (but keep root /)
     path = parsed.path

@@ -1,9 +1,11 @@
+# WARNING: This compose file uses dev-only credentials.
+# For production, use Docker secrets or an .env file with strong passwords.
 services:
   postgres:
     image: postgres:17-alpine
     environment:
       POSTGRES_USER: archiver
-      POSTGRES_PASSWORD: archiver
+      POSTGRES_PASSWORD: archiver  # DEV ONLY — override in production
       POSTGRES_DB: archiver
     volumes:
       - pgdata:/var/lib/postgresql/data

@@ -4,6 +4,9 @@
 
 from __future__ import annotations
 
+import pytest
+from icontract import ViolationError
+
 from archiver.url import normalize_url, url_hash
 
 
@@ -65,6 +68,17 @@ class TestNormalizeUrl:
         ]
         normalized = {normalize_url(u) for u in urls}
         assert len(normalized) == 1
+
+
+    def test_empty_url_raises(self) -> None:
+        with pytest.raises(ViolationError):
+            normalize_url("")
+
+    def test_credentials_stripped(self) -> None:
+        result = normalize_url("https://user:pass@example.com/page")
+        assert "user" not in result
+        assert "pass" not in result
+        assert "example.com" in result
 
 
 class TestUrlHash:

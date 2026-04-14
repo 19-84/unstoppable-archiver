@@ -4,14 +4,9 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 import asyncpg
 import structlog
 from beartype import beartype
-
-if TYPE_CHECKING:
-    pass
 
 log = structlog.get_logger()
 

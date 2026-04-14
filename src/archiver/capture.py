@@ -1,5 +1,6 @@
 # ABOUTME: Core capture pipeline — one browser session produces all output formats
 # ABOUTME: Orchestrates SingleFile injection, WARC writing, screenshot, and text extraction
+# pyright: reportUnknownVariableType=false, reportUnknownMemberType=false, reportUnknownArgumentType=false
 """Core capture pipeline for archiving web pages."""
 
 from __future__ import annotations
@@ -106,6 +107,11 @@ async def capture_page(
         sf_result = await page.evaluate(
             SINGLEFILE_CAPTURE_JS, sf_options
         )
+        if not isinstance(sf_result, dict) or "content" not in sf_result:
+            raise CaptureError(
+                "SingleFile returned unexpected result: "
+                + repr(type(sf_result))
+            )
         snapshot_html = sf_result["content"].encode("utf-8")
         title = sf_result.get("title") or page_title
 

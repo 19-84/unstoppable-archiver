@@ -43,7 +43,9 @@ clean:
 # -- Vendor --
 
 bundle-singlefile:
-	@echo "Downloading SingleFile bundle..."
-	curl -sL https://raw.githubusercontent.com/nicois/single-file-cli/master/lib/single-file-bundle.js \
-		-o src/archiver/vendor/single-file-bundle.js
+	@echo "Downloading SingleFile bundle from npm..."
+	mkdir -p /tmp/singlefile-dl && cd /tmp/singlefile-dl && \
+		npm pack single-file-cli 2>/dev/null && \
+		tar -xzf single-file-cli-*.tgz && \
+		cp package/lib/single-file-bundle.js $(CURDIR)/src/archiver/vendor/single-file-bundle.js
 	@echo "Done: src/archiver/vendor/single-file-bundle.js"

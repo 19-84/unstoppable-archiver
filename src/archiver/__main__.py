@@ -7,11 +7,14 @@ from __future__ import annotations
 import asyncio
 import signal
 
+from beartype import beartype
+
 from archiver.config import Settings
 from archiver.logging import setup_logging
 from archiver.worker import Worker
 
 
+@beartype
 def main() -> None:
     """Start the worker process."""
     settings = Settings()

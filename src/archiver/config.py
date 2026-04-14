@@ -16,7 +16,10 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="ARCHIVER_", extra="forbid")
 
     # Database
-    db_url: str = "postgresql://archiver:archiver@localhost:5432/archiver"
+    db_url: str = Field(
+        default="postgresql://archiver:archiver@localhost:5432/archiver",
+        repr=False,
+    )
 
     # Storage
     artifacts_dir: Path = Path("data/archives")

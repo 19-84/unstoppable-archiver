@@ -78,11 +78,13 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # Install browsers
 RUN uv run playwright install chromium
 
-ENV ARCHIVER_DB_URL=postgresql://archiver:archiver@postgres:5432/archiver \
-    ARCHIVER_ARTIFACTS_DIR=/data/archives
+# Credentials must be passed at runtime via env vars or secrets, not baked into image
+ENV ARCHIVER_ARTIFACTS_DIR=/data/archives
 
 VOLUME ["/data"]
 EXPOSE 8000
 
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
     CMD curl -f http://localhost:8000/api/health || exit 1
+
+CMD ["uv", "run", "uvicorn", "archiver.app:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000"]

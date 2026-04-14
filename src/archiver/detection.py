@@ -1,6 +1,6 @@
 # ABOUTME: Anti-bot detection heuristics for captured pages
 # ABOUTME: Inspects HTTP status and page content to detect Cloudflare, CAPTCHAs, and blocks
-# pyright: reportUnknownLambdaType=false, reportUnknownArgumentType=false
+# pyright: reportUnknownLambdaType=false, reportUnknownArgumentType=false, reportUnknownMemberType=false
 """Anti-bot detection heuristics."""
 
 from __future__ import annotations
@@ -54,7 +54,10 @@ class DetectionSignal:
 
 @beartype
 @require(lambda status_code: status_code >= 0, "Status code must be non-negative")
-@ensure(lambda result: isinstance(result, DetectionSignal), "Must return DetectionSignal")
+@ensure(
+    lambda result: result.reason is not None if result.is_blocked else result.reason is None,
+    "Blocked signals must have a reason; non-blocked must not",
+)
 def check_anti_bot(
     status_code: int,
     title: str,
