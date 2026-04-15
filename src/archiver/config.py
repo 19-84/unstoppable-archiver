@@ -25,6 +25,7 @@ class Settings(BaseSettings):
 
     # SingleFile
     singlefile_bundle_path: Path = Path("src/archiver/vendor/single-file-bundle.js")
+    singlefile_cli_path: str = "single-file"
 
     # Capture
     max_capture_timeout: int = 60

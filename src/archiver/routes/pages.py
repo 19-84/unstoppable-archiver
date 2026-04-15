@@ -150,15 +150,21 @@ async def search_page(
     request: Request,
     conn: Annotated[PgConnection, Depends(get_db)],
     q: str = "",
+    limit: int = 20,
+    offset: int = 0,
 ) -> HTMLResponse:
     """Search results page."""
+    limit = max(1, min(limit, 100))
+    offset = max(0, offset)
     results = None
     if q.strip():
-        results = await _archive_repo.search(conn, q)
+        results = await _archive_repo.search(
+            conn, q, limit=limit, offset=offset
+        )
     return templates.TemplateResponse(
         request,
         "search.html",
-        {"query": q, "results": results},
+        {"query": q, "results": results, "limit": limit, "offset": offset},
     )
 
 
@@ -187,13 +193,19 @@ async def partial_search(
     request: Request,
     conn: Annotated[PgConnection, Depends(get_db)],
     q: str = "",
+    limit: int = 20,
+    offset: int = 0,
 ) -> HTMLResponse:
     """Search results partial for htmx swap."""
+    limit = max(1, min(limit, 100))
+    offset = max(0, offset)
     results = None
     if q.strip():
-        results = await _archive_repo.search(conn, q)
+        results = await _archive_repo.search(
+            conn, q, limit=limit, offset=offset
+        )
     return templates.TemplateResponse(
         request,
         "partials/search_results.html",
-        {"query": q, "results": results},
+        {"query": q, "results": results, "limit": limit, "offset": offset},
     )

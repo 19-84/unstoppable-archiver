@@ -48,6 +48,7 @@ services:
     command: uv run python -m archiver
     volumes:
       - artifacts:/data
+      - camoufox_cache:/root/.cache/camoufox
     environment:
       ARCHIVER_DB_URL: postgresql://archiver:archiver@postgres:5432/archiver
       ARCHIVER_ARTIFACTS_DIR: /data/archives
@@ -82,3 +83,4 @@ services:
 volumes:
   pgdata:
   artifacts:
+  camoufox_cache:

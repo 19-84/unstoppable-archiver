@@ -184,7 +184,8 @@ class TestWorkerProcessJob:
         self, mock_capture: AsyncMock
     ) -> None:
         worker, _conn = _make_worker()
-        job = _make_job(tier=CaptureTier.ARCHIVE_TODAY)
+        # Use CAMOUFOX_PROXY (last direct tier) so antibot exhausts all tiers
+        job = _make_job(tier=CaptureTier.CAMOUFOX_PROXY)
         worker._archive_repo.get_by_id = AsyncMock(
             return_value=_make_archive()
         )
@@ -195,15 +196,10 @@ class TestWorkerProcessJob:
 
         await worker._process_job(job)
 
-        # Should mark archive as FAILED
-        calls = worker._archive_repo.update_status.call_args_list
-        fail_call = [
-            c
-            for c in calls
-            if len(c[0]) >= 3  # noqa: PLR2004
-            and c[0][2] == ArchiveStatus.FAILED
-        ]
-        assert len(fail_call) == 1
+        # Antibot escalates to WAYBACK tier (not exhausted yet)
+        worker._job_repo.enqueue.assert_awaited_once()
+        enqueue_args = worker._job_repo.enqueue.call_args
+        assert enqueue_args[0][2] == CaptureTier.WAYBACK
 
     @patch("archiver.worker.capture_page", new_callable=AsyncMock)
     async def test_capture_error_retries(

@@ -13,13 +13,21 @@ from beartype import beartype
 from archiver.browser_pool import BrowserPool
 from archiver.capture import capture_page, save_artifacts
 from archiver.config import Settings
+from archiver.cookie_cache import CfClearanceCache
 from archiver.db import create_pool, init_db
 from archiver.enums import (
     CLEARNET_TIER_ORDER,
     ArchiveStatus,
+    CaptureSource,
     CaptureTier,
 )
 from archiver.errors import AntiBotDetectedError, CaptureError
+from archiver.fallback import (
+    capture_from_archive_today,
+    capture_from_wayback,
+    check_archive_today_availability,
+    check_wayback_availability,
+)
 from archiver.models import JobRecord
 from archiver.repository import ArchiveRepository, JobRepository, PgConnection
 
@@ -64,6 +72,7 @@ class Worker:
         self._browser_pool = BrowserPool(settings)
         self._archive_repo = ArchiveRepository()
         self._job_repo = JobRepository()
+        self._cookie_cache = CfClearanceCache()
         self._semaphore = asyncio.Semaphore(
             settings.max_concurrent_captures
         )
@@ -174,21 +183,38 @@ class Worker:
                         )
                         return
 
-                    browser = await self._browser_pool.get_browser(
-                        job.tier
-                    )
-                    result = await capture_page(
-                        url=archive.url,
-                        browser=browser,
-                        settings=self._settings,
-                        tier=job.tier,
-                    )
+                    # Fallback tiers use public archives instead of direct capture
+                    if job.tier == CaptureTier.WAYBACK:
+                        result = await self._capture_via_wayback(
+                            archive.url
+                        )
+                    elif job.tier == CaptureTier.ARCHIVE_TODAY:
+                        result = await self._capture_via_archive_today(
+                            archive.url
+                        )
+                    else:
+                        browser = await self._browser_pool.get_browser(
+                            job.tier
+                        )
+                        result = await capture_page(
+                            url=archive.url,
+                            browser=browser,
+                            settings=self._settings,
+                            tier=job.tier,
+                            cookie_cache=self._cookie_cache,
+                        )
 
                     artifact_dir = await save_artifacts(
                         result,
                         job.archive_id,
                         self._settings.artifacts_dir,
                     )
+
+                    source = CaptureSource.DIRECT
+                    if job.tier == CaptureTier.WAYBACK:
+                        source = CaptureSource.WAYBACK
+                    elif job.tier == CaptureTier.ARCHIVE_TODAY:
+                        source = CaptureSource.ARCHIVE_TODAY
 
                     await self._archive_repo.update_status(
                         conn,
@@ -201,6 +227,7 @@ class Worker:
                         screenshot_hash=result.screenshot_hash,
                         snapshot_size=len(result.snapshot_html),
                         warc_size=result.warc_size,
+                        source=source.value,
                     )
                     await self._job_repo.complete(conn, job.id)
 
@@ -323,6 +350,38 @@ class Worker:
                     ArchiveStatus.FAILED,
                     error_message=error,
                 )
+
+    @beartype
+    async def _capture_via_wayback(self, url: str) -> CaptureResult:
+        """Capture a page via Wayback Machine fallback."""
+        snapshot_url = await check_wayback_availability(url)
+        if not snapshot_url:
+            raise CaptureError(f"URL not in Wayback Machine: {url}")
+
+        browser = await self._browser_pool.get_browser(CaptureTier.CHROMIUM)
+        result = await capture_page(
+            url=snapshot_url,
+            browser=browser,
+            settings=self._settings,
+            tier=CaptureTier.CHROMIUM,
+        )
+        return result
+
+    @beartype
+    async def _capture_via_archive_today(self, url: str) -> CaptureResult:
+        """Capture a page via archive.today fallback."""
+        available = await check_archive_today_availability(url)
+        if not available:
+            raise CaptureError(f"URL not in archive.today: {url}")
+
+        browser = await self._browser_pool.get_browser(CaptureTier.CAMOUFOX)
+        result = await capture_page(
+            url=f"https://archive.today/newest/{url}",
+            browser=browser,
+            settings=self._settings,
+            tier=CaptureTier.CAMOUFOX,
+        )
+        return result
 
     @beartype
     async def shutdown(self) -> None:

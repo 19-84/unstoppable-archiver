@@ -19,11 +19,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libgtk-3-0 libx11-xcb1 \
     # Fonts for realistic fingerprint (headless browsers typically have ~1 font)
     fonts-liberation fonts-noto-core fonts-dejavu-core fontconfig \
-    # fc-cache runs automatically via deb triggers after font install
+    # Node.js for single-file-cli
+    nodejs npm \
     # Camoufox Xvfb
     xvfb \
     # Utilities
     curl \
+    && npm install -g single-file-cli \
     && rm -rf /var/lib/apt/lists/*
 
 # TODO: Pin to specific digest in production: ghcr.io/astral-sh/uv:0.6@sha256:<digest>
@@ -58,8 +60,9 @@ COPY . .
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --extra dev --extra test 2>/dev/null || uv sync --extra dev --extra test
 
-# Install Playwright browsers
-RUN uv run playwright install chromium
+# Install Playwright browsers + Camoufox binary
+RUN uv run playwright install chromium && \
+    uv run python -m camoufox fetch
 
 EXPOSE 8000
 
@@ -81,12 +84,15 @@ COPY . .
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev 2>/dev/null || uv sync --no-dev
 
-# Install browsers
-RUN uv run playwright install chromium
+# Install browsers + Camoufox binary
+RUN uv run playwright install chromium && \
+    uv run python -m camoufox fetch
 
 # Non-root user for security
 RUN useradd -r -m -d /home/archiver archiver && \
-    mkdir -p /data/archives && chown -R archiver:archiver /data
+    mkdir -p /data/archives && chown -R archiver:archiver /data && \
+    cp -r /root/.cache/camoufox /home/archiver/.cache/camoufox 2>/dev/null || true && \
+    chown -R archiver:archiver /home/archiver/.cache 2>/dev/null || true
 
 # Credentials must be passed at runtime via env vars or secrets, not baked into image
 ENV ARCHIVER_ARTIFACTS_DIR=/data/archives

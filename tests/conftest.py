@@ -3,3 +3,14 @@
 """Shared test fixtures for unstoppable-archive."""
 
 from __future__ import annotations
+
+from unittest.mock import patch
+
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def _disable_singlefile_cli() -> object:  # type: ignore[misc]
+    """Force JS-based SingleFile in all tests (CLI subprocess not mockable)."""
+    with patch("archiver.capture.cli_available", return_value=False):
+        yield

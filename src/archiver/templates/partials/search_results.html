@@ -41,8 +41,22 @@
 </a>
 {% endfor %}
 
-<div class="text-center text-xs text-neutral-400 mt-6">
-  Showing {{ results.archives | length }} of {{ results.total }}
+<div class="flex items-center justify-between mt-6">
+  <div class="text-xs text-neutral-400">
+    Showing {{ offset + 1 }}–{{ offset + results.archives | length }} of {{ results.total }}
+  </div>
+  <div class="flex gap-2">
+    {% if offset > 0 %}
+    <button hx-get="/partials/search?q={{ results.query | urlencode }}&limit={{ limit }}&offset={{ [offset - limit, 0] | max }}"
+            hx-target="#results" hx-swap="innerHTML"
+            class="px-3 py-1 text-xs text-neutral-400 bg-white/[0.03] border border-white/[0.06] rounded-lg hover:border-purple-500/40 transition">← Prev</button>
+    {% endif %}
+    {% if offset + limit < results.total %}
+    <button hx-get="/partials/search?q={{ results.query | urlencode }}&limit={{ limit }}&offset={{ offset + limit }}"
+            hx-target="#results" hx-swap="innerHTML"
+            class="px-3 py-1 text-xs text-neutral-400 bg-white/[0.03] border border-white/[0.06] rounded-lg hover:border-purple-500/40 transition">Next →</button>
+    {% endif %}
+  </div>
 </div>
 
 {% else %}

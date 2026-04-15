@@ -1,9 +1,10 @@
 # ABOUTME: Archive fallback capture for Tiers 4-5 (Wayback Machine, archive.today)
-# ABOUTME: Navigates to public archives, strips their toolbars, and prepares page for capture
+# ABOUTME: Checks availability via APIs, navigates to public archives, strips toolbars
 """Fallback capture from public web archives."""
 
 from __future__ import annotations
 
+import httpx
 import structlog
 from beartype import beartype
 from playwright.async_api import Page
@@ -11,6 +12,7 @@ from playwright.async_api import Page
 log = structlog.get_logger()
 
 _WAYBACK_URL_PREFIX = "https://web.archive.org/web/2/"
+_WAYBACK_API = "https://archive.org/wayback/available"
 _ARCHIVE_TODAY_URL_PREFIX = "https://archive.today/newest/"
 
 # Wayback Machine toolbar element IDs to strip
@@ -32,7 +34,28 @@ _ARCHIVE_TODAY_STRIP_SELECTORS = [
 
 
 @beartype
-async def capture_from_wayback(  # pragma: no cover
+async def check_wayback_availability(url: str) -> str | None:
+    """Check if URL is archived in the Wayback Machine.
+
+    Returns the snapshot URL if available, None otherwise.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(
+                _WAYBACK_API, params={"url": url}
+            )
+            if resp.status_code != 200:  # noqa: PLR2004
+                return None
+            data = resp.json()
+            snapshot = data.get("archived_snapshots", {}).get("closest")
+            if snapshot and snapshot.get("available"):
+                return str(snapshot["url"])
+    except Exception:
+        log.debug("fallback.wayback.availability_check_failed", url=url)
+    return None
+
+
+async def capture_from_wayback(
     url: str,
     page: Page,
     timeout: int = 60000,
@@ -81,7 +104,30 @@ async def capture_from_wayback(  # pragma: no cover
 
 
 @beartype
-async def capture_from_archive_today(  # pragma: no cover
+async def check_archive_today_availability(url: str) -> bool:
+    """Check if URL is likely archived on archive.today.
+
+    Makes a HEAD request to archive.today/newest/URL. Returns True
+    if a snapshot likely exists (non-redirect response).
+    """
+    try:
+        async with httpx.AsyncClient(
+            timeout=10.0, follow_redirects=False
+        ) as client:
+            resp = await client.head(
+                _ARCHIVE_TODAY_URL_PREFIX + url
+            )
+            # 200 = snapshot exists; 3xx redirect to homepage = no snapshot
+            return resp.status_code == 200  # noqa: PLR2004
+    except Exception:
+        log.debug(
+            "fallback.archive_today.availability_check_failed",
+            url=url,
+        )
+    return False
+
+
+async def capture_from_archive_today(
     url: str,
     page: Page,
     timeout: int = 90000,

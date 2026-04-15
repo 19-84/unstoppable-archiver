@@ -1,5 +1,5 @@
 # ABOUTME: Core capture pipeline — one browser session produces all output formats
-# ABOUTME: Orchestrates SingleFile injection, WARC writing, screenshot, and text extraction
+# ABOUTME: Orchestrates SingleFile (CLI or JS injection), WARC writing, screenshot, and text extraction
 # pyright: reportUnknownVariableType=false, reportUnknownMemberType=false, reportUnknownArgumentType=false, reportMissingImports=false
 """Core capture pipeline for archiving web pages."""
 
@@ -8,18 +8,21 @@ from __future__ import annotations
 import hashlib
 import json
 import uuid
+import warnings
 from datetime import UTC, datetime
 from io import BytesIO
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 import structlog
 from beartype import beartype
 from PIL import Image
-from playwright.async_api import Browser, BrowserContext, Response
+from playwright.async_api import Browser, BrowserContext, Page, Response
 from playwright_stealth import Stealth
 
 from archiver.config import Settings
+from archiver.cookie_cache import CfClearanceCache
 from archiver.detection import check_anti_bot
 from archiver.enums import CaptureTier
 from archiver.errors import AntiBotDetectedError, CaptureError
@@ -27,6 +30,8 @@ from archiver.models import CaptureResult
 from archiver.singlefile import (
     SINGLEFILE_CAPTURE_JS,
     build_options,
+    capture_via_cli,
+    cli_available,
     load_bundle,
 )
 from archiver.warc_writer import CapturedExchange, PlaywrightWARCWriter
@@ -48,6 +53,7 @@ async def capture_page(
     browser: Browser,
     settings: Settings,
     tier: CaptureTier = CaptureTier.CHROMIUM,
+    cookie_cache: CfClearanceCache | None = None,
 ) -> CaptureResult:
     """Capture a page: SingleFile HTML + WARC + screenshot + text.
 
@@ -56,7 +62,7 @@ async def capture_page(
     Raises CaptureError for other failures.
     """
     warc_writer = PlaywrightWARCWriter()
-    bundle_js = load_bundle(settings.singlefile_bundle_path)
+    is_firefox = tier != CaptureTier.CHROMIUM
 
     context = await browser.new_context(
         viewport={"width": 1920, "height": 1080},
@@ -64,9 +70,12 @@ async def capture_page(
     )
 
     # Apply stealth patches on Chromium contexts to avoid basic detection
-    # (navigator.webdriver, user-agent, chrome.runtime, plugins, etc.)
-    if tier == CaptureTier.CHROMIUM:
+    if not is_firefox:
         await _apply_stealth(context)
+
+    # Inject cached cf_clearance cookie if available
+    if cookie_cache:
+        await _inject_cached_cookies(context, url, cookie_cache)
 
     page = await context.new_page()
 
@@ -95,23 +104,21 @@ async def capture_page(
 
         page.on("response", _on_response)
 
-        # Inject SingleFile bundle before navigation on Chromium.
-        # On Firefox/Camoufox, add_init_script runs in a privileged
-        # Xray context that blocks TypedArray access in SingleFile's
-        # stylesheet resolver. We inject after navigation instead.
-        is_firefox = tier != CaptureTier.CHROMIUM
-        if not is_firefox:
+        # Inject SingleFile bundle before navigation on Chromium (legacy).
+        # On Firefox/Camoufox, we use script tag injection after navigation.
+        # When single-file-cli is available, we skip JS injection entirely.
+        bundle_js = load_bundle(settings.singlefile_bundle_path)
+        use_cli = not is_firefox and cli_available(settings.singlefile_cli_path)
+        if not is_firefox and not use_cli:
             await page.add_init_script(script=bundle_js)
 
-        # Navigate — use domcontentloaded + manual settle instead of
-        # networkidle, which hangs forever on Cloudflare challenge pages.
+        # Navigate
         try:
             response = await page.goto(
                 url,
                 wait_until="domcontentloaded",
                 timeout=settings.max_capture_timeout * 1000,
             )
-            # Wait for JS to settle (deferred images, dynamic content)
             await page.wait_for_load_state("networkidle", timeout=15000)
         except Exception as nav_exc:
             # Navigation timeout — check if page shows anti-bot markers
@@ -144,14 +151,17 @@ async def capture_page(
                 f"Blocked: {signal.reason}"
             )
 
-        # Capture SingleFile snapshot
+        # Capture SingleFile snapshot — three strategies:
+        # 1. CLI subprocess (Chromium, when single-file-cli installed)
+        # 2. Script tag injection (Firefox/Camoufox, avoids Xray)
+        # 3. JS eval via add_init_script (Chromium fallback)
         sf_options = build_options(url)
-        if is_firefox:
-            # Firefox/Camoufox: run entire SingleFile pipeline inside a
-            # <script> tag in the page's own DOM context. Playwright's
-            # evaluate/addInitScript use a privileged debugger context
-            # with Xray wrappers that block TypedArray access in
-            # SingleFile's stylesheet resolver.
+        if use_cli:
+            snapshot_html_str = await capture_via_cli(
+                url, settings.singlefile_cli_path
+            )
+            sf_result = {"content": snapshot_html_str, "title": page_title}
+        elif is_firefox:
             sf_result = await _capture_singlefile_via_script_tag(
                 page, bundle_js, sf_options
             )
@@ -196,6 +206,10 @@ async def capture_page(
         screenshot_hash = hashlib.sha256(
             screenshot_png
         ).hexdigest()
+
+        # Cache cf_clearance cookie if present
+        if cookie_cache:
+            await _cache_cf_clearance(context, url, cookie_cache)
 
         return CaptureResult(
             snapshot_html=snapshot_html,
@@ -248,17 +262,51 @@ async def _capture_singlefile_via_script_tag(
 
 
 async def _apply_stealth(context: BrowserContext) -> None:
-    """Apply playwright-stealth patches to a browser context.
-
-    Patches navigator.webdriver, user-agent, chrome.runtime,
-    plugins, languages, WebGL, and other headless detection vectors.
-    """
-    import warnings
-
+    """Apply playwright-stealth patches to a browser context."""
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", UserWarning)
         await _stealth.apply_stealth_async(context)
     log.debug("stealth.applied")
+
+
+async def _inject_cached_cookies(
+    context: BrowserContext,
+    url: str,
+    cache: CfClearanceCache,
+) -> None:
+    """Inject cached cf_clearance cookie into browser context."""
+    cookie = cache.get_for_url(url)
+    if cookie:
+        await context.add_cookies([{
+            "name": cookie.name,
+            "value": cookie.value,
+            "domain": cookie.domain,
+            "path": cookie.path,
+            "httpOnly": True,
+            "secure": True,
+        }])
+        log.debug("cookie_cache.injected", domain=cookie.domain)
+
+
+async def _cache_cf_clearance(
+    context: BrowserContext,
+    url: str,
+    cache: CfClearanceCache,
+) -> None:
+    """Extract and cache cf_clearance cookie from browser context."""
+    try:
+        cookies = await context.cookies()
+        for c in cookies:
+            if c.get("name") == "cf_clearance":
+                domain = c.get("domain", urlparse(url).hostname or "")
+                cache.put(
+                    domain=domain,
+                    name=c["name"],
+                    value=c["value"],
+                    path=c.get("path", "/"),
+                )
+    except Exception:
+        log.debug("cookie_cache.extract_failed")
 
 
 @beartype

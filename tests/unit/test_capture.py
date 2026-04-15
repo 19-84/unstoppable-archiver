@@ -215,6 +215,38 @@ class TestCapturePageSuccess:
             )
 
 
+    @patch("archiver.capture.load_bundle", return_value="// fake JS")
+    async def test_post_timeout_page_check_failure(
+        self,
+        mock_bundle: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """goto succeeds, wait_for_load_state times out,
+        then page.title() also fails — covers lines 130-131."""
+        page = AsyncMock()
+        page.goto = AsyncMock(return_value=MagicMock(status=200))
+        page.wait_for_load_state = AsyncMock(
+            side_effect=TimeoutError("networkidle timeout")
+        )
+        page.title = AsyncMock(
+            side_effect=Exception("page crashed")
+        )
+        page.evaluate = AsyncMock(return_value="")
+        page.on = MagicMock()
+        page.add_init_script = AsyncMock()
+
+        browser = _make_mock_browser(page)
+        settings = Settings(
+            artifacts_dir=tmp_path,
+            singlefile_bundle_path=Path("fake.js"),
+        )
+
+        with pytest.raises(CaptureError):
+            await capture_page(
+                "https://example.com", browser, settings
+            )
+
+
 class TestCapturePageErrors:
     @patch("archiver.capture.load_bundle", return_value="// fake JS")
     @patch("archiver.capture.check_anti_bot")
