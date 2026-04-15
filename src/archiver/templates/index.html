@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+
+{% block title %}Unstoppable Archive{% endblock %}
+{% block main_class %}flex flex-col items-center justify-center px-6{% endblock %}
+
+{% block content %}
+<div class="w-full max-w-lg text-center mb-12">
+  <h1 class="text-4xl sm:text-[2.75rem] font-bold text-white tracking-tight leading-tight mb-4">
+    Preserve the web<br>
+    <span class="bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent">before it disappears</span>
+  </h1>
+  <p class="text-neutral-400 text-[15px]">
+    Five capture tiers. Full-text search. Nothing escapes.
+  </p>
+</div>
+
+<div class="w-full max-w-lg mb-5">
+  <form action="/api/archives" method="POST" role="search" aria-label="Archive or search"
+        hx-post="/api/archives" hx-target="#result-area" hx-swap="innerHTML"
+        hx-indicator="#submit-spinner">
+    <label for="main-input" class="sr-only">Enter a URL to archive or search terms</label>
+    <div class="relative group">
+      <div class="absolute -inset-[1px] bg-gradient-to-r from-purple-500/20 via-violet-500/10 to-purple-500/20 rounded-2xl opacity-0 group-focus-within:opacity-100 transition-opacity duration-500" aria-hidden="true"></div>
+      <div class="relative bg-[#0c0a12] border border-neutral-700 rounded-2xl">
+        <div class="flex items-center px-5 py-4">
+          <input id="main-input" name="url" type="text" placeholder="paste url or search..."
+                 autofocus autocomplete="off"
+                 class="flex-1 bg-transparent text-white outline-none text-[15px] placeholder-neutral-500 font-mono">
+          <span id="submit-spinner" class="htmx-indicator mr-2">
+            <span class="text-purple-400 pulse-slow text-sm">◐</span>
+          </span>
+          <button type="submit"
+                  class="ml-3 px-5 py-2 bg-purple-500/90 text-white text-xs font-medium rounded-xl hover:bg-purple-400 transition">
+            Go
+          </button>
+        </div>
+      </div>
+    </div>
+  </form>
+</div>
+
+<div id="result-area"></div>
+
+<div class="w-full max-w-lg flex flex-wrap justify-center gap-2 mb-16 sm:mb-20" aria-label="Search operators">
+  {% for op in ["intitle:", "site:", "source:", "before:", "after:", "net:", '"phrase"', "-exclude"] %}
+  <span class="text-[11px] px-2.5 py-1 bg-white/[0.03] text-neutral-400 rounded-lg font-mono border border-white/[0.06]">{{ op }}</span>
+  {% endfor %}
+</div>
+
+{% if stats %}
+<div class="w-full max-w-lg">
+  <div class="bg-white/[0.02] rounded-2xl border border-white/[0.06] p-6" role="region" aria-label="Archive statistics">
+    <div class="grid grid-cols-2 sm:grid-cols-4 gap-6 sm:gap-4">
+      <div class="text-center">
+        <div class="text-xl font-semibold text-neutral-200">{{ stats.total_pages | default(0) }}</div>
+        <div class="text-xs text-neutral-400 mt-1">pages</div>
+      </div>
+      <div class="text-center">
+        <div class="text-xl font-semibold text-neutral-200">{{ stats.total_domains | default(0) }}</div>
+        <div class="text-xs text-neutral-400 mt-1">domains</div>
+      </div>
+      <div class="text-center">
+        <div class="text-xl font-semibold text-neutral-200">{{ stats.storage_mb | default(0) }} <span class="text-xs text-neutral-400">MB</span></div>
+        <div class="text-xs text-neutral-400 mt-1">stored</div>
+      </div>
+      <div class="text-center">
+        <div class="text-xl font-semibold text-purple-400">{{ stats.success_rate | default(0) }}%</div>
+        <div class="text-xs text-neutral-400 mt-1">success</div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

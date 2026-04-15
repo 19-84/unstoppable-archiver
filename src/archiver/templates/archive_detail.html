@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+
+{% block title %}{{ archive.title or archive.url }} — Unstoppable Archive{% endblock %}
+
+{% block header %}
+<header class="sticky top-0 z-50 bg-[#050208]/90 backdrop-blur-xl border-b border-white/[0.04]" role="banner">
+  <div class="max-w-4xl mx-auto px-6 py-3 flex items-center justify-between">
+    <div class="flex items-center gap-4 min-w-0">
+      <a href="/" class="text-purple-400 hover:text-purple-300 text-sm shrink-0" aria-label="Back to home">←</a>
+      <div class="h-4 w-px bg-white/[0.06]" aria-hidden="true"></div>
+      <span class="font-mono text-xs text-neutral-400 truncate">{{ archive.url }}</span>
+      <div class="h-4 w-px bg-white/[0.06]" aria-hidden="true"></div>
+      {% if archive.status == "complete" %}
+      <span class="text-xs text-emerald-400 flex items-center gap-1.5 shrink-0">
+        <span class="w-1.5 h-1.5 bg-emerald-400 rounded-full" aria-hidden="true"></span>Complete
+      </span>
+      {% elif archive.status == "capturing" %}
+      <span class="text-xs text-purple-400 flex items-center gap-1.5 shrink-0"
+            hx-get="/partials/status/{{ archive.id }}" hx-trigger="every 2s" hx-swap="outerHTML">
+        <span class="w-1.5 h-1.5 bg-purple-400 rounded-full pulse-slow" aria-hidden="true"></span>Capturing
+      </span>
+      {% elif archive.status == "failed" %}
+      <span class="text-xs text-red-400 flex items-center gap-1.5 shrink-0">✗ Failed</span>
+      {% else %}
+      <span class="text-xs text-neutral-400 flex items-center gap-1.5 shrink-0">○ Pending</span>
+      {% endif %}
+    </div>
+    {% if archive.status == "complete" %}
+    <a href="/archive/{{ archive.id }}/view" class="px-3 py-1 bg-purple-500 text-white text-xs font-medium rounded-lg hover:bg-purple-400 transition shrink-0">View →</a>
+    {% endif %}
+  </div>
+</header>
+{% endblock %}
+
+{% block content %}
+<div class="max-w-4xl mx-auto px-6 py-8 space-y-6">
+
+  <div>
+    <h1 class="text-2xl font-bold text-white mb-1">{{ archive.title or "Untitled" }}</h1>
+    <div class="flex flex-wrap items-center gap-3 text-sm text-neutral-400">
+      <time datetime="{{ archive.created_at }}">{{ archive.created_at.strftime('%Y-%m-%d %H:%M UTC') if archive.created_at else '' }}</time>
+      <span>·</span>
+      <span class="text-emerald-400">● {{ archive.source }} ({{ archive.tier }})</span>
+      {% if archive.snapshot_size %}
+      <span>·</span>
+      <span>{{ (archive.snapshot_size / 1048576) | round(1) }} MB{% if archive.warc_size %} + {{ (archive.warc_size / 1048576) | round(1) }} MB WARC{% endif %}</span>
+      {% endif %}
+    </div>
+  </div>
+
+  {% if archive.status == "complete" %}
+  <div class="flex flex-wrap gap-2">
+    <a href="/archive/{{ archive.id }}/view" class="px-4 py-2 bg-purple-500 text-white text-sm font-medium rounded-xl hover:bg-purple-400 transition">View Snapshot</a>
+    <a href="/api/archives/{{ archive.id }}/warc" class="px-4 py-2 bg-white/[0.03] text-neutral-400 text-sm rounded-xl border border-white/[0.06] hover:border-white/[0.12] transition" download>WARC ↓</a>
+    <a href="/api/archives/{{ archive.id }}/snapshot" class="px-4 py-2 bg-white/[0.03] text-neutral-400 text-sm rounded-xl border border-white/[0.06] hover:border-white/[0.12] transition" download>HTML ↓</a>
+    <a href="/api/archives/{{ archive.id }}/screenshot" class="px-4 py-2 bg-white/[0.03] text-neutral-400 text-sm rounded-xl border border-white/[0.06] hover:border-white/[0.12] transition" download>Screenshot ↓</a>
+  </div>
+
+  <a href="/archive/{{ archive.id }}/view" class="block rounded-2xl overflow-hidden border border-white/[0.05] hover:border-purple-500/30 transition group">
+    <div class="aspect-video bg-gradient-to-br from-[#0c0a14] to-[#0a0812] flex items-center justify-center">
+      {% if archive.artifact_dir %}
+      <img src="/api/archives/{{ archive.id }}/screenshot" alt="Screenshot of {{ archive.title or archive.url }}" class="w-full h-full object-cover">
+      {% else %}
+      <span class="text-neutral-400 group-hover:text-neutral-300 transition text-sm">Click to view archived page →</span>
+      {% endif %}
+    </div>
+  </a>
+  {% elif archive.status == "capturing" %}
+  <div hx-get="/partials/capturing/{{ archive.id }}" hx-trigger="every 2s" hx-swap="innerHTML" id="capture-progress">
+    {% include "partials/capturing_tiers.html" %}
+  </div>
+  {% elif archive.status == "failed" %}
+  <div class="text-red-400 text-sm">{{ archive.error_message or "Capture failed" }}</div>
+  <button hx-post="/api/archives" hx-vals='{"url": "{{ archive.url }}", "force": true}'
+          class="px-5 py-2 bg-purple-500 text-white text-sm font-medium rounded-xl hover:bg-purple-400 transition">
+    Retry
+  </button>
+  {% endif %}
+
+  {% if history %}
+  <div>
+    <h2 class="text-xs text-neutral-400 mb-3 uppercase tracking-wider">Snapshot History</h2>
+    <div class="bg-white/[0.02] rounded-2xl border border-white/[0.04] divide-y divide-white/[0.04]">
+      {% for snap in history %}
+      <div class="flex items-center justify-between px-5 py-3.5">
+        <div class="flex items-center gap-4 text-sm">
+          <time class="font-mono text-neutral-400 w-24">{{ snap.created_at.strftime('%Y-%m-%d') if snap.created_at else '' }}</time>
+          {% if snap.source == "wayback" %}
+          <span class="text-blue-400">▲ wayback</span>
+          {% elif snap.source == "archive_today" %}
+          <span class="text-orange-400">◆ archive.today</span>
+          {% else %}
+          <span class="text-emerald-400">● direct</span>
+          {% endif %}
+          <span class="text-neutral-400">{{ snap.tier }}{% if snap.snapshot_size %} · {{ (snap.snapshot_size / 1048576) | round(1) }} MB{% endif %}</span>
+        </div>
+        {% if snap.id == archive.id %}
+        <span class="text-[10px] px-2 py-0.5 bg-purple-500/10 text-purple-400 rounded-full">current</span>
+        {% else %}
+        <a href="/archive/{{ snap.id }}" class="text-xs text-purple-400 hover:text-purple-300">view →</a>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  <div class="pt-4 border-t border-white/[0.03]">
+    <button hx-delete="/api/archives/{{ archive.id }}" hx-confirm="Delete this archive and all its files?"
+            hx-target="body"
+            class="text-xs text-red-400 hover:text-red-300 transition">Delete this archive</button>
+  </div>
+</div>
+{% endblock %}

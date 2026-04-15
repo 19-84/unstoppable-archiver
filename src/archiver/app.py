@@ -19,6 +19,7 @@ from archiver.errors import AppError, DuplicateCaptureError, NotFoundError
 from archiver.logging import setup_logging
 from archiver.routes.archives import router as archives_router
 from archiver.routes.health import router as health_router
+from archiver.routes.pages import router as pages_router
 
 log = structlog.get_logger()
 
@@ -65,6 +66,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # Routes
     app.include_router(health_router, prefix="/api")
     app.include_router(archives_router, prefix="/api")
+    app.include_router(pages_router)
 
     # Exception handlers
     @app.exception_handler(NotFoundError)

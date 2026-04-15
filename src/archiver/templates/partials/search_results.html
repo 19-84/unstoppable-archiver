@@ -1,0 +1,69 @@
+{% if results and results.total > 0 %}
+<p class="text-sm text-neutral-400 mb-6">
+  {{ results.total }} result{{ 's' if results.total != 1 else '' }}
+  <span class="text-neutral-400">·</span>
+  <span class="font-mono text-purple-400/60">{{ results.query }}</span>
+</p>
+
+{% for archive in results.archives %}
+<a href="/archive/{{ archive.id }}" class="block mb-3 p-5 bg-white/[0.02] border border-white/[0.04] rounded-2xl hover:border-purple-500/30 transition group">
+  <div class="flex flex-col sm:flex-row gap-4">
+    <div class="w-full sm:w-32 h-24 bg-neutral-900 rounded-lg shrink-0" role="img" aria-label="Thumbnail of {{ archive.title or archive.url }}">
+      {% if archive.artifact_dir %}
+      <img src="/api/archives/{{ archive.id }}/thumbnail" alt="" class="w-full h-full object-cover rounded-lg">
+      {% endif %}
+    </div>
+    <div class="min-w-0 flex-1">
+      <h3 class="text-[15px] font-semibold text-white group-hover:text-purple-300 transition truncate">
+        {{ archive.title or archive.url }}
+      </h3>
+      <p class="font-mono text-xs text-neutral-400 mt-1 truncate">{{ archive.url }}</p>
+      {% if archive.text_content %}
+      <p class="text-sm text-neutral-400 mt-2 line-clamp-2">{{ archive.text_content[:200] }}...</p>
+      {% endif %}
+      <div class="flex items-center gap-3 mt-2.5 text-xs text-neutral-400">
+        <time>{{ archive.created_at.strftime('%Y-%m-%d') if archive.created_at else '' }}</time>
+        {% if archive.source == "wayback" %}
+        <span class="text-blue-400">▲ wayback</span>
+        {% elif archive.source == "archive_today" %}
+        <span class="text-orange-400">◆ archive.today</span>
+        {% else %}
+        <span class="text-emerald-400">● direct</span>
+        {% endif %}
+        {% if archive.snapshot_size %}
+        <span>{{ (archive.snapshot_size / 1048576) | round(1) }} MB</span>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</a>
+{% endfor %}
+
+<div class="text-center text-xs text-neutral-400 mt-6">
+  Showing {{ results.archives | length }} of {{ results.total }}
+</div>
+
+{% else %}
+<div class="py-20 text-center">
+  <p class="text-neutral-400 mb-2">No results for</p>
+  <p class="font-mono text-neutral-300 mb-10">"{{ results.query if results else query }}"</p>
+
+  <p class="text-sm text-neutral-400 mb-5">Archive a page instead?</p>
+  <form action="/api/archives" method="POST" class="flex gap-2 max-w-md mx-auto mb-14">
+    <label for="archive-url" class="sr-only">URL to archive</label>
+    <div class="flex-1 bg-white/[0.03] border border-white/[0.05] rounded-xl px-4 py-2.5">
+      <input id="archive-url" name="url" type="url" placeholder="https://" class="w-full bg-transparent text-white outline-none font-mono text-sm placeholder-neutral-500">
+    </div>
+    <button type="submit" class="px-5 py-2.5 bg-purple-500 text-white text-sm font-medium rounded-xl hover:bg-purple-400 transition">Go</button>
+  </form>
+
+  <div class="text-left max-w-md mx-auto">
+    <p class="text-[10px] text-neutral-400 uppercase tracking-wider mb-2">Search operators</p>
+    <div class="flex flex-wrap gap-1.5">
+      {% for op in ["intitle:", "site:", "inurl:", "source:", "tier:", "before:", "after:", "size:", "has:", "is:", "net:", '"phrase"', "-exclude", "OR"] %}
+      <span class="text-[10px] px-2 py-0.5 bg-white/[0.02] text-neutral-400 rounded-lg font-mono border border-white/[0.03]">{{ op }}</span>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endif %}

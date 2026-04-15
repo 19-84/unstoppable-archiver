@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+
+{% block title %}{{ query }} — Search — Unstoppable Archive{% endblock %}
+
+{% block header %}
+<header class="sticky top-0 z-50 bg-[#050208]/90 backdrop-blur-xl border-b border-white/[0.04]" role="banner">
+  <div class="max-w-3xl mx-auto px-6 py-3 flex items-center gap-4">
+    <a href="/" class="shrink-0" aria-label="Home">
+      <div class="w-1.5 h-1.5 bg-purple-400 rounded-full" aria-hidden="true"></div>
+    </a>
+    <form action="/search" method="GET" class="flex-1" role="search">
+      <label for="search-input" class="sr-only">Search</label>
+      <div class="bg-white/[0.03] border border-white/[0.05] rounded-xl px-4 py-2 focus-within:border-purple-500/40 transition">
+        <input id="search-input" name="q" type="text" value="{{ query }}"
+               hx-get="/partials/search" hx-trigger="keyup changed delay:300ms" hx-target="#results"
+               class="w-full bg-transparent text-white outline-none font-mono text-sm">
+      </div>
+    </form>
+  </div>
+</header>
+{% endblock %}
+
+{% block content %}
+<div class="max-w-3xl mx-auto px-6 py-8" id="results">
+  {% include "partials/search_results.html" %}
+</div>
+{% endblock %}

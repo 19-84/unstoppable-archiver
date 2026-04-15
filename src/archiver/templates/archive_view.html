@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Archived snapshot of {{ archive.title or archive.url }}">
+<title>{{ archive.title or archive.url }} — Snapshot</title>
+<style>
+  .font-mono { font-family: 'DM Mono', ui-monospace, monospace; }
+  *:focus-visible { outline: 2px solid #a855f7; outline-offset: 2px; }
+  .sr-only { position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0; }
+</style>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+</head>
+<body class="bg-white text-neutral-900 min-h-screen">
+
+<nav class="sticky top-0 z-50 bg-[#0a0812]/95 backdrop-blur-xl text-neutral-400 border-b border-purple-500/10" role="navigation" aria-label="Snapshot toolbar">
+  <div class="px-4 py-2 flex items-center justify-between gap-4">
+    <div class="flex items-center gap-3 min-w-0">
+      <a href="/archive/{{ archive.id }}" class="text-purple-400 hover:text-purple-300 text-sm shrink-0" aria-label="Back to detail">←</a>
+      <div class="w-px h-4 bg-neutral-800" aria-hidden="true"></div>
+      <span class="font-mono text-xs text-neutral-400 truncate">{{ archive.url }}</span>
+    </div>
+    <div class="flex items-center gap-3 shrink-0">
+      {% if archive.source == "wayback" %}
+      <span class="text-blue-400 text-xs">▲ Wayback</span>
+      {% elif archive.source == "archive_today" %}
+      <span class="text-orange-400 text-xs">◆ archive.today</span>
+      {% else %}
+      <span class="text-emerald-400 text-xs">● Direct</span>
+      {% endif %}
+      <time class="text-xs text-neutral-400">{{ archive.created_at.strftime('%Y-%m-%d') if archive.created_at else '' }}</time>
+      <div class="w-px h-4 bg-neutral-800" aria-hidden="true"></div>
+      <a href="/api/archives/{{ archive.id }}/warc" class="text-[10px] px-2 py-1 bg-white/5 text-neutral-400 rounded hover:bg-white/10 transition" download>WARC</a>
+      <a href="/api/archives/{{ archive.id }}/snapshot" class="text-[10px] px-2 py-1 bg-white/5 text-neutral-400 rounded hover:bg-white/10 transition" download>HTML</a>
+    </div>
+  </div>
+</nav>
+
+<main role="main">
+  {{ snapshot_html | safe }}
+</main>
+
+</body>
+</html>

@@ -1,0 +1,48 @@
+<div class="max-w-xl mx-auto">
+  <div class="h-1 bg-neutral-900 rounded-full mb-8 shimmer">
+    <div class="h-full bg-gradient-to-r from-purple-600 to-violet-500 rounded-full" style="width:{{ progress_pct | default(20) }}%"></div>
+  </div>
+
+  <div class="space-y-0">
+    {% set tiers = [
+      ("Tier 1", "Chromium"),
+      ("Tier 2", "Camoufox"),
+      ("Tier 3", "Proxy"),
+      ("Tier 4", "Wayback"),
+      ("Tier 5", "archive.today"),
+    ] %}
+    {% for label, name in tiers %}
+    {% set tier_status = tier_results.get(label, "pending") if tier_results else "pending" %}
+    {% if tier_status == "failed" %}
+    <div class="flex items-center gap-4 py-4 border-b border-neutral-900/50">
+      <div class="w-8 h-8 rounded-full bg-red-500/10 flex items-center justify-center shrink-0">
+        <span class="text-red-400 text-xs">✗</span>
+      </div>
+      <div class="flex-1 min-w-0">
+        <div class="text-sm text-neutral-400">{{ label }} · {{ name }}</div>
+        <div class="text-xs text-red-400 mt-0.5">{{ tier_errors.get(label, "") if tier_errors else "" }}</div>
+      </div>
+    </div>
+    {% elif tier_status == "active" %}
+    <div class="flex items-center gap-4 py-4 border-b border-neutral-900/50 bg-purple-500/[0.03] -mx-4 px-4 rounded-lg">
+      <div class="w-8 h-8 rounded-full bg-purple-500/20 flex items-center justify-center shrink-0">
+        <span class="text-purple-400 text-sm pulse-slow">◐</span>
+      </div>
+      <div class="flex-1 min-w-0">
+        <div class="text-sm text-white font-medium">{{ label }} · {{ name }}</div>
+        <div class="text-xs text-purple-400 mt-0.5">Capturing...</div>
+      </div>
+    </div>
+    {% else %}
+    <div class="flex items-center gap-4 py-4 border-b border-neutral-900/30">
+      <div class="w-8 h-8 rounded-full bg-neutral-900/60 flex items-center justify-center shrink-0">
+        <span class="text-neutral-400 text-xs">○</span>
+      </div>
+      <div class="flex-1">
+        <div class="text-sm text-neutral-400">{{ label }} · {{ name }}</div>
+      </div>
+    </div>
+    {% endif %}
+    {% endfor %}
+  </div>
+</div>
