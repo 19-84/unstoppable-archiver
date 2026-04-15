@@ -26,6 +26,7 @@ def _make_mock_page() -> AsyncMock:
     page.goto = AsyncMock(
         return_value=MagicMock(status=200)
     )
+    page.wait_for_load_state = AsyncMock()
     page.title = AsyncMock(return_value="Test Page")
     page.evaluate = AsyncMock(
         side_effect=[
@@ -105,6 +106,115 @@ class TestCapturePageSuccess:
         assert len(result.screenshot_hash) == 64  # noqa: PLR2004
 
 
+    @patch("archiver.capture.load_bundle", return_value="// fake JS")
+    @patch("archiver.capture.check_anti_bot")
+    async def test_firefox_tier_uses_script_tag(
+        self,
+        mock_detect: MagicMock,
+        mock_bundle: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """Camoufox tier injects SingleFile via add_script_tag."""
+        from archiver.detection import DetectionSignal
+        from archiver.enums import CaptureTier
+
+        mock_detect.return_value = DetectionSignal(is_blocked=False)
+
+        page = _make_mock_page()
+        page.add_script_tag = AsyncMock()
+        page.wait_for_function = AsyncMock()
+        # evaluate calls: body text, read __sf_result, body text for extraction
+        page.evaluate = AsyncMock(
+            side_effect=[
+                "Hello world content here " * 50,
+                {"content": "<html>archived</html>", "title": "Test"},
+                "Hello world content here " * 50,
+            ]
+        )
+        browser = _make_mock_browser(page)
+        settings = Settings(
+            artifacts_dir=tmp_path,
+            singlefile_bundle_path=Path("fake.js"),
+        )
+
+        result = await capture_page(
+            "https://example.com", browser, settings,
+            tier=CaptureTier.CAMOUFOX,
+        )
+
+        assert isinstance(result, CaptureResult)
+        page.add_script_tag.assert_awaited_once()
+        page.add_init_script.assert_not_awaited()
+
+    @patch("archiver.capture.load_bundle", return_value="// fake JS")
+    @patch("archiver.capture.check_anti_bot")
+    async def test_timeout_detects_antibot(
+        self,
+        mock_detect: MagicMock,
+        mock_bundle: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """Navigation timeout checks page for anti-bot markers."""
+        from archiver.detection import DetectionSignal
+
+        mock_detect.return_value = DetectionSignal(
+            is_blocked=True, reason="just a moment"
+        )
+
+        page = _make_mock_page()
+        page.goto = AsyncMock(
+            side_effect=TimeoutError("navigation timeout")
+        )
+        page.title = AsyncMock(return_value="Just a moment...")
+        page.evaluate = AsyncMock(return_value="Checking your browser")
+        browser = _make_mock_browser(page)
+        settings = Settings(
+            artifacts_dir=tmp_path,
+            singlefile_bundle_path=Path("fake.js"),
+        )
+
+        with pytest.raises(AntiBotDetectedError, match="timeout"):
+            await capture_page(
+                "https://example.com", browser, settings
+            )
+
+
+    @patch("archiver.capture.load_bundle", return_value="// fake JS")
+    @patch("archiver.capture.check_anti_bot")
+    async def test_firefox_script_tag_error_raises(
+        self,
+        mock_detect: MagicMock,
+        mock_bundle: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """SingleFile error via script tag raises CaptureError."""
+        from archiver.detection import DetectionSignal
+        from archiver.enums import CaptureTier
+
+        mock_detect.return_value = DetectionSignal(is_blocked=False)
+
+        page = _make_mock_page()
+        page.add_script_tag = AsyncMock()
+        page.wait_for_function = AsyncMock()
+        page.evaluate = AsyncMock(
+            side_effect=[
+                "body text",
+                {"error": "SingleFile failed"},
+            ]
+        )
+        browser = _make_mock_browser(page)
+        settings = Settings(
+            artifacts_dir=tmp_path,
+            singlefile_bundle_path=Path("fake.js"),
+        )
+
+        with pytest.raises(CaptureError, match="script tag"):
+            await capture_page(
+                "https://example.com", browser, settings,
+                tier=CaptureTier.CAMOUFOX,
+            )
+
+
 class TestCapturePageErrors:
     @patch("archiver.capture.load_bundle", return_value="// fake JS")
     @patch("archiver.capture.check_anti_bot")
@@ -148,6 +258,7 @@ class TestCapturePageErrors:
         page.goto = AsyncMock(
             return_value=MagicMock(status=200)
         )
+        page.wait_for_load_state = AsyncMock()
         page.title = AsyncMock(return_value="Test")
         page.evaluate = AsyncMock(
             side_effect=[
@@ -180,8 +291,11 @@ class TestCapturePageErrors:
         page.goto = AsyncMock(
             side_effect=TimeoutError("page timeout")
         )
+        page.title = AsyncMock(return_value="")
+        page.evaluate = AsyncMock(return_value="")
         page.on = MagicMock()
         page.add_init_script = AsyncMock()
+        page.wait_for_load_state = AsyncMock()
 
         browser = _make_mock_browser(page)
         context = browser.new_context.return_value

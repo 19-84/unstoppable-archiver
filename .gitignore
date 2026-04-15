@@ -50,5 +50,6 @@ credentials.*
 # Playwright
 playwright-report/
 test-results/
+.playwright-mcp/
 
 # uv.lock is committed for reproducible builds

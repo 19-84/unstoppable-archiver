@@ -1,6 +1,6 @@
 # ABOUTME: Core capture pipeline — one browser session produces all output formats
 # ABOUTME: Orchestrates SingleFile injection, WARC writing, screenshot, and text extraction
-# pyright: reportUnknownVariableType=false, reportUnknownMemberType=false, reportUnknownArgumentType=false
+# pyright: reportUnknownVariableType=false, reportUnknownMemberType=false, reportUnknownArgumentType=false, reportMissingImports=false
 """Core capture pipeline for archiving web pages."""
 
 from __future__ import annotations
@@ -128,7 +128,7 @@ async def capture_page(
             except AntiBotDetectedError:
                 raise
             except Exception:
-                pass  # Page not accessible, fall through to generic error
+                log.debug("capture.post_timeout_check_failed")
             raise
 
         status_code = response.status if response else 0
@@ -247,14 +247,17 @@ async def _capture_singlefile_via_script_tag(
     return result
 
 
-@beartype
 async def _apply_stealth(context: BrowserContext) -> None:
     """Apply playwright-stealth patches to a browser context.
 
     Patches navigator.webdriver, user-agent, chrome.runtime,
     plugins, languages, WebGL, and other headless detection vectors.
     """
-    await _stealth.apply_stealth_async(context)
+    import warnings
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        await _stealth.apply_stealth_async(context)
     log.debug("stealth.applied")
 
 

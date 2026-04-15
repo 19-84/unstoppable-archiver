@@ -209,13 +209,15 @@ class TestWorkerProcessJob:
     async def test_capture_error_retries(
         self, mock_capture: AsyncMock
     ) -> None:
-        worker, _conn = _make_worker()
+        worker, mock_conn = _make_worker()
         job = _make_job(attempts=1, max_attempts=3)
         worker._archive_repo.get_by_id = AsyncMock(
             return_value=_make_archive()
         )
         mock_capture.side_effect = CaptureError("timeout")
         worker._browser_pool.get_browser = AsyncMock()
+        # Simulate 1 existing job for this tier (below max, should retry)
+        mock_conn.fetchval = AsyncMock(return_value=1)
 
         await worker._process_job(job)
 
@@ -226,13 +228,15 @@ class TestWorkerProcessJob:
     async def test_capture_error_max_retries(
         self, mock_capture: AsyncMock
     ) -> None:
-        worker, _conn = _make_worker()
+        worker, mock_conn = _make_worker()
         job = _make_job(attempts=3, max_attempts=3)
         worker._archive_repo.get_by_id = AsyncMock(
             return_value=_make_archive()
         )
         mock_capture.side_effect = CaptureError("timeout")
         worker._browser_pool.get_browser = AsyncMock()
+        # Simulate 3 existing jobs for this tier (triggers escalation)
+        mock_conn.fetchval = AsyncMock(return_value=3)
 
         await worker._process_job(job)
 

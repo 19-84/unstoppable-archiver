@@ -272,10 +272,13 @@ class Worker:
         """Handle capture failure with optional retry."""
         # Count total attempts at this tier (each retry creates a new job,
         # so we count jobs rather than relying on the per-job counter).
-        tier_attempts: int = await conn.fetchval(
-            "SELECT count(*) FROM jobs WHERE archive_id = $1 AND tier = $2",
-            job.archive_id,
-            job.tier.value,
+        tier_attempts = int(
+            await conn.fetchval(
+                "SELECT count(*) FROM jobs WHERE archive_id = $1 AND tier = $2",
+                job.archive_id,
+                job.tier.value,
+            )
+            or 0
         )
         if tier_attempts < job.max_attempts:
             log.warning(

@@ -19,6 +19,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libgtk-3-0 libx11-xcb1 \
     # Fonts for realistic fingerprint (headless browsers typically have ~1 font)
     fonts-liberation fonts-noto-core fonts-dejavu-core fontconfig \
+    # fc-cache runs automatically via deb triggers after font install
     # Camoufox Xvfb
     xvfb \
     # Utilities
