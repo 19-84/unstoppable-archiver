@@ -28,7 +28,7 @@ log = structlog.get_logger()
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:  # pragma: no cover
     """Manage DB pool lifecycle."""
     settings: Settings = app.state.settings
-    pool = await create_pool(settings.db_url, min_size=2, max_size=10)
+    pool = await create_pool(settings.db_url.get_secret_value(), min_size=2, max_size=10)
     await init_db(pool)
     app.state.pool = pool
     log.info("app.started")

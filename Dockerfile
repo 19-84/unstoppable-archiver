@@ -78,11 +78,17 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # Install browsers
 RUN uv run playwright install chromium
 
+# Non-root user for security
+RUN useradd -r -m -d /home/archiver archiver && \
+    mkdir -p /data/archives && chown -R archiver:archiver /data
+
 # Credentials must be passed at runtime via env vars or secrets, not baked into image
 ENV ARCHIVER_ARTIFACTS_DIR=/data/archives
 
 VOLUME ["/data"]
 EXPOSE 8000
+
+USER archiver
 
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
     CMD curl -f http://localhost:8000/api/health || exit 1

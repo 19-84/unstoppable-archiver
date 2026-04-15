@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from pydantic import Field
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -16,9 +16,8 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="ARCHIVER_", extra="forbid")
 
     # Database
-    db_url: str = Field(
-        default="postgresql://archiver:archiver@localhost:5432/archiver",
-        repr=False,
+    db_url: SecretStr = SecretStr(
+        "postgresql://archiver:archiver@localhost:5432/archiver"
     )
 
     # Storage

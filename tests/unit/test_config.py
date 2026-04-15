@@ -42,5 +42,9 @@ class TestSettings:
     def test_db_url_hidden_from_repr(self) -> None:
         s = Settings()
         r = repr(s)
-        assert "postgresql" not in r
-        assert "db_url" not in r
+        # SecretStr masks the value in repr
+        assert "postgresql://" not in r
+
+    def test_db_url_is_secret_str(self) -> None:
+        s = Settings()
+        assert "postgresql" in s.db_url.get_secret_value()

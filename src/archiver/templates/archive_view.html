@@ -43,11 +43,11 @@
 </nav>
 
 <main>
-  <!-- Sandboxed iframe: archived content runs in an isolated context.
-       No scripts, no forms, no popups, no same-origin access.
-       The archived HTML is served via /api/archives/{id}/snapshot which
-       already exists and serves the raw file with proper content type. -->
-  <iframe sandbox="allow-same-origin"
+  <!-- Sandboxed iframe: archived content runs in a fully isolated context.
+       No allow-same-origin — prevents any script execution from accessing
+       the parent page's cookies, API, or DOM. CSS that depends on
+       same-origin font loading may break, but security comes first. -->
+  <iframe sandbox=""
           src="/api/archives/{{ archive.id }}/snapshot"
           title="Archived snapshot of {{ archive.title or archive.url }}"
           loading="lazy"></iframe>

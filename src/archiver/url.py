@@ -85,8 +85,8 @@ def normalize_url(url: str, *, strip_www: bool = True) -> str:
 
     # Normalize path: remove trailing slash (but keep root /)
     path = parsed.path
-    if path != "/" and path.endswith("/"):
-        path = path.rstrip("/")
+    while len(path) > 1 and path.endswith("/"):
+        path = path[:-1]
     if not path:
         path = "/"
 

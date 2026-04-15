@@ -43,10 +43,8 @@
 
 <div id="result-area"></div>
 
-<div class="w-full max-w-lg flex flex-wrap justify-center gap-2 mb-16 sm:mb-20" aria-label="Search operators">
-  {% for op in ["intitle:", "site:", "source:", "before:", "after:", "net:", '"phrase"', "-exclude"] %}
-  <span class="text-[11px] px-2.5 py-1 bg-white/[0.03] text-neutral-400 rounded-lg font-mono border border-white/[0.06]">{{ op }}</span>
-  {% endfor %}
+<div class="w-full max-w-lg text-center text-xs text-neutral-500 mb-16 sm:mb-20">
+  Full-text search across titles, content, and URLs
 </div>
 
 {% if stats %}

@@ -66,12 +66,11 @@ class TestHomePage:
         assert "domains" in resp.text
         assert "success" in resp.text
 
-    async def test_has_search_operators(
+    async def test_has_search_description(
         self, client: AsyncClient
     ) -> None:
         resp = await client.get("/")
-        assert "intitle:" in resp.text
-        assert "site:" in resp.text
+        assert "Full-text search" in resp.text
 
 
 class TestArchiveDetailPage:

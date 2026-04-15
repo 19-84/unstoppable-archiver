@@ -74,10 +74,12 @@ async def submit_form(
             status_code=400,
         )
 
-    # Detect if input is a search query (no scheme = search)
-    if "://" not in url and not url.startswith("//"):
+    # Detect if input is a search query (no http/https scheme = search)
+    if not url.startswith(("http://", "https://")):
+        from urllib.parse import quote
+
         return RedirectResponse(
-            url=f"/search?q={url}", status_code=303
+            url=f"/search?q={quote(url, safe='')}", status_code=303
         )
 
     archive = await _archive_repo.create(conn, url)

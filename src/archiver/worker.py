@@ -62,7 +62,7 @@ class Worker:
     async def run(self) -> None:  # pragma: no cover
         """Main worker loop."""
         self._pool = await create_pool(
-            self._settings.db_url, min_size=2, max_size=5
+            self._settings.db_url.get_secret_value(), min_size=2, max_size=5
         )
         await init_db(self._pool)
 

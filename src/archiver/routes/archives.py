@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Annotated
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse
 
 from archiver.deps import get_db
@@ -62,8 +62,8 @@ async def create_archive(
 @router.get("", response_model=ArchiveListResponse)
 async def list_archives(
     conn: Annotated[PgConnection, Depends(get_db)],
-    limit: int = 20,
-    offset: int = 0,
+    limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
 ) -> ArchiveListResponse:
     """List archives, most recent first."""
     archives, total = await _archive_repo.list_recent(
@@ -76,8 +76,8 @@ async def list_archives(
 async def search_archives(
     q: str,
     conn: Annotated[PgConnection, Depends(get_db)],
-    limit: int = 20,
-    offset: int = 0,
+    limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
 ) -> SearchResult:
     """Full-text search across archived pages."""
     return await _archive_repo.search(
@@ -158,7 +158,14 @@ async def get_snapshot(
     path = _get_artifact_path(
         archive, "snapshot.html", request.app.state.settings.artifacts_dir
     )
-    return FileResponse(path, media_type="text/html")
+    return FileResponse(
+        path,
+        media_type="text/html",
+        headers={
+            "Content-Security-Policy": "sandbox; default-src 'none'; style-src 'unsafe-inline'; img-src data: blob:",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
 
 
 @router.get("/{archive_id}/warc")
