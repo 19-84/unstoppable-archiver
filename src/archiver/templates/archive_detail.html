@@ -12,20 +12,7 @@
       <div class="h-4 w-px bg-white/[0.06]" aria-hidden="true"></div>
       <span class="font-mono text-xs text-neutral-400 truncate">{{ archive.url }}</span>
       <div class="h-4 w-px bg-white/[0.06]" aria-hidden="true"></div>
-      {% if archive.status == "complete" %}
-      <span class="text-xs text-emerald-400 flex items-center gap-1.5 shrink-0">
-        <span class="w-1.5 h-1.5 bg-emerald-400 rounded-full" aria-hidden="true"></span>Complete
-      </span>
-      {% elif archive.status == "capturing" %}
-      <span class="text-xs text-purple-400 flex items-center gap-1.5 shrink-0"
-            hx-get="/partials/status/{{ archive.id }}" hx-trigger="every 2s" hx-swap="outerHTML">
-        <span class="w-1.5 h-1.5 bg-purple-400 rounded-full pulse-slow" aria-hidden="true"></span>Capturing
-      </span>
-      {% elif archive.status == "failed" %}
-      <span class="text-xs text-red-400 flex items-center gap-1.5 shrink-0">✗ Failed</span>
-      {% else %}
-      <span class="text-xs text-neutral-400 flex items-center gap-1.5 shrink-0">○ Pending</span>
-      {% endif %}
+      {% include "partials/archive_status.html" %}
     </div>
     {% if archive.status == "complete" %}
     <a href="/archive/{{ archive.id }}/view" class="px-3 py-1 bg-purple-500 text-white text-xs font-medium rounded-lg hover:bg-purple-400 transition shrink-0">View →</a>

@@ -12,5 +12,6 @@
 {% elif archive.status == "failed" %}
 <span class="text-xs text-red-400 flex items-center gap-1.5 shrink-0">✗ Failed</span>
 {% else %}
-<span class="text-xs text-neutral-400 flex items-center gap-1.5 shrink-0">○ Pending</span>
+<span class="text-xs text-neutral-400 flex items-center gap-1.5 shrink-0"
+      hx-get="/partials/status/{{ archive.id }}" hx-trigger="every 2s" hx-swap="outerHTML">○ Pending</span>
 {% endif %}

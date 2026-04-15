@@ -18,6 +18,11 @@ log = structlog.get_logger()
 def _load_bundle_cached(bundle_path_str: str) -> str:
     """Load and cache the SingleFile JS bundle. Uses str key for hashability."""
     content = Path(bundle_path_str).read_text(encoding="utf-8")
+    # The npm bundle is an ES module: const script = "..."; export {...};
+    # Strip the export statement and eval the script string to define
+    # the `singlefile` global that capture code depends on.
+    if content.startswith("const script = "):
+        content = content.split("export {")[0].strip() + "\n(0, eval)(script);"
     log.info(
         "singlefile.bundle_loaded",
         path=bundle_path_str,

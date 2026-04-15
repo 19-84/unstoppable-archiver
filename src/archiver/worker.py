@@ -181,6 +181,7 @@ class Worker:
                         url=archive.url,
                         browser=browser,
                         settings=self._settings,
+                        tier=job.tier,
                     )
 
                     artifact_dir = await save_artifacts(
@@ -269,30 +270,56 @@ class Worker:
         error: str,
     ) -> None:
         """Handle capture failure with optional retry."""
-        if job.attempts < job.max_attempts:
+        # Count total attempts at this tier (each retry creates a new job,
+        # so we count jobs rather than relying on the per-job counter).
+        tier_attempts: int = await conn.fetchval(
+            "SELECT count(*) FROM jobs WHERE archive_id = $1 AND tier = $2",
+            job.archive_id,
+            job.tier.value,
+        )
+        if tier_attempts < job.max_attempts:
             log.warning(
                 "worker.retry",
                 job_id=job.id,
-                attempt=job.attempts,
+                attempt=tier_attempts,
                 max=job.max_attempts,
             )
             await self._job_repo.fail(
                 conn, job.id, error, retry=True
             )
         else:
-            log.error(
-                "worker.max_retries_exceeded",
-                job_id=job.id,
-            )
+            # Exhausted retries on this tier — escalate to next tier
+            escalated = next_tier(job.tier)
             await self._job_repo.fail(
                 conn, job.id, error, retry=False
             )
-            await self._archive_repo.update_status(
-                conn,
-                job.archive_id,
-                ArchiveStatus.FAILED,
-                error_message=error,
-            )
+            if escalated is not None:
+                log.warning(
+                    "worker.tier_escalation_after_retries",
+                    job_id=job.id,
+                    from_tier=job.tier.value,
+                    to_tier=escalated.value,
+                    attempts=tier_attempts,
+                )
+                await self._job_repo.enqueue(
+                    conn,
+                    job.archive_id,
+                    escalated,
+                    priority=job.priority + 1,
+                )
+            else:
+                log.error(
+                    "worker.all_tiers_exhausted",
+                    job_id=job.id,
+                    tier=job.tier.value,
+                    attempts=tier_attempts,
+                )
+                await self._archive_repo.update_status(
+                    conn,
+                    job.archive_id,
+                    ArchiveStatus.FAILED,
+                    error_message=error,
+                )
 
     @beartype
     async def shutdown(self) -> None:

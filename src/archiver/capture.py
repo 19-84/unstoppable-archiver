@@ -14,10 +14,12 @@ from pathlib import Path
 import structlog
 from beartype import beartype
 from PIL import Image
-from playwright.async_api import Browser, Response
+from playwright.async_api import Browser, BrowserContext, Response
+from playwright_stealth import Stealth
 
 from archiver.config import Settings
 from archiver.detection import check_anti_bot
+from archiver.enums import CaptureTier
 from archiver.errors import AntiBotDetectedError, CaptureError
 from archiver.models import CaptureResult
 from archiver.singlefile import (
@@ -27,6 +29,8 @@ from archiver.singlefile import (
 )
 from archiver.warc_writer import CapturedExchange, PlaywrightWARCWriter
 
+_stealth = Stealth()
+
 log = structlog.get_logger()
 
 
@@ -35,6 +39,7 @@ async def capture_page(
     url: str,
     browser: Browser,
     settings: Settings,
+    tier: CaptureTier = CaptureTier.CHROMIUM,
 ) -> CaptureResult:
     """Capture a page: SingleFile HTML + WARC + screenshot + text.
 
@@ -49,6 +54,12 @@ async def capture_page(
         viewport={"width": 1920, "height": 1080},
         java_script_enabled=True,
     )
+
+    # Apply stealth patches on Chromium contexts to avoid basic detection
+    # (navigator.webdriver, user-agent, chrome.runtime, plugins, etc.)
+    if tier == CaptureTier.CHROMIUM:
+        await _apply_stealth(context)
+
     page = await context.new_page()
 
     try:
@@ -79,12 +90,33 @@ async def capture_page(
         # Inject SingleFile bundle before navigation
         await page.add_init_script(script=bundle_js)
 
-        # Navigate
-        response = await page.goto(
-            url,
-            wait_until="networkidle",
-            timeout=settings.max_capture_timeout * 1000,
-        )
+        # Navigate — use domcontentloaded + manual settle instead of
+        # networkidle, which hangs forever on Cloudflare challenge pages.
+        try:
+            response = await page.goto(
+                url,
+                wait_until="domcontentloaded",
+                timeout=settings.max_capture_timeout * 1000,
+            )
+            # Wait for JS to settle (deferred images, dynamic content)
+            await page.wait_for_load_state("networkidle", timeout=15000)
+        except Exception as nav_exc:
+            # Navigation timeout — check if page shows anti-bot markers
+            try:
+                page_title = await page.title()
+                body_text = await page.evaluate(
+                    "document.body ? document.body.innerText : ''"
+                )
+                signal = check_anti_bot(0, page_title, body_text)
+                if signal.is_blocked:
+                    raise AntiBotDetectedError(
+                        f"Blocked (timeout): {signal.reason}"
+                    ) from nav_exc
+            except AntiBotDetectedError:
+                raise
+            except Exception:
+                pass  # Page not accessible, fall through to generic error
+            raise
 
         status_code = response.status if response else 0
         page_title = await page.title()
@@ -160,6 +192,17 @@ async def capture_page(
         raise CaptureError(f"Capture failed: {exc}") from exc
     finally:
         await context.close()
+
+
+@beartype
+async def _apply_stealth(context: BrowserContext) -> None:
+    """Apply playwright-stealth patches to a browser context.
+
+    Patches navigator.webdriver, user-agent, chrome.runtime,
+    plugins, languages, WebGL, and other headless detection vectors.
+    """
+    await _stealth.apply_stealth_async(context)
+    log.debug("stealth.applied")
 
 
 @beartype
