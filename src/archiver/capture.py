@@ -6,10 +6,12 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import uuid
 from datetime import UTC, datetime
 from io import BytesIO
 from pathlib import Path
+from typing import Any
 
 import structlog
 from beartype import beartype
@@ -93,8 +95,13 @@ async def capture_page(
 
         page.on("response", _on_response)
 
-        # Inject SingleFile bundle before navigation
-        await page.add_init_script(script=bundle_js)
+        # Inject SingleFile bundle before navigation on Chromium.
+        # On Firefox/Camoufox, add_init_script runs in a privileged
+        # Xray context that blocks TypedArray access in SingleFile's
+        # stylesheet resolver. We inject after navigation instead.
+        is_firefox = tier != CaptureTier.CHROMIUM
+        if not is_firefox:
+            await page.add_init_script(script=bundle_js)
 
         # Navigate — use domcontentloaded + manual settle instead of
         # networkidle, which hangs forever on Cloudflare challenge pages.
@@ -139,9 +146,19 @@ async def capture_page(
 
         # Capture SingleFile snapshot
         sf_options = build_options(url)
-        sf_result = await page.evaluate(
-            SINGLEFILE_CAPTURE_JS, sf_options
-        )
+        if is_firefox:
+            # Firefox/Camoufox: run entire SingleFile pipeline inside a
+            # <script> tag in the page's own DOM context. Playwright's
+            # evaluate/addInitScript use a privileged debugger context
+            # with Xray wrappers that block TypedArray access in
+            # SingleFile's stylesheet resolver.
+            sf_result = await _capture_singlefile_via_script_tag(
+                page, bundle_js, sf_options
+            )
+        else:
+            sf_result = await page.evaluate(
+                SINGLEFILE_CAPTURE_JS, sf_options
+            )
         if not isinstance(sf_result, dict) or "content" not in sf_result:
             raise CaptureError(
                 "SingleFile returned unexpected result: "
@@ -198,6 +215,36 @@ async def capture_page(
         raise CaptureError(f"Capture failed: {exc}") from exc
     finally:
         await context.close()
+
+
+@beartype
+async def _capture_singlefile_via_script_tag(
+    page: Any,
+    bundle_js: str,
+    sf_options: dict[str, Any],
+) -> dict[str, str]:
+    """Run SingleFile capture entirely in the page's DOM context.
+
+    Injects the bundle + capture call as a <script> tag so all code
+    runs without Firefox Xray privilege boundaries.
+    """
+    options_json = json.dumps(sf_options)
+    capture_script = (
+        bundle_js
+        + "\n;(async () => {"
+        + f"  const opts = {options_json};"
+        + "  const r = await singlefile.getPageData(opts);"
+        + "  window.__sf_result = { content: r.content, title: r.title };"
+        + "})().catch(e => { window.__sf_result = { error: String(e) }; });"
+    )
+    await page.add_script_tag(content=capture_script)
+    await page.wait_for_function(
+        "window.__sf_result !== undefined", timeout=60000
+    )
+    result: dict[str, str] = await page.evaluate("window.__sf_result")
+    if "error" in result:
+        raise CaptureError(f"SingleFile (script tag): {result['error']}")
+    return result
 
 
 @beartype
