@@ -264,6 +264,138 @@ class TestWorkerShutdown:
         assert worker._running is False
 
 
+class TestWorkerFallbackTiers:
+    @patch("archiver.worker.save_artifacts", new_callable=AsyncMock, return_value="hash/20260101")
+    @patch("archiver.worker.capture_page", new_callable=AsyncMock)
+    @patch("archiver.worker.check_wayback_availability", new_callable=AsyncMock)
+    async def test_wayback_tier_uses_fallback(
+        self,
+        mock_wayback: AsyncMock,
+        mock_capture: AsyncMock,
+        mock_save: AsyncMock,
+    ) -> None:
+        worker, mock_conn = _make_worker()
+        job = _make_job(tier=CaptureTier.WAYBACK)
+        worker._archive_repo.get_by_id = AsyncMock(
+            return_value=_make_archive()
+        )
+        mock_wayback.return_value = "https://web.archive.org/web/2024/https://example.com"
+        mock_capture.return_value = _make_capture_result()
+        worker._browser_pool.get_browser = AsyncMock()
+
+        await worker._process_job(job)
+
+        mock_wayback.assert_awaited_once()
+        mock_capture.assert_awaited_once()
+        worker._job_repo.complete.assert_awaited_once()
+
+    @patch("archiver.worker.check_wayback_availability", new_callable=AsyncMock)
+    async def test_wayback_not_available_raises(
+        self,
+        mock_wayback: AsyncMock,
+    ) -> None:
+        worker, mock_conn = _make_worker()
+        job = _make_job(tier=CaptureTier.WAYBACK)
+        worker._archive_repo.get_by_id = AsyncMock(
+            return_value=_make_archive()
+        )
+        mock_wayback.return_value = None
+        mock_conn.fetchval = AsyncMock(return_value=1)
+
+        await worker._process_job(job)
+
+        worker._job_repo.fail.assert_awaited()
+
+    @patch("archiver.worker.save_artifacts", new_callable=AsyncMock, return_value="hash/20260101")
+    @patch("archiver.worker.capture_page", new_callable=AsyncMock)
+    @patch("archiver.worker.check_archive_today_availability", new_callable=AsyncMock)
+    async def test_archive_today_tier_uses_fallback(
+        self,
+        mock_at: AsyncMock,
+        mock_capture: AsyncMock,
+        mock_save: AsyncMock,
+    ) -> None:
+        worker, mock_conn = _make_worker()
+        job = _make_job(tier=CaptureTier.ARCHIVE_TODAY)
+        worker._archive_repo.get_by_id = AsyncMock(
+            return_value=_make_archive()
+        )
+        mock_at.return_value = True
+        mock_capture.return_value = _make_capture_result()
+        worker._browser_pool.get_browser = AsyncMock()
+
+        await worker._process_job(job)
+
+        mock_at.assert_awaited_once()
+        mock_capture.assert_awaited_once()
+        worker._job_repo.complete.assert_awaited_once()
+
+    @patch("archiver.worker.capture_page", new_callable=AsyncMock)
+    @patch("archiver.worker.check_archive_today_availability", new_callable=AsyncMock)
+    async def test_capture_error_all_tiers_exhausted(
+        self,
+        mock_at: AsyncMock,
+        mock_capture: AsyncMock,
+    ) -> None:
+        worker, mock_conn = _make_worker()
+        job = _make_job(
+            tier=CaptureTier.ARCHIVE_TODAY,
+            attempts=3,
+            max_attempts=3,
+        )
+        worker._archive_repo.get_by_id = AsyncMock(
+            return_value=_make_archive()
+        )
+        mock_at.return_value = True
+        mock_capture.side_effect = CaptureError("failed")
+        worker._browser_pool.get_browser = AsyncMock()
+        mock_conn.fetchval = AsyncMock(return_value=3)
+
+        await worker._process_job(job)
+
+        # archive_today is last tier, should mark FAILED
+        calls = worker._archive_repo.update_status.call_args_list
+        fail_call = [
+            c for c in calls
+            if len(c[0]) >= 3 and c[0][2] == ArchiveStatus.FAILED  # noqa: PLR2004
+        ]
+        assert len(fail_call) == 1
+
+
+    @patch("archiver.worker.check_archive_today_availability", new_callable=AsyncMock)
+    async def test_archive_today_not_available_raises(
+        self,
+        mock_at: AsyncMock,
+    ) -> None:
+        worker, mock_conn = _make_worker()
+        job = _make_job(tier=CaptureTier.ARCHIVE_TODAY)
+        worker._archive_repo.get_by_id = AsyncMock(
+            return_value=_make_archive()
+        )
+        mock_at.return_value = False
+        mock_conn.fetchval = AsyncMock(return_value=1)
+
+        await worker._process_job(job)
+        worker._job_repo.fail.assert_awaited()
+
+    @patch("archiver.worker.capture_page", new_callable=AsyncMock)
+    async def test_unexpected_error_handled(
+        self,
+        mock_capture: AsyncMock,
+    ) -> None:
+        worker, mock_conn = _make_worker()
+        job = _make_job()
+        worker._archive_repo.get_by_id = AsyncMock(
+            return_value=_make_archive()
+        )
+        mock_capture.side_effect = RuntimeError("unexpected")
+        worker._browser_pool.get_browser = AsyncMock()
+        mock_conn.fetchval = AsyncMock(return_value=1)
+
+        await worker._process_job(job)
+        worker._job_repo.fail.assert_awaited()
+
+
 class TestWorkerOnNotify:
     def test_on_notify_does_not_crash(self) -> None:
         worker = Worker(Settings())

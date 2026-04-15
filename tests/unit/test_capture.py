@@ -436,3 +436,78 @@ class TestSaveArtifacts:
         )
         assert rel_dir.startswith("myhash/")
         assert "/" in rel_dir
+
+
+class TestCookieCacheIntegration:
+    @patch("archiver.capture.load_bundle", return_value="// fake JS")
+    @patch("archiver.capture.check_anti_bot")
+    async def test_cookie_injected_and_extracted(
+        self,
+        mock_detect: MagicMock,
+        mock_bundle: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """Cookie cache injects before navigation and extracts after capture."""
+        from archiver.cookie_cache import CfClearanceCache
+        from archiver.detection import DetectionSignal
+
+        mock_detect.return_value = DetectionSignal(is_blocked=False)
+
+        page = _make_mock_page()
+        browser = _make_mock_browser(page)
+        context = browser.new_context.return_value
+        # Mock cookies() to return a cf_clearance cookie
+        context.cookies = AsyncMock(return_value=[
+            {"name": "cf_clearance", "value": "token123", "domain": ".example.com", "path": "/"},
+        ])
+        context.add_cookies = AsyncMock()
+
+        cache = CfClearanceCache()
+        cache.put("example.com", "cf_clearance", "old_token")
+
+        settings = Settings(
+            artifacts_dir=tmp_path,
+            singlefile_bundle_path=Path("fake.js"),
+        )
+
+        result = await capture_page(
+            "https://example.com", browser, settings,
+            cookie_cache=cache,
+        )
+
+        assert isinstance(result, CaptureResult)
+        # Should have injected the cached cookie
+        context.add_cookies.assert_awaited_once()
+        # Should have extracted new cookie
+        cookie = cache.get("example.com")
+        assert cookie is not None
+        assert cookie.value == "token123"
+
+    @patch("archiver.capture.load_bundle", return_value="// fake JS")
+    @patch("archiver.capture.check_anti_bot")
+    async def test_no_cookie_cache_skips_injection(
+        self,
+        mock_detect: MagicMock,
+        mock_bundle: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """Without cookie_cache param, no injection/extraction occurs."""
+        from archiver.detection import DetectionSignal
+
+        mock_detect.return_value = DetectionSignal(is_blocked=False)
+
+        page = _make_mock_page()
+        browser = _make_mock_browser(page)
+        context = browser.new_context.return_value
+
+        settings = Settings(
+            artifacts_dir=tmp_path,
+            singlefile_bundle_path=Path("fake.js"),
+        )
+
+        result = await capture_page(
+            "https://example.com", browser, settings
+        )
+
+        assert isinstance(result, CaptureResult)
+        context.add_cookies.assert_not_awaited()

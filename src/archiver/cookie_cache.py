@@ -68,7 +68,9 @@ class CfClearanceCache:
 
 @beartype
 def _normalize_domain(domain: str) -> str:
-    """Strip www. prefix for consistent domain keying."""
+    """Strip www. prefix and leading dot for consistent domain keying."""
+    if domain.startswith("."):
+        domain = domain[1:]
     if domain.startswith("www."):
-        return domain[4:]
+        domain = domain[4:]
     return domain

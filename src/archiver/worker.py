@@ -351,7 +351,6 @@ class Worker:
                     error_message=error,
                 )
 
-    @beartype
     async def _capture_via_wayback(self, url: str) -> CaptureResult:
         """Capture a page via Wayback Machine fallback."""
         snapshot_url = await check_wayback_availability(url)
@@ -367,7 +366,6 @@ class Worker:
         )
         return result
 
-    @beartype
     async def _capture_via_archive_today(self, url: str) -> CaptureResult:
         """Capture a page via archive.today fallback."""
         available = await check_archive_today_availability(url)
