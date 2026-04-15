@@ -104,12 +104,11 @@ async def capture_page(
 
         page.on("response", _on_response)
 
-        # Inject SingleFile bundle before navigation on Chromium (legacy).
-        # On Firefox/Camoufox, we use script tag injection after navigation.
-        # When single-file-cli is available, we skip JS injection entirely.
+        # Inject SingleFile bundle before navigation.
+        # When single-file-cli is available on Chromium, skip JS injection.
         bundle_js = load_bundle(settings.singlefile_bundle_path)
         use_cli = not is_firefox and cli_available(settings.singlefile_cli_path)
-        if not is_firefox and not use_cli:
+        if not use_cli:
             await page.add_init_script(script=bundle_js)
 
         # Navigate
@@ -153,22 +152,27 @@ async def capture_page(
 
         # Capture SingleFile snapshot — three strategies:
         # 1. CLI subprocess (Chromium, when single-file-cli installed)
-        # 2. Script tag injection (Firefox/Camoufox, avoids Xray)
-        # 3. JS eval via add_init_script (Chromium fallback)
+        # 2. JS eval via add_init_script (default, works for most pages)
+        # 3. Script tag injection (Firefox fallback for Xray TypedArray errors)
         sf_options = build_options(url)
         if use_cli:
             snapshot_html_str = await capture_via_cli(
                 url, settings.singlefile_cli_path
             )
             sf_result = {"content": snapshot_html_str, "title": page_title}
-        elif is_firefox:
-            sf_result = await _capture_singlefile_via_script_tag(
-                page, bundle_js, sf_options
-            )
         else:
-            sf_result = await page.evaluate(
-                SINGLEFILE_CAPTURE_JS, sf_options
-            )
+            try:
+                sf_result = await page.evaluate(
+                    SINGLEFILE_CAPTURE_JS, sf_options
+                )
+            except Exception as sf_exc:
+                if is_firefox and "Xray" in str(sf_exc):
+                    log.info("capture.singlefile_xray_fallback")
+                    sf_result = await _capture_singlefile_via_script_tag(
+                        page, bundle_js, sf_options
+                    )
+                else:
+                    raise
         if not isinstance(sf_result, dict) or "content" not in sf_result:
             raise CaptureError(
                 "SingleFile returned unexpected result: "
