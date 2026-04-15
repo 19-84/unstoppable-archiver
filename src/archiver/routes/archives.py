@@ -11,7 +11,7 @@ import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse
 
-from archiver.deps import get_db
+from archiver.deps import get_db, require_api_key
 from archiver.enums import CaptureTier
 from archiver.errors import DuplicateCaptureError
 from archiver.models import (
@@ -38,6 +38,12 @@ async def create_archive(
     conn: Annotated[PgConnection, Depends(get_db)],
 ) -> ArchiveRecord:
     """Submit a URL for archiving."""
+    from archiver.url_safety import check_url_safety
+
+    safety_error = check_url_safety(str(body.url))
+    if safety_error:
+        raise HTTPException(status_code=400, detail=safety_error)
+
     settings = request.app.state.settings
     uhash = url_hash(str(body.url))
 
@@ -97,7 +103,11 @@ async def get_archive(
     return archive
 
 
-@router.delete("/{archive_id}", status_code=204)
+@router.delete(
+    "/{archive_id}",
+    status_code=204,
+    dependencies=[Depends(require_api_key)],
+)
 async def delete_archive(
     archive_id: str,
     conn: Annotated[PgConnection, Depends(get_db)],

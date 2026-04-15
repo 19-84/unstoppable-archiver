@@ -120,6 +120,11 @@ class Worker:
     async def _claim_and_process(self) -> None:  # pragma: no cover
         """Try to claim and process one job."""
         assert self._pool is not None  # noqa: S101
+
+        # Don't claim if at capacity — prevents unbounded task accumulation
+        if len(self._tasks) >= self._settings.max_concurrent_captures:
+            return
+
         async with self._pool.acquire() as conn:
             job = await self._job_repo.claim_next(
                 conn, self._settings.worker_id

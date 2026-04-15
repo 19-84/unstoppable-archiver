@@ -420,9 +420,22 @@ class JobRepository:
         )
         if row and retry:
             job = _record_to_job(row)
-            await self.enqueue(
-                conn, job.archive_id, job.tier, priority=job.priority
+            # Guard against infinite retry: count total jobs for this archive
+            total_jobs = await conn.fetchval(
+                "SELECT count(*) FROM jobs WHERE archive_id = $1",
+                job.archive_id,
             )
+            max_total_jobs = 15  # 5 tiers x 3 attempts = 15 max
+            if total_jobs < max_total_jobs:
+                await self.enqueue(
+                    conn, job.archive_id, job.tier, priority=job.priority
+                )
+            else:
+                log.warning(
+                    "job.max_total_jobs_reached",
+                    archive_id=job.archive_id,
+                    total=total_jobs,
+                )
         if row:
             log.info(
                 "job.failed", job_id=job_id, retry=retry, error=error

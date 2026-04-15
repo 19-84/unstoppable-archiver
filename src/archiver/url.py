@@ -35,7 +35,7 @@ TRACKING_PARAMS: frozenset[str] = frozenset({
     "msclkid",
     "twclid",
     "igshid",
-    "ref",
+    # "ref" deliberately excluded — used legitimately by many sites (Amazon, etc.)
     "_ga",
     "_gl",
     "yclid",

@@ -82,6 +82,17 @@ async def submit_form(
             url=f"/search?q={quote(url, safe='')}", status_code=303
         )
 
+    from archiver.url_safety import check_url_safety
+
+    safety_error = check_url_safety(url)
+    if safety_error:
+        return templates.TemplateResponse(
+            request,
+            "index.html",
+            {"stats": {}, "error": safety_error},
+            status_code=400,
+        )
+
     archive = await _archive_repo.create(conn, url)
     job_repo = JobRepository()
     await job_repo.enqueue(conn, archive.id, CaptureTier.CHROMIUM)

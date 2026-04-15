@@ -46,6 +46,9 @@ class Settings(BaseSettings):
     tor_proxy: str = "socks5://tor:9050"
     i2p_proxy: str = "http://i2p:4444"
 
+    # Auth — API key for destructive operations (empty = no auth required)
+    api_key: SecretStr = SecretStr("")
+
     # Logging
     log_level: str = "INFO"
     log_format: str = "json"

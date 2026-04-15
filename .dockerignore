@@ -13,3 +13,9 @@ dist/
 build/
 .env
 .env.*
+wireframes/
+tests/
+docs/
+specs/
+*.md
+!CLAUDE.md
