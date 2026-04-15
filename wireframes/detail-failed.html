@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Archive Detail — Failed</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>tailwind.config = { darkMode: 'class' }</script>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen">
+
+<nav class="border-b border-slate-800 px-6 py-3">
+  <a href="/" class="text-lg font-bold text-sky-400">◆ unstoppable archive</a>
+</nav>
+
+<main class="max-w-4xl mx-auto px-4 py-8">
+
+  <a href="/home.html" class="text-sky-400 hover:text-sky-300 text-sm mb-6 block">← Back</a>
+
+  <section class="bg-slate-900 border border-red-500/30 rounded-xl p-8">
+    <h1 class="text-2xl font-bold text-red-400 mb-4">✗ Capture Failed</h1>
+
+    <dl class="grid grid-cols-[auto_1fr] gap-x-6 gap-y-2 text-sm mb-6">
+      <dt class="text-slate-500">URL</dt>
+      <dd class="font-mono text-slate-300 truncate">https://heavily-protected.com/article</dd>
+
+      <dt class="text-slate-500">Error</dt>
+      <dd class="text-red-400">All capture tiers exhausted</dd>
+    </dl>
+
+    <!-- Tier results -->
+    <div class="space-y-3 mb-8">
+      <div class="flex items-center gap-3">
+        <span class="w-5 text-center text-red-400">✗</span>
+        <span class="text-slate-400 w-44">Tier 1 · Chromium</span>
+        <span class="text-red-400 text-sm">403 Forbidden</span>
+      </div>
+      <div class="flex items-center gap-3">
+        <span class="w-5 text-center text-red-400">✗</span>
+        <span class="text-slate-400 w-44">Tier 2 · Camoufox</span>
+        <span class="text-red-400 text-sm">Cloudflare Turnstile</span>
+      </div>
+      <div class="flex items-center gap-3">
+        <span class="w-5 text-center text-red-400">✗</span>
+        <span class="text-slate-400 w-44">Tier 3 · Camoufox+Proxy</span>
+        <span class="text-red-400 text-sm">CAPTCHA detected</span>
+      </div>
+      <div class="flex items-center gap-3">
+        <span class="w-5 text-center text-red-400">✗</span>
+        <span class="text-slate-400 w-44">Tier 4 · Wayback Machine</span>
+        <span class="text-red-400 text-sm">URL not archived</span>
+      </div>
+      <div class="flex items-center gap-3">
+        <span class="w-5 text-center text-red-400">✗</span>
+        <span class="text-slate-400 w-44">Tier 5 · archive.today</span>
+        <span class="text-red-400 text-sm">No snapshot found</span>
+      </div>
+    </div>
+
+    <button class="px-6 py-2.5 bg-sky-600 text-white font-semibold rounded-lg hover:bg-sky-500 transition">
+      Retry with force
+    </button>
+  </section>
+
+</main>
+</body>
+</html>

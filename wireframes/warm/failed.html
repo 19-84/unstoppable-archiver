@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Failed — Warm</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>body{font-family:'Inter',system-ui,sans-serif;}.font-mono{font-family:'JetBrains Mono',ui-monospace,monospace;}</style>
+</head>
+<body class="bg-neutral-950 text-neutral-300 min-h-screen">
+
+<header class="sticky top-0 z-50 bg-neutral-950/95 backdrop-blur border-b border-neutral-800/50">
+  <div class="max-w-4xl mx-auto px-6 py-3 flex items-center gap-4 min-w-0">
+    <a href="home.html" class="text-amber-500 hover:text-amber-400 text-sm shrink-0">←</a>
+    <div class="h-4 w-px bg-neutral-800"></div>
+    <span class="font-mono text-xs text-neutral-500 truncate">heavily-protected.com/article</span>
+    <div class="h-4 w-px bg-neutral-800"></div>
+    <span class="text-xs text-red-400 flex items-center gap-1.5 shrink-0">✗ Failed</span>
+  </div>
+</header>
+
+<main class="max-w-2xl mx-auto px-6 py-12">
+
+  <h1 class="text-xl font-bold text-white mb-1">Capture failed</h1>
+  <p class="text-sm text-red-400/60 mb-8">All 5 capture tiers exhausted</p>
+
+  <div class="space-y-1 mb-10">
+    <div class="flex items-center gap-3 px-4 py-3">
+      <span class="w-6 text-center text-red-400/60 text-xs">✗</span>
+      <span class="text-sm text-neutral-500 w-40">Chromium</span>
+      <span class="text-xs text-red-400/40 font-mono">403 Forbidden</span>
+    </div>
+    <div class="flex items-center gap-3 px-4 py-3">
+      <span class="w-6 text-center text-red-400/60 text-xs">✗</span>
+      <span class="text-sm text-neutral-500 w-40">Camoufox</span>
+      <span class="text-xs text-red-400/40 font-mono">cloudflare turnstile</span>
+    </div>
+    <div class="flex items-center gap-3 px-4 py-3">
+      <span class="w-6 text-center text-red-400/60 text-xs">✗</span>
+      <span class="text-sm text-neutral-500 w-40">Proxy</span>
+      <span class="text-xs text-red-400/40 font-mono">captcha detected</span>
+    </div>
+    <div class="flex items-center gap-3 px-4 py-3">
+      <span class="w-6 text-center text-red-400/60 text-xs">✗</span>
+      <span class="text-sm text-neutral-500 w-40">Wayback</span>
+      <span class="text-xs text-red-400/40 font-mono">not archived</span>
+    </div>
+    <div class="flex items-center gap-3 px-4 py-3">
+      <span class="w-6 text-center text-red-400/60 text-xs">✗</span>
+      <span class="text-sm text-neutral-500 w-40">archive.today</span>
+      <span class="text-xs text-red-400/40 font-mono">no snapshot</span>
+    </div>
+  </div>
+
+  <button class="px-5 py-2 bg-amber-500 text-black text-sm font-semibold rounded-lg hover:bg-amber-400 transition">Retry</button>
+</main>
+</body>
+</html>

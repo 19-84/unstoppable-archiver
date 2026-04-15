@@ -1,3 +1,5 @@
+<!-- ABOUTME: Archive detail page with metadata, actions, and history -->
+<!-- ABOUTME: Handles complete, capturing, and failed states with htmx polling -->
 {% extends "base.html" %}
 
 {% block title %}{{ archive.title or archive.url }} — Unstoppable Archive{% endblock %}
@@ -66,12 +68,12 @@
     </div>
   </a>
   {% elif archive.status == "capturing" %}
-  <div hx-get="/partials/capturing/{{ archive.id }}" hx-trigger="every 2s" hx-swap="innerHTML" id="capture-progress">
+  <div hx-get="/partials/status/{{ archive.id }}" hx-trigger="every 2s" hx-swap="outerHTML" id="capture-progress">
     {% include "partials/capturing_tiers.html" %}
   </div>
   {% elif archive.status == "failed" %}
   <div class="text-red-400 text-sm">{{ archive.error_message or "Capture failed" }}</div>
-  <button hx-post="/api/archives" hx-vals='{"url": "{{ archive.url }}", "force": true}'
+  <button hx-post="/api/archives" hx-vals='{"url": {{ archive.url | tojson }}, "force": true}'
           class="px-5 py-2 bg-purple-500 text-white text-sm font-medium rounded-xl hover:bg-purple-400 transition">
     Retry
   </button>

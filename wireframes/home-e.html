@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Variation E — Stark Utility</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  body { font-family: 'IBM Plex Sans', system-ui, sans-serif; }
+  .font-mono { font-family: 'IBM Plex Mono', ui-monospace, monospace; }
+  input::placeholder { opacity: 0.3; }
+</style>
+</head>
+<body class="bg-[#111] text-neutral-400 min-h-screen flex flex-col">
+
+<header class="border-b border-neutral-900">
+  <div class="max-w-5xl mx-auto px-6 py-3 flex items-center justify-between">
+    <div class="flex items-center gap-6">
+      <span class="text-white font-semibold text-sm">unstoppable archive</span>
+      <div class="h-3 w-px bg-neutral-800"></div>
+      <span class="text-xs text-neutral-600">self-hosted web preservation</span>
+    </div>
+    <div class="flex items-center gap-1 text-xs">
+      <span class="w-1.5 h-1.5 bg-emerald-500 rounded-full"></span>
+      <span class="text-neutral-600">online</span>
+    </div>
+  </div>
+</header>
+
+<main class="flex-1 flex flex-col">
+
+  <!-- Top section: input -->
+  <div class="border-b border-neutral-900">
+    <div class="max-w-5xl mx-auto px-6 py-16">
+      <div class="max-w-2xl">
+        <h1 class="text-3xl font-bold text-white mb-2 tracking-tight">
+          Archive or search
+        </h1>
+        <p class="text-neutral-500 mb-8">
+          URLs get archived. Everything else is a search query.
+        </p>
+        <form class="flex gap-2 mb-4">
+          <div class="flex-1 flex items-center border border-neutral-800 bg-black px-4 focus-within:border-neutral-600 transition">
+            <input type="text" placeholder="https://  or  search terms"
+                   autofocus
+                   class="flex-1 py-3 bg-transparent text-white outline-none font-mono text-sm placeholder-neutral-700">
+          </div>
+          <button type="submit"
+                  class="px-6 py-3 bg-white text-black font-semibold text-sm hover:bg-neutral-200 transition">
+            Submit
+          </button>
+        </form>
+        <div class="flex items-center gap-2 text-xs">
+          <span class="text-neutral-600">Supports</span>
+          <span class="px-1.5 py-0.5 border border-neutral-800 text-neutral-500">HTTPS</span>
+          <span class="px-1.5 py-0.5 border border-neutral-800 text-neutral-500">HTTP</span>
+          <span class="px-1.5 py-0.5 border border-purple-900 text-purple-500">.onion</span>
+          <span class="px-1.5 py-0.5 border border-teal-900 text-teal-500">.i2p</span>
+          <span class="text-neutral-800 mx-2">│</span>
+          <span class="text-neutral-700 font-mono">intitle: site: before: after: source: net: "phrase" -not</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Stats section -->
+  <div class="max-w-5xl mx-auto px-6 py-10 w-full">
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-0">
+
+      <div class="border border-neutral-900 px-6 py-5 -mr-px -mb-px">
+        <div class="text-xs text-neutral-600 uppercase tracking-wider mb-2">Pages</div>
+        <div class="text-3xl font-bold text-white tabular-nums">1,247</div>
+      </div>
+
+      <div class="border border-neutral-900 px-6 py-5 -mr-px -mb-px">
+        <div class="text-xs text-neutral-600 uppercase tracking-wider mb-2">Domains</div>
+        <div class="text-3xl font-bold text-white tabular-nums">847</div>
+      </div>
+
+      <div class="border border-neutral-900 px-6 py-5 -mr-px -mb-px">
+        <div class="text-xs text-neutral-600 uppercase tracking-wider mb-2">Storage</div>
+        <div class="text-3xl font-bold text-white tabular-nums">823 <span class="text-lg text-neutral-600">MB</span></div>
+      </div>
+
+      <div class="border border-neutral-900 px-6 py-5 -mb-px">
+        <div class="text-xs text-neutral-600 uppercase tracking-wider mb-2">Success</div>
+        <div class="text-3xl font-bold text-emerald-400 tabular-nums">98.2<span class="text-lg">%</span></div>
+      </div>
+
+      <div class="border border-neutral-900 px-6 py-5 -mr-px">
+        <div class="text-xs text-neutral-600 uppercase tracking-wider mb-2">Today</div>
+        <div class="text-3xl font-bold text-white tabular-nums">5</div>
+      </div>
+
+      <div class="border border-neutral-900 px-6 py-5 -mr-px">
+        <div class="text-xs text-neutral-600 uppercase tracking-wider mb-2">Tor pages</div>
+        <div class="text-3xl font-bold text-purple-400 tabular-nums">12</div>
+      </div>
+
+      <div class="border border-neutral-900 px-6 py-5 -mr-px">
+        <div class="text-xs text-neutral-600 uppercase tracking-wider mb-2">I2P pages</div>
+        <div class="text-3xl font-bold text-teal-400 tabular-nums">3</div>
+      </div>
+
+      <div class="border border-neutral-900 px-6 py-5">
+        <div class="text-xs text-neutral-600 uppercase tracking-wider mb-2">Avg tiers</div>
+        <div class="text-3xl font-bold text-white tabular-nums">1.8</div>
+      </div>
+
+    </div>
+  </div>
+
+</main>
+
+<footer class="border-t border-neutral-900">
+  <div class="max-w-5xl mx-auto px-6 py-3 flex items-center justify-between text-xs text-neutral-700">
+    <span>v0.1.0</span>
+    <span>chromium → camoufox → proxy → wayback → archive.today</span>
+  </div>
+</footer>
+
+</body>
+</html>

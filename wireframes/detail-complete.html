@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Archive Detail — Complete</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>tailwind.config = { darkMode: 'class' }</script>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen">
+
+<nav class="border-b border-slate-800 px-6 py-3 flex items-center justify-between">
+  <a href="/" class="text-lg font-bold text-sky-400">◆ unstoppable archive</a>
+  <input type="search" placeholder="search..."
+         class="px-3 py-1.5 rounded-lg bg-slate-800 text-sm text-slate-300 border border-slate-700 w-64 focus:outline-none focus:ring-1 focus:ring-sky-500">
+</nav>
+
+<main class="max-w-4xl mx-auto px-4 py-8">
+
+  <a href="/home.html" class="text-sky-400 hover:text-sky-300 text-sm mb-6 block">← Back to archives</a>
+
+  <!-- Metadata -->
+  <section class="bg-slate-900 border border-slate-800 rounded-xl p-8 mb-6">
+    <h1 class="text-2xl font-bold mb-4">Understanding Rust Ownership</h1>
+
+    <dl class="grid grid-cols-[auto_1fr] gap-x-6 gap-y-2 text-sm">
+      <dt class="text-slate-500">URL</dt>
+      <dd class="font-mono text-slate-300 truncate">https://blog.example.com/rust-ownership-explained</dd>
+
+      <dt class="text-slate-500">Saved</dt>
+      <dd><time class="text-slate-300">2026-04-14 04:28 UTC</time></dd>
+
+      <dt class="text-slate-500">Status</dt>
+      <dd><span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-500/20 text-emerald-400">● Complete</span></dd>
+
+      <dt class="text-slate-500">Source</dt>
+      <dd><span class="text-emerald-400">● Direct capture</span> <span class="text-slate-500">(Tier 1: Chromium)</span></dd>
+
+      <dt class="text-slate-500">Size</dt>
+      <dd class="text-slate-300">2.4 MB snapshot · 5.1 MB WARC</dd>
+    </dl>
+
+    <div class="flex flex-wrap gap-3 mt-6">
+      <a href="/viewer.html" class="px-4 py-2 bg-sky-600 text-white text-sm font-semibold rounded-lg hover:bg-sky-500 transition">View Snapshot</a>
+      <a href="#" class="px-4 py-2 bg-slate-800 text-slate-300 text-sm font-semibold rounded-lg border border-slate-700 hover:border-slate-500 transition">Download WARC</a>
+      <a href="#" class="px-4 py-2 bg-slate-800 text-slate-300 text-sm font-semibold rounded-lg border border-slate-700 hover:border-slate-500 transition">Download HTML</a>
+      <a href="#" class="px-4 py-2 bg-slate-800 text-slate-300 text-sm font-semibold rounded-lg border border-slate-700 hover:border-slate-500 transition">Screenshot</a>
+    </div>
+  </section>
+
+  <!-- Screenshot Preview -->
+  <section class="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden mb-6">
+    <div class="aspect-video bg-gradient-to-br from-slate-800 to-slate-700 flex items-center justify-center text-slate-500">
+      <div class="text-center">
+        <div class="text-6xl mb-2">📸</div>
+        <div>Full-width screenshot preview</div>
+        <div class="text-sm">click to open snapshot viewer</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Snapshot History -->
+  <section class="bg-slate-900 border border-slate-800 rounded-xl p-6 mb-6">
+    <h2 class="text-lg font-semibold text-slate-300 mb-4">Other snapshots of this URL</h2>
+    <div class="divide-y divide-slate-800">
+      <div class="flex items-center justify-between py-3">
+        <div class="flex items-center gap-3">
+          <time class="text-sm text-slate-400 font-mono">2026-04-14</time>
+          <span class="text-emerald-400 text-sm">● direct (chromium)</span>
+          <span class="text-slate-500 text-sm">2.4 MB</span>
+        </div>
+        <span class="text-xs px-2 py-1 bg-sky-500/20 text-sky-400 rounded">current</span>
+      </div>
+      <div class="flex items-center justify-between py-3">
+        <div class="flex items-center gap-3">
+          <time class="text-sm text-slate-400 font-mono">2026-04-10</time>
+          <span class="text-blue-400 text-sm">▲ wayback</span>
+          <span class="text-slate-500 text-sm">1.8 MB</span>
+        </div>
+        <a href="#" class="text-sm text-sky-400 hover:text-sky-300">view</a>
+      </div>
+      <div class="flex items-center justify-between py-3">
+        <div class="flex items-center gap-3">
+          <time class="text-sm text-slate-400 font-mono">2026-03-28</time>
+          <span class="text-emerald-400 text-sm">● direct (camoufox)</span>
+          <span class="text-slate-500 text-sm">2.3 MB</span>
+        </div>
+        <a href="#" class="text-sm text-sky-400 hover:text-sky-300">view</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- Danger Zone -->
+  <section class="border border-red-500/30 rounded-xl p-6">
+    <button class="px-4 py-2 bg-red-500/20 text-red-400 text-sm font-semibold rounded-lg border border-red-500/30 hover:bg-red-500/30 transition">
+      Delete this archive
+    </button>
+  </section>
+
+</main>
+</body>
+</html>

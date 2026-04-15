@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Viewer — Warm</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>.font-mono{font-family:'JetBrains Mono',ui-monospace,monospace;}</style>
+</head>
+<body class="bg-white text-neutral-900 min-h-screen">
+
+<nav class="sticky top-0 z-50 bg-neutral-950/95 backdrop-blur text-neutral-400 border-b border-neutral-800/50">
+  <div class="max-w-5xl mx-auto px-4 py-2 flex items-center justify-between gap-3">
+    <div class="flex items-center gap-3 min-w-0">
+      <a href="detail.html" class="text-amber-500 hover:text-amber-400 text-sm">←</a>
+      <div class="w-px h-4 bg-neutral-800"></div>
+      <span class="font-mono text-xs text-neutral-500 truncate">blog.example.com/rust-ownership-explained</span>
+    </div>
+    <div class="flex items-center gap-3 shrink-0">
+      <span class="text-emerald-400 text-xs">● Direct</span>
+      <time class="text-xs text-neutral-600">2026-04-14</time>
+      <div class="w-px h-4 bg-neutral-800"></div>
+      <a href="#" class="text-[10px] px-2 py-1 bg-neutral-800 text-neutral-400 rounded hover:bg-neutral-700 transition">WARC</a>
+      <a href="#" class="text-[10px] px-2 py-1 bg-neutral-800 text-neutral-400 rounded hover:bg-neutral-700 transition">HTML</a>
+      <select class="text-[10px] bg-neutral-800 text-neutral-400 rounded px-2 py-1 border-0 outline-none">
+        <option>1 of 3</option>
+        <option>Apr 10 · wayback</option>
+        <option>Mar 28 · camoufox</option>
+      </select>
+    </div>
+  </div>
+</nav>
+
+<article class="max-w-3xl mx-auto px-8 py-12" style="font-family:Georgia,'Times New Roman',serif;">
+  <h1 style="font-size:2.25rem;font-weight:bold;margin-bottom:0.5rem;color:#111;line-height:1.2;">Understanding Rust Ownership</h1>
+  <p style="color:#888;margin-bottom:2.5rem;font-size:0.875rem;">Published March 15, 2026 · 12 min read</p>
+  <p style="font-size:1.1rem;line-height:1.85;color:#333;margin-bottom:1.5rem;">Ownership is Rust's most unique feature, and it enables Rust to make memory safety guarantees without needing a garbage collector.</p>
+  <h2 style="font-size:1.5rem;font-weight:bold;margin-top:2.5rem;margin-bottom:1rem;color:#111;">What is Ownership?</h2>
+  <p style="font-size:1.1rem;line-height:1.85;color:#333;margin-bottom:1.5rem;">All programs have to manage the way they use a computer's memory while running. Rust uses a system of ownership with rules that the compiler checks at compile time.</p>
+  <div style="background:#1c1917;border-radius:8px;padding:1.5rem;margin:2rem 0;font-family:'JetBrains Mono',monospace;font-size:0.85rem;line-height:1.7;">
+    <pre style="margin:0;color:#fbbf24;"><code><span style="color:#a78bfa;">fn</span> <span style="color:#fbbf24;">main</span>() {
+    <span style="color:#a78bfa;">let</span> s1 = <span style="color:#fbbf24;">String</span>::from(<span style="color:#86efac;">"hello"</span>);
+    <span style="color:#a78bfa;">let</span> s2 = s1;
+    <span style="color:#57534e;">// s1 is no longer valid</span>
+    println!(<span style="color:#86efac;">"{}"</span>, s2);
+}</code></pre>
+  </div>
+  <ul style="font-size:1.1rem;line-height:1.85;color:#333;padding-left:1.5rem;margin-bottom:1.5rem;">
+    <li style="margin-bottom:0.75rem;">Each value has an <em>owner</em>.</li>
+    <li style="margin-bottom:0.75rem;">One owner at a time.</li>
+    <li style="margin-bottom:0.75rem;">Owner out of scope → value dropped.</li>
+  </ul>
+  <blockquote style="border-left:3px solid #f59e0b;padding:1rem 1.5rem;margin:2rem 0;background:#fffbeb;border-radius:0 6px 6px 0;">
+    <p style="color:#92400e;font-size:0.9rem;line-height:1.6;margin:0;"><strong>Self-contained snapshot.</strong> All CSS inlined. Images as data URIs. Text selectable. Ctrl+F works. No external requests.</p>
+  </blockquote>
+</article>
+</body>
+</html>

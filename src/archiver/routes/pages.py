@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from archiver.deps import get_db
@@ -51,6 +51,44 @@ async def index(
     )
 
 
+@router.post("/submit", response_model=None)
+async def submit_form(
+    request: Request,
+    conn: Annotated[PgConnection, Depends(get_db)],
+) -> HTMLResponse | RedirectResponse:
+    """Handle native HTML form submission (no-JS fallback).
+
+    Accepts form-encoded data, creates archive, redirects to detail.
+    """
+    from archiver.enums import CaptureTier
+    from archiver.repository import JobRepository
+
+    form = await request.form()
+    url = str(form.get("url", "")).strip()
+
+    if not url:
+        return templates.TemplateResponse(
+            request,
+            "index.html",
+            {"stats": {}, "error": "Please enter a URL"},
+            status_code=400,
+        )
+
+    # Detect if input is a search query (no scheme = search)
+    if "://" not in url and not url.startswith("//"):
+        return RedirectResponse(
+            url=f"/search?q={url}", status_code=303
+        )
+
+    archive = await _archive_repo.create(conn, url)
+    job_repo = JobRepository()
+    await job_repo.enqueue(conn, archive.id, CaptureTier.CHROMIUM)
+
+    return RedirectResponse(
+        url=f"/archive/{archive.id}", status_code=303
+    )
+
+
 @router.get("/archive/{archive_id}", response_class=HTMLResponse)
 async def archive_detail(
     archive_id: str,
@@ -73,12 +111,12 @@ async def archive_detail(
 
 
 @router.get("/archive/{archive_id}/view", response_class=HTMLResponse)
-async def archive_view(  # pragma: no cover
+async def archive_view(
     archive_id: str,
     request: Request,
     conn: Annotated[PgConnection, Depends(get_db)],
 ) -> HTMLResponse:
-    """Inline snapshot viewer — renders archived HTML with toolbar."""
+    """Snapshot viewer — sandboxed iframe loads content from /api/archives/{id}/snapshot."""
     archive = await _archive_repo.get_by_id(conn, archive_id)
     if archive is None:
         raise HTTPException(status_code=404, detail="Archive not found")
@@ -87,21 +125,10 @@ async def archive_view(  # pragma: no cover
     if not archive.artifact_dir:
         raise HTTPException(status_code=404, detail="No artifacts")
 
-    settings = request.app.state.settings
-    snapshot_path = (
-        Path(settings.artifacts_dir)
-        / archive.artifact_dir
-        / "snapshot.html"
-    )
-    if not snapshot_path.exists():
-        raise HTTPException(status_code=404, detail="Snapshot file not found")
-
-    snapshot_html = snapshot_path.read_text(encoding="utf-8", errors="replace")
-
     return templates.TemplateResponse(
         request,
         "archive_view.html",
-        {"archive": archive, "snapshot_html": snapshot_html},
+        {"archive": archive},
     )
 
 

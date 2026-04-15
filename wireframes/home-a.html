@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Variation A — Warm Minimal</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+tailwind.config = {
+  theme: {
+    extend: {
+      fontFamily: {
+        sans: ['Inter', 'system-ui', 'sans-serif'],
+        mono: ['JetBrains Mono', 'ui-monospace', 'monospace'],
+      }
+    }
+  }
+}
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  body { font-family: 'Inter', system-ui, sans-serif; }
+  .font-mono { font-family: 'JetBrains Mono', ui-monospace, monospace; }
+  input::placeholder { opacity: 0.4; }
+</style>
+</head>
+<body class="bg-neutral-950 text-neutral-200 min-h-screen flex flex-col">
+
+<!-- Minimal top bar -->
+<header class="px-6 py-4 flex items-center justify-between">
+  <div class="flex items-center gap-2">
+    <span class="text-amber-500 text-xl">◆</span>
+    <span class="font-semibold tracking-tight text-neutral-300">unstoppable archive</span>
+  </div>
+</header>
+
+<main class="flex-1 flex flex-col items-center justify-center px-6 -mt-16">
+
+  <!-- Hero — single purpose -->
+  <div class="w-full max-w-2xl text-center mb-12">
+    <h1 class="text-5xl font-bold tracking-tight text-neutral-100 mb-3">
+      Archive anything.
+    </h1>
+    <p class="text-lg text-neutral-500">
+      Paste a URL. We handle the rest.
+    </p>
+  </div>
+
+  <!-- Single input — archives OR searches -->
+  <div class="w-full max-w-2xl mb-4">
+    <form class="relative">
+      <input type="text" placeholder="enter a URL to archive, or search your collection..."
+             autofocus
+             class="w-full px-5 py-4 text-lg bg-neutral-900 border border-neutral-800 rounded-xl text-neutral-100 placeholder-neutral-600 focus:outline-none focus:border-amber-500/60 focus:ring-1 focus:ring-amber-500/30 transition font-mono">
+      <button type="submit"
+              class="absolute right-2 top-1/2 -translate-y-1/2 px-5 py-2 bg-amber-500 text-neutral-950 font-semibold text-sm rounded-lg hover:bg-amber-400 transition">
+        Go
+      </button>
+    </form>
+  </div>
+
+  <!-- Subtle hints -->
+  <div class="w-full max-w-2xl flex items-center justify-between text-sm text-neutral-600 mb-16">
+    <div class="flex items-center gap-4">
+      <span>clearnet</span>
+      <span class="text-neutral-700">·</span>
+      <span>tor</span>
+      <span class="text-neutral-700">·</span>
+      <span>i2p</span>
+    </div>
+    <div class="flex items-center gap-3">
+      <span class="font-mono text-xs text-neutral-700 bg-neutral-900 px-2 py-0.5 rounded">intitle:</span>
+      <span class="font-mono text-xs text-neutral-700 bg-neutral-900 px-2 py-0.5 rounded">site:</span>
+      <span class="font-mono text-xs text-neutral-700 bg-neutral-900 px-2 py-0.5 rounded">before:</span>
+      <span class="font-mono text-xs text-neutral-700 bg-neutral-900 px-2 py-0.5 rounded">"exact"</span>
+    </div>
+  </div>
+
+  <!-- Stats — understated, horizontal -->
+  <div class="w-full max-w-2xl">
+    <div class="grid grid-cols-4 gap-px bg-neutral-800 rounded-lg overflow-hidden">
+      <div class="bg-neutral-950 px-5 py-4 text-center">
+        <div class="text-2xl font-semibold text-neutral-300">1,247</div>
+        <div class="text-xs text-neutral-600 mt-1">pages</div>
+      </div>
+      <div class="bg-neutral-950 px-5 py-4 text-center">
+        <div class="text-2xl font-semibold text-neutral-300">847</div>
+        <div class="text-xs text-neutral-600 mt-1">domains</div>
+      </div>
+      <div class="bg-neutral-950 px-5 py-4 text-center">
+        <div class="text-2xl font-semibold text-neutral-300">823<span class="text-sm text-neutral-500"> MB</span></div>
+        <div class="text-xs text-neutral-600 mt-1">stored</div>
+      </div>
+      <div class="bg-neutral-950 px-5 py-4 text-center">
+        <div class="text-2xl font-semibold text-amber-500">98.2<span class="text-sm">%</span></div>
+        <div class="text-xs text-neutral-600 mt-1">success</div>
+      </div>
+    </div>
+  </div>
+
+</main>
+
+<footer class="px-6 py-4 text-center text-xs text-neutral-700">
+  5 tiers · playwright + camoufox · tor + i2p
+</footer>
+
+</body>
+</html>

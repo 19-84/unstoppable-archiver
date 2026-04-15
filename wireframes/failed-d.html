@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Failed (Glass Noir)</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  body { font-family: 'DM Sans', system-ui, sans-serif; }
+  .font-mono { font-family: 'DM Mono', ui-monospace, monospace; }
+</style>
+</head>
+<body class="bg-[#050208] text-neutral-400 min-h-screen relative overflow-hidden">
+
+<div class="fixed inset-0 pointer-events-none">
+  <div class="absolute top-[30%] left-[35%] w-[400px] h-[400px] bg-red-900/[0.04] rounded-full blur-[150px]"></div>
+</div>
+
+<div class="relative z-10">
+
+<header class="px-8 py-5 flex items-center gap-2.5">
+  <div class="w-1.5 h-1.5 bg-purple-400 rounded-full"></div>
+  <span class="text-sm text-neutral-500">unstoppable archive</span>
+</header>
+
+<main class="max-w-xl mx-auto px-8 py-16">
+
+  <a href="/home-d.html" class="text-purple-400/60 hover:text-purple-300 text-sm mb-8 block">← Back</a>
+
+  <div class="text-center mb-12">
+    <div class="text-4xl mb-4">✗</div>
+    <h1 class="text-2xl font-bold text-white mb-2">Capture failed</h1>
+    <p class="font-mono text-sm text-neutral-600 truncate px-4">https://heavily-protected.com/article</p>
+    <p class="text-sm text-red-400/60 mt-3">All 5 capture tiers exhausted</p>
+  </div>
+
+  <!-- Tier results -->
+  <div class="space-y-0 mb-10">
+    <div class="flex items-center gap-4 py-3 border-b border-neutral-900/50">
+      <div class="w-7 h-7 rounded-full bg-red-500/10 flex items-center justify-center text-red-400 text-[10px] shrink-0">✗</div>
+      <div class="flex-1 text-sm text-neutral-600">Chromium</div>
+      <div class="text-xs text-red-400/50 font-mono">403</div>
+    </div>
+    <div class="flex items-center gap-4 py-3 border-b border-neutral-900/50">
+      <div class="w-7 h-7 rounded-full bg-red-500/10 flex items-center justify-center text-red-400 text-[10px] shrink-0">✗</div>
+      <div class="flex-1 text-sm text-neutral-600">Camoufox</div>
+      <div class="text-xs text-red-400/50 font-mono">cloudflare</div>
+    </div>
+    <div class="flex items-center gap-4 py-3 border-b border-neutral-900/50">
+      <div class="w-7 h-7 rounded-full bg-red-500/10 flex items-center justify-center text-red-400 text-[10px] shrink-0">✗</div>
+      <div class="flex-1 text-sm text-neutral-600">Proxy</div>
+      <div class="text-xs text-red-400/50 font-mono">captcha</div>
+    </div>
+    <div class="flex items-center gap-4 py-3 border-b border-neutral-900/50">
+      <div class="w-7 h-7 rounded-full bg-red-500/10 flex items-center justify-center text-red-400 text-[10px] shrink-0">✗</div>
+      <div class="flex-1 text-sm text-neutral-600">Wayback</div>
+      <div class="text-xs text-red-400/50 font-mono">not archived</div>
+    </div>
+    <div class="flex items-center gap-4 py-3">
+      <div class="w-7 h-7 rounded-full bg-red-500/10 flex items-center justify-center text-red-400 text-[10px] shrink-0">✗</div>
+      <div class="flex-1 text-sm text-neutral-600">archive.today</div>
+      <div class="text-xs text-red-400/50 font-mono">no snapshot</div>
+    </div>
+  </div>
+
+  <div class="text-center">
+    <button class="px-6 py-2.5 bg-purple-600 text-white text-sm font-medium rounded-xl hover:bg-purple-500 transition">
+      Retry
+    </button>
+  </div>
+
+</main>
+</div>
+</body>
+</html>

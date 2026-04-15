@@ -95,6 +95,25 @@ class TestArchiveDetailPage:
         assert resp.status_code == 404  # noqa: PLR2004
 
 
+class TestArchiveViewPage:
+    async def test_404_for_missing_archive(
+        self, client: AsyncClient
+    ) -> None:
+        resp = await client.get("/archive/nonexistent/view")
+        assert resp.status_code == 404  # noqa: PLR2004
+
+    async def test_404_for_pending_archive(
+        self, client: AsyncClient
+    ) -> None:
+        create = await client.post(
+            "/api/archives",
+            json={"url": "https://example.com/view-pending"},
+        )
+        archive_id = create.json()["id"]
+        resp = await client.get(f"/archive/{archive_id}/view")
+        assert resp.status_code == 404  # noqa: PLR2004
+
+
 class TestSearchPage:
     async def test_renders_empty_search(
         self, client: AsyncClient
@@ -109,6 +128,38 @@ class TestSearchPage:
         resp = await client.get("/search?q=test")
         assert resp.status_code == 200  # noqa: PLR2004
         assert "text/html" in resp.headers["content-type"]
+
+
+class TestSubmitForm:
+    async def test_submit_url_redirects(
+        self, client: AsyncClient
+    ) -> None:
+        resp = await client.post(
+            "/submit",
+            data={"url": "https://example.com/submit"},
+            follow_redirects=False,
+        )
+        assert resp.status_code == 303  # noqa: PLR2004
+        assert "/archive/" in resp.headers["location"]
+
+    async def test_submit_search_redirects(
+        self, client: AsyncClient
+    ) -> None:
+        resp = await client.post(
+            "/submit",
+            data={"url": "python programming"},
+            follow_redirects=False,
+        )
+        assert resp.status_code == 303  # noqa: PLR2004
+        assert "/search?q=" in resp.headers["location"]
+
+    async def test_submit_empty_returns_400(
+        self, client: AsyncClient
+    ) -> None:
+        resp = await client.post(
+            "/submit", data={"url": ""}
+        )
+        assert resp.status_code == 400  # noqa: PLR2004
 
 
 class TestPartials:

@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Unstoppable Archive — self-hosted web preservation with five capture tiers">
+<title>Capturing (Glass Noir)</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  body { font-family: 'DM Sans', system-ui, sans-serif; }
+  .font-mono { font-family: 'DM Mono', ui-monospace, monospace; }
+  @keyframes pulse-slow { 0%,100%{opacity:0.4} 50%{opacity:1} }
+  @keyframes shimmer { 0%{transform:translateX(-100%)} 100%{transform:translateX(100%)} }
+  .pulse-slow { animation: pulse-slow 2s ease-in-out infinite; }
+  .shimmer { position:relative; overflow:hidden; }
+  .shimmer::after { content:''; position:absolute; top:0; left:0; right:0; bottom:0; background:linear-gradient(90deg,transparent,rgba(168,85,247,0.1),transparent); animation:shimmer 2s infinite; }
+*:focus-visible{outline:2px solid #a855f7;outline-offset:2px;border-radius:4px;}
+</style>
+</head>
+<body class="bg-[#050208] text-neutral-400 min-h-screen relative overflow-y-auto overflow-x-hidden">
+
+<div class="fixed inset-0 pointer-events-none" aria-hidden="true">
+  <div class="absolute top-[20%] left-[40%] w-[500px] h-[500px] bg-purple-600/[0.06] rounded-full blur-[150px] pulse-slow"></div>
+</div>
+
+<div class="relative z-10">
+
+<header class="px-8 py-5 flex items-center gap-2.5">
+  <div class="w-1.5 h-1.5 bg-purple-400 rounded-full"></div>
+  <span class="text-sm text-neutral-400">unstoppable archive</span>
+</header>
+
+<main class="max-w-xl mx-auto px-8 py-16">
+
+  <a href="home.html" class="text-purple-400 hover:text-purple-300 text-sm mb-8 block" aria-label="Back to archives">← Back</a>
+
+  <div class="text-center mb-12">
+    <div class="inline-flex items-center gap-2 px-3 py-1.5 bg-purple-500/10 rounded-full text-purple-400 text-xs font-medium mb-6">
+      <span class="w-1.5 h-1.5 bg-purple-400 rounded-full pulse-slow"></span>
+      Capturing
+    </div>
+    <h1 class="text-2xl font-bold text-white mb-2">Working on it...</h1>
+    <p class="font-mono text-sm text-neutral-400 truncate px-4">https://protected-site.com/article</p>
+  </div>
+
+  <!-- Progress -->
+  <div class="mb-12">
+    <div class="h-1 bg-neutral-900 rounded-full overflow-x-hidden shimmer">
+      <div class="h-full bg-gradient-to-r from-purple-600 to-violet-500 rounded-full" style="width:40%"></div>
+    </div>
+  </div>
+
+  <!-- Tier escalation -->
+  <div class="space-y-0">
+
+    <!-- Tier 1 — failed -->
+    <div class="flex items-center gap-4 py-4 border-b border-neutral-900/50">
+      <div class="w-8 h-8 rounded-full bg-red-500/10 flex items-center justify-center shrink-0">
+        <span class="text-red-400 text-xs">✗</span>
+      </div>
+      <div class="flex-1 min-w-0">
+        <div class="text-sm text-neutral-400">Tier 1 · Chromium</div>
+        <div class="text-xs text-red-400 mt-0.5">403 Forbidden</div>
+      </div>
+      <div class="text-[10px] text-neutral-400">0.8s</div>
+    </div>
+
+    <!-- Tier 2 — active -->
+    <div class="flex items-center gap-4 py-4 border-b border-neutral-900/50 bg-purple-500/[0.03] -mx-4 px-4 rounded-lg">
+      <div class="w-8 h-8 rounded-full bg-purple-500/20 flex items-center justify-center shrink-0">
+        <span class="text-purple-400 text-sm pulse-slow">◐</span>
+      </div>
+      <div class="flex-1 min-w-0">
+        <div class="text-sm text-white font-medium">Tier 2 · Camoufox</div>
+        <div class="text-xs text-purple-400 mt-0.5">Stealth browser rendering...</div>
+      </div>
+      <div class="text-[10px] text-purple-400 pulse-slow">12s</div>
+    </div>
+
+    <!-- Tier 3 — pending -->
+    <div class="flex items-center gap-4 py-4 border-b border-neutral-900/30" aria-label="Tier 3 pending">
+      <div class="w-8 h-8 rounded-full bg-neutral-900 flex items-center justify-center shrink-0">
+        <span class="text-neutral-400 text-xs">○</span>
+      </div>
+      <div class="flex-1">
+        <div class="text-sm text-neutral-400">Tier 3 · Camoufox + Proxy</div>
+      </div>
+    </div>
+
+    <!-- Tier 4 — pending -->
+    <div class="flex items-center gap-4 py-4 border-b border-neutral-900/30" aria-label="Tier 4 pending">
+      <div class="w-8 h-8 rounded-full bg-neutral-900/60 flex items-center justify-center shrink-0">
+        <span class="text-neutral-400 text-xs">○</span>
+      </div>
+      <div class="flex-1">
+        <div class="text-sm text-neutral-400">Tier 4 · Wayback Machine</div>
+      </div>
+    </div>
+
+    <!-- Tier 5 — pending -->
+    <div class="flex items-center gap-4 py-4" aria-label="Tier 5 pending">
+      <div class="w-8 h-8 rounded-full bg-neutral-900/40 flex items-center justify-center shrink-0">
+        <span class="text-neutral-400 text-xs">○</span>
+      </div>
+      <div class="flex-1">
+        <div class="text-sm text-neutral-400">Tier 5 · archive.today</div>
+      </div>
+    </div>
+
+  </div>
+
+</main>
+
+</div>
+</body>
+</html>

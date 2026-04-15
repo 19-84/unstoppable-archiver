@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>No Results — Warm</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>body{font-family:'Inter',system-ui,sans-serif;}.font-mono{font-family:'JetBrains Mono',ui-monospace,monospace;}</style>
+</head>
+<body class="bg-neutral-950 text-neutral-300 min-h-screen">
+
+<header class="sticky top-0 z-50 bg-neutral-950/95 backdrop-blur border-b border-neutral-800/50">
+  <div class="max-w-4xl mx-auto px-6 py-3 flex items-center gap-4">
+    <a href="home.html" class="text-amber-500 shrink-0">◆</a>
+    <div class="flex-1 bg-neutral-900 border border-neutral-800 rounded-lg px-4 py-2">
+      <input type="text" value="xyznonexistent"
+             class="w-full bg-transparent text-neutral-200 outline-none font-mono text-sm">
+    </div>
+  </div>
+</header>
+
+<main class="max-w-2xl mx-auto px-6 py-20 text-center">
+
+  <p class="text-neutral-600 mb-2">No results for</p>
+  <p class="font-mono text-neutral-400 mb-8">"xyznonexistent"</p>
+
+  <p class="text-sm text-neutral-600 mb-6">Archive a page instead?</p>
+  <form class="flex gap-2 max-w-md mx-auto mb-12">
+    <input type="url" placeholder="https://"
+           class="flex-1 px-4 py-2.5 bg-neutral-900 border border-neutral-800 rounded-lg text-neutral-200 font-mono text-sm outline-none focus:border-amber-500/40 transition">
+    <button class="px-5 py-2.5 bg-amber-500 text-black text-sm font-semibold rounded-lg hover:bg-amber-400 transition">Go</button>
+  </form>
+
+  <div class="text-left max-w-md mx-auto">
+    <p class="text-[10px] text-neutral-700 uppercase tracking-wider mb-2">Search operators</p>
+    <div class="flex flex-wrap gap-1.5">
+      <span class="font-mono text-[10px] text-neutral-700 bg-neutral-900 px-2 py-0.5 rounded border border-neutral-800">intitle:</span>
+      <span class="font-mono text-[10px] text-neutral-700 bg-neutral-900 px-2 py-0.5 rounded border border-neutral-800">site:</span>
+      <span class="font-mono text-[10px] text-neutral-700 bg-neutral-900 px-2 py-0.5 rounded border border-neutral-800">inurl:</span>
+      <span class="font-mono text-[10px] text-neutral-700 bg-neutral-900 px-2 py-0.5 rounded border border-neutral-800">source:</span>
+      <span class="font-mono text-[10px] text-neutral-700 bg-neutral-900 px-2 py-0.5 rounded border border-neutral-800">tier:</span>
+      <span class="font-mono text-[10px] text-neutral-700 bg-neutral-900 px-2 py-0.5 rounded border border-neutral-800">before:</span>
+      <span class="font-mono text-[10px] text-neutral-700 bg-neutral-900 px-2 py-0.5 rounded border border-neutral-800">after:</span>
+      <span class="font-mono text-[10px] text-neutral-700 bg-neutral-900 px-2 py-0.5 rounded border border-neutral-800">size:>5mb</span>
+      <span class="font-mono text-[10px] text-neutral-700 bg-neutral-900 px-2 py-0.5 rounded border border-neutral-800">has:warc</span>
+      <span class="font-mono text-[10px] text-neutral-700 bg-neutral-900 px-2 py-0.5 rounded border border-neutral-800">is:complete</span>
+      <span class="font-mono text-[10px] text-neutral-700 bg-neutral-900 px-2 py-0.5 rounded border border-neutral-800">net:tor</span>
+      <span class="font-mono text-[10px] text-neutral-700 bg-neutral-900 px-2 py-0.5 rounded border border-neutral-800">"phrase"</span>
+      <span class="font-mono text-[10px] text-neutral-700 bg-neutral-900 px-2 py-0.5 rounded border border-neutral-800">-exclude</span>
+      <span class="font-mono text-[10px] text-neutral-700 bg-neutral-900 px-2 py-0.5 rounded border border-neutral-800">OR</span>
+    </div>
+  </div>
+</main>
+</body>
+</html>

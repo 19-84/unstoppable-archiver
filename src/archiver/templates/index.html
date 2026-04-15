@@ -1,3 +1,5 @@
+<!-- ABOUTME: Home page with archive/search input and stats -->
+<!-- ABOUTME: Single unified input detects URLs vs search queries -->
 {% extends "base.html" %}
 
 {% block title %}Unstoppable Archive{% endblock %}
@@ -15,8 +17,8 @@
 </div>
 
 <div class="w-full max-w-lg mb-5">
-  <form action="/api/archives" method="POST" role="search" aria-label="Archive or search"
-        hx-post="/api/archives" hx-target="#result-area" hx-swap="innerHTML"
+  <form action="/submit" method="POST" role="search" aria-label="Archive or search"
+        hx-post="/submit" hx-target="#result-area" hx-swap="innerHTML"
         hx-indicator="#submit-spinner">
     <label for="main-input" class="sr-only">Enter a URL to archive or search terms</label>
     <div class="relative group">

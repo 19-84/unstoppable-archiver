@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Unstoppable Archive — self-hosted web preservation with five capture tiers">
+<title>Viewer (Glass Noir)</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  .font-mono { font-family: 'DM Mono', ui-monospace, monospace; }
+*:focus-visible{outline:2px solid #a855f7;outline-offset:2px;border-radius:4px;}
+</style>
+</head>
+<body class="bg-white text-neutral-500 min-h-screen">
+
+<!-- Compact dark toolbar — the archive context bar the user wanted -->
+<nav class="sticky top-0 z-50 bg-[#0a0812]/95 backdrop-blur-xl text-neutral-400 border-b border-purple-500/10">
+  <div class="px-4 py-2 flex items-center justify-between gap-4">
+    <div class="flex items-center gap-3 min-w-0">
+      <a href="detail.html" class="text-purple-400 hover:text-purple-300 text-sm shrink-0" aria-label="Back to detail">←</a>
+      <div class="w-px h-4 bg-neutral-800"></div>
+      <span class="font-mono text-xs text-neutral-400 truncate">blog.example.com/rust-ownership-explained</span>
+    </div>
+    <div class="flex items-center gap-3 shrink-0">
+      <span class="text-emerald-500 text-xs">● Direct</span>
+      <time class="text-xs text-neutral-400">2026-04-14</time>
+      <div class="w-px h-4 bg-neutral-800"></div>
+      <a href="#" class="text-[10px] px-2 py-1 bg-white/5 text-neutral-400 rounded hover:bg-white/10 transition">WARC</a>
+      <a href="#" class="text-[10px] px-2 py-1 bg-white/5 text-neutral-400 rounded hover:bg-white/10 transition">HTML</a>
+      <select aria-label="Select snapshot version" class="text-[10px] bg-white/5 text-neutral-400 rounded px-2 py-1 border-0 outline-none">
+        <option>1 of 3</option>
+        <option>Apr 10 · wayback</option>
+        <option>Mar 28 · camoufox</option>
+      </select>
+    </div>
+  </div>
+</nav>
+
+<!-- Archived content — rendered inline, light background for readability -->
+<main role="main"><article class="max-w-3xl mx-auto px-8 py-12" style="font-family: Georgia, 'Times New Roman', serif;">
+
+  <h1 style="font-size: 2.25rem; font-weight: bold; margin-bottom: 0.5rem; color: #111; line-height: 1.2;">
+    Understanding Rust Ownership
+  </h1>
+  <p style="color: #888; margin-bottom: 2.5rem; font-size: 0.875rem;">Published March 15, 2026 · 12 min read</p>
+
+  <p style="font-size: 1.1rem; line-height: 1.85; color: #333; margin-bottom: 1.5rem;">
+    Ownership is Rust's most unique feature, and it enables Rust to make memory safety guarantees without needing a garbage collector. In this article, we'll explore ownership, borrowing, and lifetimes — the three pillars that make Rust's memory model both safe and performant.
+  </p>
+
+  <h2 style="font-size: 1.5rem; font-weight: bold; margin-top: 2.5rem; margin-bottom: 1rem; color: #111;">What is Ownership?</h2>
+
+  <p style="font-size: 1.1rem; line-height: 1.85; color: #333; margin-bottom: 1.5rem;">
+    All programs have to manage the way they use a computer's memory while running. Some languages have garbage collection that regularly looks for no-longer-used memory; in others, the programmer must explicitly allocate and free the memory. Rust uses a third approach.
+  </p>
+
+  <div style="background: #1a1a2e; border-radius: 12px; padding: 1.5rem; margin: 2rem 0; font-family: 'DM Mono', monospace; font-size: 0.85rem; line-height: 1.7; overflow-x: auto;">
+    <pre style="margin: 0; color: #e2e8f0;"><code><span style="color: #c792ea;">fn</span> <span style="color: #82aaff;">main</span>() {
+    <span style="color: #c792ea;">let</span> s1 = <span style="color: #82aaff;">String</span>::from(<span style="color: #c3e88d;">"hello"</span>);
+    <span style="color: #c792ea;">let</span> s2 = s1;
+
+    <span style="color: #546e7a;">// s1 is no longer valid here</span>
+    <span style="color: #82aaff;">println!</span>(<span style="color: #c3e88d;">"{}"</span>, s2);
+}</code></pre>
+  </div>
+
+  <h2 style="font-size: 1.5rem; font-weight: bold; margin-top: 2.5rem; margin-bottom: 1rem; color: #111;">The Rules</h2>
+
+  <ul style="font-size: 1.1rem; line-height: 1.85; color: #333; padding-left: 1.5rem; margin-bottom: 1.5rem;">
+    <li style="margin-bottom: 0.75rem;">Each value has a variable that's called its <em>owner</em>.</li>
+    <li style="margin-bottom: 0.75rem;">There can only be one owner at a time.</li>
+    <li style="margin-bottom: 0.75rem;">When the owner goes out of scope, the value is dropped.</li>
+  </ul>
+
+  <blockquote style="border-left: 3px solid #7c3aed; padding: 1rem 1.5rem; margin: 2rem 0; background: #faf5ff; border-radius: 0 8px 8px 0;">
+    <p style="color: #4c1d95; font-size: 0.95rem; line-height: 1.7; margin: 0;">
+      <strong>This is a self-contained archived snapshot.</strong> All CSS is inlined. All images are data URIs. Text is selectable. Ctrl+F works. No external requests are made. Scripts are stripped.
+    </p>
+  </blockquote>
+
+</article></main>
+</body>
+</html>
