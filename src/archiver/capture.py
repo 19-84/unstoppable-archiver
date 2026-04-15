@@ -29,7 +29,13 @@ from archiver.singlefile import (
 )
 from archiver.warc_writer import CapturedExchange, PlaywrightWARCWriter
 
-_stealth = Stealth()
+_stealth = Stealth(
+    # Match platform to actual OS to avoid platform/UA mismatch
+    navigator_platform_override="Linux x86_64",
+    # Consistent WebGL fingerprint (Intel is common and unsuspicious)
+    webgl_vendor_override="Intel Inc.",
+    webgl_renderer_override="Intel Iris OpenGL Engine",
+)
 
 log = structlog.get_logger()
 

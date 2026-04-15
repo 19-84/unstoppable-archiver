@@ -17,6 +17,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libpango-1.0-0 libcairo2 libasound2t64 libxshmfence1 \
     # Camoufox (Firefox) deps
     libgtk-3-0 libx11-xcb1 \
+    # Fonts for realistic fingerprint (headless browsers typically have ~1 font)
+    fonts-liberation fonts-noto-core fonts-dejavu-core fontconfig \
     # Camoufox Xvfb
     xvfb \
     # Utilities
