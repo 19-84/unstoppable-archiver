@@ -53,3 +53,19 @@ Schema managed in `src/archiver/db.py`.
 - `postgres` — PostgreSQL 17
 - `tor` — Tor SOCKS5 proxy (profile: darknet)
 - `i2p` — I2P HTTP proxy (profile: darknet)
+
+## Production Deployment
+
+Required environment variables:
+- `ARCHIVER_DB_URL` — PostgreSQL connection string (use strong password)
+- `ARCHIVER_API_KEY` — API key for destructive operations (DELETE)
+
+Optional:
+- `ARCHIVER_LOG_LEVEL` — default INFO
+- `ARCHIVER_LOG_FORMAT` — json (production) or console (dev)
+- `ARCHIVER_MAX_CONCURRENT_CAPTURES` — default 2
+- `ARCHIVER_PROXY_LIST` — comma-separated proxy URLs for Tier 3
+
+Backup: `scripts/backup.sh` (requires `pg_dump` and `ARCHIVER_DB_URL`)
+
+All assets (CSS, JS, fonts) are vendored locally — no external CDN dependencies.

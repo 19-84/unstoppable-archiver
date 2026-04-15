@@ -26,6 +26,19 @@ from archiver.repository import ArchiveRepository, JobRepository, PgConnection
 log = structlog.get_logger()
 
 
+def _log_task_exception(task: asyncio.Task[None]) -> None:  # pragma: no cover
+    """Log any unhandled exception from a background task."""
+    if task.cancelled():
+        return
+    exc = task.exception()
+    if exc is not None:
+        log.error(
+            "worker.task_exception",
+            error=str(exc),
+            exc_info=exc,
+        )
+
+
 @beartype
 def next_tier(current: CaptureTier) -> CaptureTier | None:
     """Return the next escalation tier, or None if exhausted."""
@@ -135,6 +148,7 @@ class Worker:
         task = asyncio.create_task(self._process_job(job))
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
+        task.add_done_callback(_log_task_exception)
 
     @beartype
     async def _process_job(self, job: JobRecord) -> None:
