@@ -1,5 +1,5 @@
 # ABOUTME: FastAPI application factory with lifespan management
-# ABOUTME: Wires routes, DB pool, settings, and exception handlers into the ASGI app
+# ABOUTME: Wires routes, DB pool, settings, middleware, and exception handlers into the ASGI app
 # pyright: reportUnusedFunction=false
 """FastAPI application factory."""
 
@@ -14,14 +14,17 @@ from beartype import beartype
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.sessions import SessionMiddleware
 
 from archiver.config import Settings
 from archiver.db import close_pool, create_pool, init_db
 from archiver.errors import AppError, DuplicateCaptureError, NotFoundError
 from archiver.logging import setup_logging
+from archiver.routes.admin import router as admin_router
 from archiver.routes.archives import router as archives_router
 from archiver.routes.health import router as health_router
 from archiver.routes.pages import router as pages_router
+from archiver.routes.reports import router as reports_router
 
 log = structlog.get_logger()
 
@@ -33,7 +36,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:  # pragma: no cover
     pool = await create_pool(settings.db_url.get_secret_value(), min_size=2, max_size=10)
     await init_db(pool)
     app.state.pool = pool
-    log.info("app.started")
+    log.info("app.started", mode=settings.mode)
     yield
     await close_pool(pool)
     log.info("app.stopped")
@@ -65,6 +68,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     app.state.settings = settings
 
+    # Session middleware (for admin auth) — always installed but only used
+    # when admin_enabled. https_only=True in public mode.
+    app.add_middleware(
+        SessionMiddleware,
+        secret_key=settings.session_secret.get_secret_value(),
+        https_only=(settings.mode == "public"),
+        same_site="lax",
+    )
+
     # Static files
     static_dir = Path(__file__).parent / "static"
     if static_dir.exists():
@@ -73,6 +85,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # Routes
     app.include_router(health_router, prefix="/api")
     app.include_router(archives_router, prefix="/api")
+    app.include_router(reports_router)
+    app.include_router(admin_router)
     app.include_router(pages_router)
 
     # Exception handlers

@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}Audit log — Admin{% endblock %}
+{% block header %}{% include "admin/_nav.html" %}{% endblock %}
+{% block content %}
+<div class="max-w-5xl mx-auto px-6 py-8 space-y-2">
+  <h1 class="text-2xl font-bold text-white mb-4">Audit log</h1>
+  <div class="bg-white/[0.02] rounded-xl border border-white/[0.04] divide-y divide-white/[0.04]">
+    {% for e in entries %}
+    <div class="px-5 py-3 text-sm flex items-center gap-4">
+      <time class="font-mono text-xs text-neutral-500 w-36 shrink-0">{{ e.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</time>
+      <span class="px-2 py-0.5 rounded text-xs bg-white/[0.03] text-neutral-300 font-mono">{{ e.action.value }}</span>
+      {% if e.archive_id %}
+      <a href="/archive/{{ e.archive_id }}" class="text-xs font-mono text-purple-400 hover:text-purple-300 truncate">{{ e.archive_id }}</a>
+      {% endif %}
+      {% if e.admin_user %}<span class="text-xs text-neutral-400">{{ e.admin_user }}</span>{% endif %}
+      {% if e.ip_address %}<span class="text-xs text-neutral-500 font-mono ml-auto">{{ e.ip_address }}</span>{% endif %}
+    </div>
+    {% else %}
+    <div class="px-5 py-8 text-center text-neutral-400 text-sm">No audit entries yet.</div>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}

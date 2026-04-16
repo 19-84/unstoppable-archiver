@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}Archives — Admin{% endblock %}
+{% block header %}{% include "admin/_nav.html" %}{% endblock %}
+{% block content %}
+<div class="max-w-5xl mx-auto px-6 py-8 space-y-2">
+  <div class="flex items-center justify-between mb-4">
+    <h1 class="text-2xl font-bold text-white">All archives</h1>
+    <span class="text-xs text-neutral-400">{{ total }} total</span>
+  </div>
+
+  <div class="bg-white/[0.02] rounded-xl border border-white/[0.04] divide-y divide-white/[0.04]">
+    {% for a in archives %}
+    <div class="px-5 py-3 flex items-center justify-between">
+      <div class="flex-1 min-w-0 mr-4">
+        <a href="/archive/{{ a.id }}" class="text-sm text-neutral-300 font-mono truncate block">{{ a.url }}</a>
+        <div class="flex items-center gap-3 text-xs mt-1">
+          {% if a.removed_at %}<span class="text-red-400">removed — {{ a.removed_reason or "no reason" }}</span>
+          {% else %}<span class="text-emerald-400">{{ a.status.value }}</span>{% endif %}
+          <time class="text-neutral-500">{{ a.created_at.strftime('%Y-%m-%d %H:%M') }}</time>
+        </div>
+      </div>
+      <div class="flex gap-2">
+        {% if a.removed_at %}
+        <form method="POST" action="/admin/archives/{{ a.id }}/restore" class="inline">
+          <button type="submit" class="text-xs text-emerald-400 hover:text-emerald-300 px-2 py-1">Restore</button>
+        </form>
+        {% else %}
+        <form method="POST" action="/admin/archives/{{ a.id }}/remove" class="inline">
+          <input type="hidden" name="reason" value="admin action">
+          <button type="submit" class="text-xs text-amber-400 hover:text-amber-300 px-2 py-1">Remove</button>
+        </form>
+        {% endif %}
+        <form method="POST" action="/admin/archives/{{ a.id }}/hard-delete" class="inline"
+              onsubmit="return confirm('Permanently delete this archive and its files?');">
+          <button type="submit" class="text-xs text-red-500 hover:text-red-400 px-2 py-1">Hard delete</button>
+        </form>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+
+  <div class="flex items-center justify-between mt-4 text-xs">
+    {% if offset > 0 %}
+    <a href="/admin/archives?limit={{ limit }}&offset={{ [offset - limit, 0] | max }}" class="text-neutral-400 hover:text-white">← Prev</a>
+    {% else %}<span></span>{% endif %}
+    <span class="text-neutral-500">{{ offset + 1 }}–{{ offset + archives | length }} of {{ total }}</span>
+    {% if offset + limit < total %}
+    <a href="/admin/archives?limit={{ limit }}&offset={{ offset + limit }}" class="text-neutral-400 hover:text-white">Next →</a>
+    {% else %}<span></span>{% endif %}
+  </div>
+</div>
+{% endblock %}

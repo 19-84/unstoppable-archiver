@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}Reports — Admin{% endblock %}
+{% block header %}{% include "admin/_nav.html" %}{% endblock %}
+{% block content %}
+<div class="max-w-5xl mx-auto px-6 py-8 space-y-4">
+  <div class="flex items-center justify-between">
+    <h1 class="text-2xl font-bold text-white">Reports</h1>
+    <div class="flex gap-2 text-xs">
+      {% for s in ["pending", "resolved", "dismissed", "all"] %}
+      <a href="/admin/reports?status={{ s }}"
+         class="px-3 py-1 rounded-lg {% if status_filter == s %}bg-purple-500/20 text-purple-300{% else %}text-neutral-400 hover:text-white{% endif %}">{{ s }}</a>
+      {% endfor %}
+    </div>
+  </div>
+
+  {% for r in reports %}
+  <div class="bg-white/[0.02] border border-white/[0.04] rounded-xl p-5">
+    <div class="flex items-center justify-between mb-2">
+      <div class="flex items-center gap-3">
+        <span class="text-xs px-2 py-0.5 rounded
+          {% if r.reason == ReportStatus and r.reason.value == 'copyright' %}bg-amber-500/10 text-amber-400
+          {% elif r.reason.value == 'personal_info' %}bg-red-500/10 text-red-400
+          {% elif r.reason.value == 'malicious' %}bg-red-500/10 text-red-400
+          {% else %}bg-neutral-500/10 text-neutral-400{% endif %}">{{ r.reason.value }}</span>
+        <time class="text-xs text-neutral-500">{{ r.created_at.strftime('%Y-%m-%d %H:%M') }}</time>
+        <span class="text-xs text-neutral-400">· status: {{ r.status.value }}</span>
+      </div>
+    </div>
+    <div class="mb-2">
+      <a href="/archive/{{ r.archive_id }}" class="text-sm text-purple-400 hover:text-purple-300 font-mono">{{ r.archive_id }}</a>
+    </div>
+    {% if r.details %}
+    <p class="text-sm text-neutral-300 mb-3">{{ r.details }}</p>
+    {% endif %}
+    {% if r.reporter_email %}
+    <p class="text-xs text-neutral-500 mb-3">From: {{ r.reporter_email }}</p>
+    {% endif %}
+
+    {% if r.status.value == "pending" %}
+    <form method="POST" action="/admin/reports/{{ r.id }}/resolve" class="flex gap-2 mt-3">
+      <input type="text" name="notes" placeholder="notes (optional)"
+             class="flex-1 bg-white/[0.03] border border-white/[0.06] rounded-lg px-3 py-1.5 text-sm text-white outline-none">
+      <button type="submit" name="action" value="resolve"
+              class="px-3 py-1.5 bg-red-500/80 text-white text-xs rounded-lg hover:bg-red-500">Take down</button>
+      <button type="submit" name="action" value="dismiss"
+              class="px-3 py-1.5 bg-white/[0.03] border border-white/[0.06] text-neutral-400 text-xs rounded-lg hover:text-white">Dismiss</button>
+    </form>
+    {% elif r.resolution_notes %}
+    <p class="text-xs text-neutral-500 mt-2">Resolution: {{ r.resolution_notes }}</p>
+    {% endif %}
+  </div>
+  {% else %}
+  <div class="text-center py-16 text-neutral-400">No {{ status_filter }} reports.</div>
+  {% endfor %}
+</div>
+{% endblock %}

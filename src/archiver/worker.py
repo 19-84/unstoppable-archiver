@@ -23,12 +23,10 @@ from archiver.enums import (
 )
 from archiver.errors import AntiBotDetectedError, CaptureError
 from archiver.fallback import (
-    capture_from_archive_today,
-    capture_from_wayback,
     check_archive_today_availability,
     check_wayback_availability,
 )
-from archiver.models import JobRecord
+from archiver.models import CaptureResult, JobRecord
 from archiver.repository import ArchiveRepository, JobRepository, PgConnection
 
 log = structlog.get_logger()

@@ -12,8 +12,23 @@ import structlog
 from beartype import beartype
 from ulid import ULID
 
-from archiver.enums import ArchiveStatus, CaptureSource, CaptureTier, JobStatus
-from archiver.models import ArchiveRecord, JobRecord, SearchResult
+from archiver.enums import (
+    ArchiveStatus,
+    AuditAction,
+    CaptureSource,
+    CaptureTier,
+    JobStatus,
+    ReportReason,
+    ReportStatus,
+)
+from archiver.models import (
+    ArchiveRecord,
+    AuditLogEntry,
+    JobRecord,
+    ReportCreate,
+    ReportRecord,
+    SearchResult,
+)
 from archiver.url import normalize_url, url_hash
 
 # asyncpg.pool.PoolConnectionProxy is returned by pool.acquire()
@@ -47,6 +62,8 @@ def _record_to_archive(row: asyncpg.Record) -> ArchiveRecord:
         warc_size=row["warc_size"],
         created_at=row["created_at"],
         completed_at=row["completed_at"],
+        removed_at=row.get("removed_at"),
+        removed_reason=row.get("removed_reason"),
     )
 
 
@@ -72,7 +89,8 @@ def _record_to_job(row: asyncpg.Record) -> JobRecord:
 _ARCHIVE_COLS = (
     "id, url, url_hash, title, text_content, status, tier, source, "
     "error_message, artifact_dir, content_hash, screenshot_hash, "
-    "revisit_of, snapshot_size, warc_size, created_at, completed_at"
+    "revisit_of, snapshot_size, warc_size, created_at, completed_at, "
+    "removed_at, removed_reason"
 )
 
 _JOB_COLS = (
@@ -83,8 +101,8 @@ _JOB_COLS = (
 
 # Pre-built SQL — column lists are module-level string constants, not user input.
 _SQL_INSERT_ARCHIVE = (
-    "INSERT INTO archives (id, url, url_hash, status, tier)"
-    " VALUES ($1, $2, $3, $4, $5)"
+    "INSERT INTO archives (id, url, url_hash, status, tier, submitter_ip)"
+    " VALUES ($1, $2, $3, $4, $5, $6)"
     " RETURNING " + _ARCHIVE_COLS
 )
 _SQL_SELECT_ARCHIVE = "SELECT " + _ARCHIVE_COLS + " FROM archives WHERE id = $1"
@@ -113,10 +131,24 @@ _SQL_SEARCH = (
     " ts_rank(search_vector, websearch_to_tsquery('english', $1)) AS rank"
     " FROM archives"
     " WHERE search_vector @@ websearch_to_tsquery('english', $1) AND status = $2"
+    " AND removed_at IS NULL"
+    " ORDER BY rank DESC, created_at DESC"
+    " LIMIT $3 OFFSET $4"
+)
+_SQL_SEARCH_ALL = (
+    "SELECT " + _ARCHIVE_COLS + ","
+    " ts_rank(search_vector, websearch_to_tsquery('english', $1)) AS rank"
+    " FROM archives"
+    " WHERE search_vector @@ websearch_to_tsquery('english', $1) AND status = $2"
     " ORDER BY rank DESC, created_at DESC"
     " LIMIT $3 OFFSET $4"
 )
 _SQL_LIST_RECENT = (
+    "SELECT " + _ARCHIVE_COLS + " FROM archives"
+    " WHERE removed_at IS NULL"
+    " ORDER BY created_at DESC LIMIT $1 OFFSET $2"
+)
+_SQL_LIST_RECENT_ALL = (
     "SELECT " + _ARCHIVE_COLS + " FROM archives"
     " ORDER BY created_at DESC LIMIT $1 OFFSET $2"
 )
@@ -156,6 +188,7 @@ class ArchiveRepository:
         url: str,
         *,
         priority: int = 0,
+        submitter_ip: str | None = None,
     ) -> ArchiveRecord:
         """Create a new archive record and return it."""
         archive_id = _ulid()
@@ -169,6 +202,7 @@ class ArchiveRepository:
             uhash,
             ArchiveStatus.PENDING.value,
             CaptureTier.CHROMIUM.value,
+            submitter_ip,
         )
         assert row is not None  # noqa: S101
         log.info("archive.created", archive_id=archive_id, url=normalized)
@@ -287,19 +321,21 @@ class ArchiveRepository:
         *,
         limit: int = 20,
         offset: int = 0,
+        show_removed: bool = False,
     ) -> SearchResult:
         """Full-text search across archived pages."""
+        removed_filter = "" if show_removed else " AND removed_at IS NULL"
         count_row = await conn.fetchrow(
             "SELECT count(*) FROM archives"
             " WHERE search_vector @@ websearch_to_tsquery('english', $1)"
-            " AND status = $2",
+            " AND status = $2" + removed_filter,
             query,
             ArchiveStatus.COMPLETE.value,
         )
         total = count_row["count"] if count_row else 0
 
         rows = await conn.fetch(
-            _SQL_SEARCH,
+            _SQL_SEARCH_ALL if show_removed else _SQL_SEARCH,
             query,
             ArchiveStatus.COMPLETE.value,
             limit,
@@ -318,21 +354,55 @@ class ArchiveRepository:
         *,
         limit: int = 20,
         offset: int = 0,
+        show_removed: bool = False,
     ) -> tuple[list[ArchiveRecord], int]:
         """List archives, most recent first."""
+        removed_filter = "" if show_removed else " WHERE removed_at IS NULL"
         count_row = await conn.fetchrow(
-            "SELECT count(*) FROM archives"
+            "SELECT count(*) FROM archives" + removed_filter
         )
         total = count_row["count"] if count_row else 0
 
-        rows = await conn.fetch(_SQL_LIST_RECENT, limit, offset)
+        rows = await conn.fetch(
+            _SQL_LIST_RECENT_ALL if show_removed else _SQL_LIST_RECENT,
+            limit,
+            offset,
+        )
         return [_record_to_archive(r) for r in rows], total
+
+    @beartype
+    async def soft_delete(
+        self,
+        conn: PgConnection,
+        archive_id: str,
+        reason: str | None = None,
+    ) -> bool:
+        """Mark an archive as removed without deleting the data."""
+        result = await conn.execute(
+            "UPDATE archives SET removed_at = now(), removed_reason = $2"
+            " WHERE id = $1 AND removed_at IS NULL",
+            archive_id,
+            reason,
+        )
+        return result == "UPDATE 1"
+
+    @beartype
+    async def restore(
+        self, conn: PgConnection, archive_id: str
+    ) -> bool:
+        """Restore a soft-deleted archive."""
+        result = await conn.execute(
+            "UPDATE archives SET removed_at = NULL, removed_reason = NULL"
+            " WHERE id = $1 AND removed_at IS NOT NULL",
+            archive_id,
+        )
+        return result == "UPDATE 1"
 
     @beartype
     async def delete(
         self, conn: PgConnection, archive_id: str
     ) -> bool:
-        """Delete an archive and its jobs (CASCADE)."""
+        """Hard-delete an archive and its jobs (CASCADE)."""
         result = await conn.execute(
             "DELETE FROM archives WHERE id = $1", archive_id
         )
@@ -468,3 +538,200 @@ class JobRepository:
         """Fetch a job by ID."""
         row = await conn.fetchrow(_SQL_SELECT_JOB, job_id)
         return _record_to_job(row) if row else None
+
+
+class AuditRepository:
+    """Audit log CRUD for admin action accountability."""
+
+    @beartype
+    async def log(  # noqa: PLR0913
+        self,
+        conn: PgConnection,
+        action: AuditAction,
+        *,
+        archive_id: str | None = None,
+        admin_user: str | None = None,
+        ip_address: str | None = None,
+        details: dict[str, Any] | None = None,
+    ) -> AuditLogEntry:
+        """Record an admin or system action."""
+        import json
+        row = await conn.fetchrow(
+            "INSERT INTO audit_log"
+            " (id, action, archive_id, admin_user, ip_address, details)"
+            " VALUES ($1, $2, $3, $4, $5, $6::jsonb)"
+            " RETURNING id, created_at, action, archive_id,"
+            " admin_user, ip_address, details",
+            _ulid(),
+            action.value,
+            archive_id,
+            admin_user,
+            ip_address,
+            json.dumps(details) if details else None,
+        )
+        assert row is not None  # noqa: S101
+        return AuditLogEntry(
+            id=row["id"],
+            created_at=row["created_at"],
+            action=AuditAction(row["action"]),
+            archive_id=row["archive_id"],
+            admin_user=row["admin_user"],
+            ip_address=row["ip_address"],
+            details=json.loads(row["details"]) if row["details"] else None,
+        )
+
+    @beartype
+    async def list_recent(
+        self,
+        conn: PgConnection,
+        *,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[AuditLogEntry]:
+        """List recent audit log entries."""
+        import json
+        rows = await conn.fetch(
+            "SELECT id, created_at, action, archive_id,"
+            " admin_user, ip_address, details FROM audit_log"
+            " ORDER BY created_at DESC LIMIT $1 OFFSET $2",
+            limit,
+            offset,
+        )
+        return [
+            AuditLogEntry(
+                id=r["id"],
+                created_at=r["created_at"],
+                action=AuditAction(r["action"]),
+                archive_id=r["archive_id"],
+                admin_user=r["admin_user"],
+                ip_address=r["ip_address"],
+                details=json.loads(r["details"]) if r["details"] else None,
+            )
+            for r in rows
+        ]
+
+
+class ReportRepository:
+    """Abuse report CRUD for public report submission and admin moderation."""
+
+    @beartype
+    async def create(
+        self,
+        conn: PgConnection,
+        archive_id: str,
+        data: ReportCreate,
+        *,
+        reporter_ip: str | None = None,
+    ) -> ReportRecord:
+        """Create a new abuse report (no auth required)."""
+        row = await conn.fetchrow(
+            "INSERT INTO reports"
+            " (id, archive_id, reason, details, reporter_email, reporter_ip)"
+            " VALUES ($1, $2, $3, $4, $5, $6)"
+            " RETURNING id, archive_id, reason, details, reporter_email,"
+            " reporter_ip, created_at, status, resolved_at, resolved_by,"
+            " resolution_notes",
+            _ulid(),
+            archive_id,
+            data.reason.value,
+            data.details,
+            data.reporter_email,
+            reporter_ip,
+        )
+        assert row is not None  # noqa: S101
+        log.info("report.created", archive_id=archive_id, reason=data.reason.value)
+        return _record_to_report(row)
+
+    @beartype
+    async def list_by_status(
+        self,
+        conn: PgConnection,
+        status: ReportStatus | None = None,
+        *,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[ReportRecord]:
+        """List reports, optionally filtered by status."""
+        if status is None:
+            rows = await conn.fetch(
+                "SELECT id, archive_id, reason, details, reporter_email,"
+                " reporter_ip, created_at, status, resolved_at, resolved_by,"
+                " resolution_notes FROM reports"
+                " ORDER BY created_at DESC LIMIT $1 OFFSET $2",
+                limit,
+                offset,
+            )
+        else:
+            rows = await conn.fetch(
+                "SELECT id, archive_id, reason, details, reporter_email,"
+                " reporter_ip, created_at, status, resolved_at, resolved_by,"
+                " resolution_notes FROM reports WHERE status = $1"
+                " ORDER BY created_at DESC LIMIT $2 OFFSET $3",
+                status.value,
+                limit,
+                offset,
+            )
+        return [_record_to_report(r) for r in rows]
+
+    @beartype
+    async def count_pending(self, conn: PgConnection) -> int:
+        """Count pending reports (for admin dashboard)."""
+        row = await conn.fetchrow(
+            "SELECT count(*) FROM reports WHERE status = $1",
+            ReportStatus.PENDING.value,
+        )
+        return int(row["count"]) if row else 0
+
+    @beartype
+    async def get_by_id(
+        self, conn: PgConnection, report_id: str
+    ) -> ReportRecord | None:
+        """Fetch a single report by ID."""
+        row = await conn.fetchrow(
+            "SELECT id, archive_id, reason, details, reporter_email,"
+            " reporter_ip, created_at, status, resolved_at, resolved_by,"
+            " resolution_notes FROM reports WHERE id = $1",
+            report_id,
+        )
+        return _record_to_report(row) if row else None
+
+    @beartype
+    async def update_status(
+        self,
+        conn: PgConnection,
+        report_id: str,
+        status: ReportStatus,
+        *,
+        resolved_by: str | None = None,
+        notes: str | None = None,
+    ) -> ReportRecord | None:
+        """Update report status (admin action)."""
+        row = await conn.fetchrow(
+            "UPDATE reports SET status = $2, resolved_at = now(),"
+            " resolved_by = $3, resolution_notes = $4"
+            " WHERE id = $1 RETURNING id, archive_id, reason, details,"
+            " reporter_email, reporter_ip, created_at, status, resolved_at,"
+            " resolved_by, resolution_notes",
+            report_id,
+            status.value,
+            resolved_by,
+            notes,
+        )
+        return _record_to_report(row) if row else None
+
+
+@beartype
+def _record_to_report(row: asyncpg.Record) -> ReportRecord:
+    return ReportRecord(
+        id=row["id"],
+        archive_id=row["archive_id"],
+        reason=ReportReason(row["reason"]),
+        details=row["details"],
+        reporter_email=row["reporter_email"],
+        reporter_ip=row["reporter_ip"],
+        created_at=row["created_at"],
+        status=ReportStatus(row["status"]),
+        resolved_at=row["resolved_at"],
+        resolved_by=row["resolved_by"],
+        resolution_notes=row["resolution_notes"],
+    )

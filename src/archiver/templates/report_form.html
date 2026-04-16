@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}Report archive — Unstoppable Archive{% endblock %}
+{% block main_class %}px-6{% endblock %}
+{% block head %}
+{% if captcha_enabled and hcaptcha_sitekey %}
+<script src="https://js.hcaptcha.com/1/api.js" async defer></script>
+{% endif %}
+{% endblock %}
+{% block content %}
+<div class="max-w-xl mx-auto py-8 space-y-6">
+  <div>
+    <h1 class="text-2xl font-bold text-white mb-1">Report this archive</h1>
+    <p class="text-sm text-neutral-400 font-mono truncate">{{ archive.url }}</p>
+  </div>
+
+  <form method="POST" action="/report/{{ archive.id }}" class="space-y-5">
+    <div>
+      <label for="reason" class="block text-xs text-neutral-400 uppercase tracking-wider mb-2">Reason</label>
+      <select id="reason" name="reason" required
+              class="w-full bg-white/[0.03] border border-white/[0.06] rounded-xl px-4 py-2.5 text-white outline-none text-sm">
+        {% for r in reasons %}
+        <option value="{{ r.value }}">{{ r.value | replace("_", " ") }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div>
+      <label for="details" class="block text-xs text-neutral-400 uppercase tracking-wider mb-2">Details</label>
+      <textarea id="details" name="details" rows="4" maxlength="2000"
+                placeholder="Describe the issue (DMCA claim, PII, malware, etc.)"
+                class="w-full bg-white/[0.03] border border-white/[0.06] rounded-xl px-4 py-2.5 text-white outline-none text-sm resize-none"></textarea>
+    </div>
+
+    <div>
+      <label for="reporter_email" class="block text-xs text-neutral-400 uppercase tracking-wider mb-2">Email (optional)</label>
+      <input id="reporter_email" type="email" name="reporter_email" maxlength="200"
+             class="w-full bg-white/[0.03] border border-white/[0.06] rounded-xl px-4 py-2.5 text-white outline-none text-sm font-mono">
+      <p class="text-xs text-neutral-500 mt-1">We may contact you for clarification.</p>
+    </div>
+
+    {% if captcha_enabled and hcaptcha_sitekey %}
+    <div class="h-captcha" data-sitekey="{{ hcaptcha_sitekey }}"></div>
+    {% endif %}
+
+    <div class="flex gap-2">
+      <button type="submit" class="px-5 py-2.5 bg-purple-500 text-white text-sm font-medium rounded-xl hover:bg-purple-400 transition">Submit report</button>
+      <a href="/archive/{{ archive.id }}" class="px-5 py-2.5 bg-white/[0.03] border border-white/[0.06] text-neutral-400 text-sm rounded-xl hover:border-white/[0.12]">Cancel</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

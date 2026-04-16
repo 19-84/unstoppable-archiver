@@ -9,6 +9,7 @@ from collections.abc import AsyncIterator
 import asyncpg.pool
 from fastapi import HTTPException, Request
 
+from archiver.config import Settings
 from archiver.repository import PgConnection
 
 
@@ -17,6 +18,21 @@ async def get_db(request: Request) -> AsyncIterator[PgConnection]:
     pool: asyncpg.pool.Pool = request.app.state.pool
     async with pool.acquire() as conn:
         yield conn
+
+
+def get_settings(request: Request) -> Settings:
+    """Return the app-wide Settings instance."""
+    return request.app.state.settings  # type: ignore[no-any-return]
+
+
+def get_client_ip(request: Request) -> str:
+    """Return submitter IP. Respects X-Forwarded-For only when trusted_proxies=True."""
+    settings: Settings = request.app.state.settings
+    if settings.trusted_proxies:
+        xff = request.headers.get("x-forwarded-for", "")
+        if xff:
+            return xff.split(",")[0].strip()
+    return request.client.host if request.client else ""
 
 
 async def require_api_key(request: Request) -> None:

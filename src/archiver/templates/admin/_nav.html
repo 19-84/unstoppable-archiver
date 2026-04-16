@@ -1,0 +1,16 @@
+<nav class="sticky top-0 z-50 bg-[#050208]/90 backdrop-blur-xl border-b border-white/[0.04]" role="banner">
+  <div class="max-w-5xl mx-auto px-6 py-3 flex items-center justify-between text-sm">
+    <div class="flex items-center gap-6">
+      <a href="/admin/" class="text-white font-medium">Admin</a>
+      <a href="/admin/reports" class="text-neutral-400 hover:text-white transition">Reports</a>
+      <a href="/admin/archives" class="text-neutral-400 hover:text-white transition">Archives</a>
+      <a href="/admin/audit" class="text-neutral-400 hover:text-white transition">Audit</a>
+    </div>
+    <div class="flex items-center gap-4">
+      <a href="/" class="text-neutral-400 hover:text-white transition text-xs">← site</a>
+      <form method="POST" action="/admin/logout" class="inline">
+        <button type="submit" class="text-xs text-red-400 hover:text-red-300">Logout</button>
+      </form>
+    </div>
+  </div>
+</nav>

@@ -10,7 +10,15 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, HttpUrl
 
-from archiver.enums import ArchiveStatus, CaptureSource, CaptureTier, JobStatus
+from archiver.enums import (
+    ArchiveStatus,
+    AuditAction,
+    CaptureSource,
+    CaptureTier,
+    JobStatus,
+    ReportReason,
+    ReportStatus,
+)
 
 
 class ArchiveCreate(BaseModel):
@@ -45,6 +53,8 @@ class ArchiveRecord(BaseModel):
     warc_size: int | None = None
     created_at: datetime
     completed_at: datetime | None = None
+    removed_at: datetime | None = None
+    removed_reason: str | None = None
 
 
 class JobRecord(BaseModel):
@@ -84,6 +94,48 @@ class ArchiveListResponse(BaseModel):
 
     archives: list[ArchiveRecord]
     total: int
+
+
+class AuditLogEntry(BaseModel):
+    """Audit log entry for admin actions and system events."""
+
+    model_config = ConfigDict(strict=True, from_attributes=True, extra="forbid")
+
+    id: str
+    created_at: datetime
+    action: AuditAction
+    archive_id: str | None = None
+    admin_user: str | None = None
+    ip_address: str | None = None
+    details: dict | None = None  # type: ignore[type-arg]
+
+
+class ReportCreate(BaseModel):
+    """Request model for submitting an abuse report."""
+
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    reason: ReportReason
+    details: str | None = None
+    reporter_email: str | None = None
+
+
+class ReportRecord(BaseModel):
+    """Database record for an abuse report."""
+
+    model_config = ConfigDict(strict=True, from_attributes=True, extra="forbid")
+
+    id: str
+    archive_id: str
+    reason: ReportReason
+    details: str | None = None
+    reporter_email: str | None = None
+    reporter_ip: str | None = None
+    created_at: datetime
+    status: ReportStatus = ReportStatus.PENDING
+    resolved_at: datetime | None = None
+    resolved_by: str | None = None
+    resolution_notes: str | None = None
 
 
 @dataclass(frozen=True)

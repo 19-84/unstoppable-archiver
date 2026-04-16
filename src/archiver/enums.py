@@ -52,6 +52,36 @@ class NetworkType(StrEnum):
     I2P = "i2p"
 
 
+class AuditAction(StrEnum):
+    """Admin and system actions tracked in the audit log."""
+
+    ARCHIVE_SOFT_DELETE = "archive_soft_delete"
+    ARCHIVE_HARD_DELETE = "archive_hard_delete"
+    ARCHIVE_RESTORE = "archive_restore"
+    REPORT_RESOLVED = "report_resolved"
+    REPORT_DISMISSED = "report_dismissed"
+    ADMIN_LOGIN = "admin_login"
+    ADMIN_LOGIN_FAILED = "admin_login_failed"
+    ADMIN_LOGOUT = "admin_logout"
+
+
+class ReportReason(StrEnum):
+    """Reasons for reporting an archived page."""
+
+    COPYRIGHT = "copyright"
+    PERSONAL_INFO = "personal_info"
+    MALICIOUS = "malicious"
+    OTHER = "other"
+
+
+class ReportStatus(StrEnum):
+    """Abuse report lifecycle states."""
+
+    PENDING = "pending"
+    RESOLVED = "resolved"
+    DISMISSED = "dismissed"
+
+
 # Tier escalation order for clearnet URLs
 CLEARNET_TIER_ORDER: list[CaptureTier] = [
     CaptureTier.CHROMIUM,

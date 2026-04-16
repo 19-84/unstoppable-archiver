@@ -11,8 +11,9 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
-from archiver.deps import get_db
+from archiver.deps import get_client_ip, get_db, get_settings
 from archiver.enums import ArchiveStatus
+from archiver.rate_limit import enforce_limit
 from archiver.repository import ArchiveRepository, PgConnection
 
 router = APIRouter(tags=["pages"])
@@ -29,14 +30,14 @@ async def index(
     conn: Annotated[PgConnection, Depends(get_db)],
 ) -> HTMLResponse:
     """Home page with archive/search input and stats."""
-    # Gather anonymous stats
+    # Gather anonymous stats (exclude soft-deleted archives)
     stats_row = await conn.fetchrow(
         "SELECT"
         " count(*) as total_pages,"
         " count(DISTINCT split_part(url, '/', 3)) as total_domains,"
         " coalesce(sum(coalesce(snapshot_size, 0) + coalesce(warc_size, 0)), 0) as total_bytes,"
         " count(*) FILTER (WHERE status = 'complete') as complete_count"
-        " FROM archives"
+        " FROM archives WHERE removed_at IS NULL"
     )
     total = stats_row["total_pages"] if stats_row else 0
     complete = stats_row["complete_count"] if stats_row else 0
@@ -60,6 +61,8 @@ async def submit_form(
 
     Accepts form-encoded data, creates archive, redirects to detail.
     """
+    settings = get_settings(request)
+    enforce_limit(request, settings.rate_limit_submit_per_hour)
     from archiver.enums import CaptureTier
     from archiver.repository import JobRepository
 
@@ -93,7 +96,9 @@ async def submit_form(
             status_code=400,
         )
 
-    archive = await _archive_repo.create(conn, url)
+    archive = await _archive_repo.create(
+        conn, url, submitter_ip=get_client_ip(request)
+    )
     job_repo = JobRepository()
     await job_repo.enqueue(conn, archive.id, CaptureTier.CHROMIUM)
 
@@ -113,13 +118,17 @@ async def archive_detail(
     if archive is None:
         raise HTTPException(status_code=404, detail="Archive not found")
 
-    # Get snapshot history for this URL
-    history = await _archive_repo.get_by_url_hash(conn, archive.url_hash)
+    # Get snapshot history for this URL (filter removed)
+    history = [
+        h for h in await _archive_repo.get_by_url_hash(conn, archive.url_hash)
+        if h.removed_at is None
+    ]
 
+    settings = get_settings(request)
     return templates.TemplateResponse(
         request,
         "archive_detail.html",
-        {"archive": archive, "history": history},
+        {"archive": archive, "history": history, "mode": settings.mode},
     )
 
 

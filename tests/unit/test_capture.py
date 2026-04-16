@@ -108,13 +108,13 @@ class TestCapturePageSuccess:
 
     @patch("archiver.capture.load_bundle", return_value="// fake JS")
     @patch("archiver.capture.check_anti_bot")
-    async def test_firefox_tier_uses_script_tag(
+    async def test_firefox_xray_falls_back_to_script_tag(
         self,
         mock_detect: MagicMock,
         mock_bundle: MagicMock,
         tmp_path: Path,
     ) -> None:
-        """Camoufox tier injects SingleFile via add_script_tag."""
+        """Camoufox falls back to script tag when Xray TypedArray error."""
         from archiver.detection import DetectionSignal
         from archiver.enums import CaptureTier
 
@@ -123,10 +123,15 @@ class TestCapturePageSuccess:
         page = _make_mock_page()
         page.add_script_tag = AsyncMock()
         page.wait_for_function = AsyncMock()
-        # evaluate calls: body text, read __sf_result, body text for extraction
+        # evaluate calls:
+        # 1. body.innerText for anti-bot detection
+        # 2. SINGLEFILE_CAPTURE_JS raises Xray error
+        # 3. read window.__sf_result (from script tag path)
+        # 4. body.innerText for text extraction
         page.evaluate = AsyncMock(
             side_effect=[
                 "Hello world content here " * 50,
+                Exception("Accessing TypedArray data over Xrays is slow"),
                 {"content": "<html>archived</html>", "title": "Test"},
                 "Hello world content here " * 50,
             ]
@@ -143,8 +148,8 @@ class TestCapturePageSuccess:
         )
 
         assert isinstance(result, CaptureResult)
+        # Xray error triggered script tag fallback
         page.add_script_tag.assert_awaited_once()
-        page.add_init_script.assert_not_awaited()
 
     @patch("archiver.capture.load_bundle", return_value="// fake JS")
     @patch("archiver.capture.check_anti_bot")
@@ -187,7 +192,7 @@ class TestCapturePageSuccess:
         mock_bundle: MagicMock,
         tmp_path: Path,
     ) -> None:
-        """SingleFile error via script tag raises CaptureError."""
+        """SingleFile error via script tag fallback raises CaptureError."""
         from archiver.detection import DetectionSignal
         from archiver.enums import CaptureTier
 
@@ -196,9 +201,11 @@ class TestCapturePageSuccess:
         page = _make_mock_page()
         page.add_script_tag = AsyncMock()
         page.wait_for_function = AsyncMock()
+        # evaluate: body text, Xray error (triggers fallback), script-tag result
         page.evaluate = AsyncMock(
             side_effect=[
                 "body text",
+                Exception("Accessing TypedArray data over Xrays is slow"),
                 {"error": "SingleFile failed"},
             ]
         )

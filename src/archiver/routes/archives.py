@@ -11,7 +11,7 @@ import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse
 
-from archiver.deps import get_db, require_api_key
+from archiver.deps import get_client_ip, get_db, require_api_key
 from archiver.enums import CaptureTier
 from archiver.errors import DuplicateCaptureError
 from archiver.models import (
@@ -20,6 +20,7 @@ from archiver.models import (
     ArchiveRecord,
     SearchResult,
 )
+from archiver.rate_limit import enforce_limit
 from archiver.repository import ArchiveRepository, JobRepository, PgConnection
 from archiver.url import url_hash
 
@@ -38,13 +39,14 @@ async def create_archive(
     conn: Annotated[PgConnection, Depends(get_db)],
 ) -> ArchiveRecord:
     """Submit a URL for archiving."""
+    settings = request.app.state.settings
+    enforce_limit(request, settings.rate_limit_submit_per_hour)
     from archiver.url_safety import check_url_safety
 
     safety_error = check_url_safety(str(body.url))
     if safety_error:
         raise HTTPException(status_code=400, detail=safety_error)
 
-    settings = request.app.state.settings
     uhash = url_hash(str(body.url))
 
     # Dedup level 2: check recapture interval
@@ -58,7 +60,9 @@ async def create_archive(
                 existing_id=recent.id,
             )
 
-    archive = await _archive_repo.create(conn, str(body.url))
+    archive = await _archive_repo.create(
+        conn, str(body.url), submitter_ip=get_client_ip(request)
+    )
     await _job_repo.enqueue(
         conn, archive.id, CaptureTier.CHROMIUM, priority=body.priority
     )

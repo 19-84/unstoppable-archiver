@@ -18,7 +18,7 @@ from urllib.parse import urlparse
 import structlog
 from beartype import beartype
 from PIL import Image
-from playwright.async_api import Browser, BrowserContext, Page, Response
+from playwright.async_api import Browser, BrowserContext, Response
 from playwright_stealth import Stealth
 
 from archiver.config import Settings
@@ -48,7 +48,7 @@ log = structlog.get_logger()
 
 
 @beartype
-async def capture_page(
+async def capture_page(  # noqa: C901, PLR0912, PLR0915
     url: str,
     browser: Browser,
     settings: Settings,

@@ -60,9 +60,8 @@ COPY . .
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --extra dev --extra test 2>/dev/null || uv sync --extra dev --extra test
 
-# Install Playwright browsers + Camoufox binary
-RUN uv run playwright install chromium && \
-    uv run python -m camoufox fetch
+# Install Playwright browsers (Camoufox fetched on first worker run, cached via volume)
+RUN uv run playwright install chromium
 
 EXPOSE 8000
 
@@ -84,15 +83,12 @@ COPY . .
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev 2>/dev/null || uv sync --no-dev
 
-# Install browsers + Camoufox binary
-RUN uv run playwright install chromium && \
-    uv run python -m camoufox fetch
+# Install browsers (Camoufox fetched on first run in production; mount cache volume)
+RUN uv run playwright install chromium
 
 # Non-root user for security
 RUN useradd -r -m -d /home/archiver archiver && \
-    mkdir -p /data/archives && chown -R archiver:archiver /data && \
-    cp -r /root/.cache/camoufox /home/archiver/.cache/camoufox 2>/dev/null || true && \
-    chown -R archiver:archiver /home/archiver/.cache 2>/dev/null || true
+    mkdir -p /data/archives && chown -R archiver:archiver /data
 
 # Credentials must be passed at runtime via env vars or secrets, not baked into image
 ENV ARCHIVER_ARTIFACTS_DIR=/data/archives

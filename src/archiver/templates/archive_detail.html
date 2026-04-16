@@ -24,6 +24,13 @@
 {% block content %}
 <div class="max-w-4xl mx-auto px-6 py-8 space-y-6">
 
+  {% if archive.removed_at %}
+  <div class="bg-red-500/10 border border-red-500/30 rounded-2xl p-8 text-center">
+    <h1 class="text-xl font-bold text-red-300 mb-2">This archive has been removed</h1>
+    <p class="text-sm text-neutral-400">{{ archive.removed_reason or "Removed by administrator." }}</p>
+  </div>
+  {% else %}
+
   <div>
     <h1 class="text-2xl font-bold text-white mb-1">{{ archive.title or "Untitled" }}</h1>
     <div class="flex flex-wrap items-center gap-3 text-sm text-neutral-400">
@@ -94,10 +101,15 @@
   </div>
   {% endif %}
 
-  <div class="pt-4 border-t border-white/[0.03]">
+  <div class="pt-4 border-t border-white/[0.03] flex items-center gap-4">
+    {% if mode == "public" %}
+    <a href="/report/{{ archive.id }}" class="text-xs text-amber-400 hover:text-amber-300 transition">Report this archive</a>
+    {% else %}
     <button hx-delete="/api/archives/{{ archive.id }}" hx-confirm="Delete this archive and all its files?"
             hx-target="body"
             class="text-xs text-red-400 hover:text-red-300 transition">Delete this archive</button>
+    {% endif %}
   </div>
+  {% endif %}
 </div>
 {% endblock %}

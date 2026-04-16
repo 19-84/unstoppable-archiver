@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}Admin Dashboard — Unstoppable Archive{% endblock %}
+{% block header %}{% include "admin/_nav.html" %}{% endblock %}
+{% block content %}
+<div class="max-w-5xl mx-auto px-6 py-8 space-y-6">
+  <h1 class="text-2xl font-bold text-white mb-4">Dashboard</h1>
+
+  <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+    <a href="/admin/reports?status=pending" class="bg-white/[0.02] border border-white/[0.04] rounded-xl p-5 hover:border-purple-500/40 transition">
+      <div class="text-xs text-neutral-400 uppercase tracking-wider mb-2">Pending reports</div>
+      <div class="text-3xl font-semibold {% if pending_reports > 0 %}text-amber-400{% else %}text-neutral-200{% endif %}">{{ pending_reports }}</div>
+    </a>
+    <a href="/admin/archives" class="bg-white/[0.02] border border-white/[0.04] rounded-xl p-5 hover:border-purple-500/40 transition">
+      <div class="text-xs text-neutral-400 uppercase tracking-wider mb-2">Total archives</div>
+      <div class="text-3xl font-semibold text-neutral-200">{{ total_archives }}</div>
+    </a>
+    <a href="/admin/audit" class="bg-white/[0.02] border border-white/[0.04] rounded-xl p-5 hover:border-purple-500/40 transition">
+      <div class="text-xs text-neutral-400 uppercase tracking-wider mb-2">Audit log</div>
+      <div class="text-sm text-neutral-400 mt-3">view recent admin actions →</div>
+    </a>
+  </div>
+
+  <section>
+    <h2 class="text-xs text-neutral-400 uppercase tracking-wider mb-3">Recent archives</h2>
+    <div class="bg-white/[0.02] rounded-xl border border-white/[0.04] divide-y divide-white/[0.04]">
+      {% for a in recent_archives %}
+      <div class="px-5 py-3 flex items-center justify-between">
+        <a href="/archive/{{ a.id }}" class="text-sm text-neutral-300 truncate flex-1 mr-4 font-mono">{{ a.url }}</a>
+        <div class="flex items-center gap-3 text-xs">
+          {% if a.removed_at %}<span class="text-red-400">removed</span>
+          {% elif a.status == "complete" %}<span class="text-emerald-400">{{ a.status }}</span>
+          {% else %}<span class="text-neutral-400">{{ a.status }}</span>{% endif %}
+          <time class="text-neutral-500">{{ a.created_at.strftime('%Y-%m-%d %H:%M') }}</time>
+        </div>
+      </div>
+      {% else %}
+      <div class="px-5 py-8 text-center text-neutral-400 text-sm">No archives yet.</div>
+      {% endfor %}
+    </div>
+  </section>
+</div>
+{% endblock %}

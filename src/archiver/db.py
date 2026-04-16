@@ -11,6 +11,8 @@ from beartype import beartype
 log = structlog.get_logger()
 
 SCHEMA_SQL = """
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
 CREATE TABLE IF NOT EXISTS archives (
     id TEXT PRIMARY KEY,
     url TEXT NOT NULL,
@@ -34,13 +36,24 @@ CREATE TABLE IF NOT EXISTS archives (
     warc_size BIGINT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     completed_at TIMESTAMPTZ,
-    metadata JSONB
+    metadata JSONB,
+    removed_at TIMESTAMPTZ,
+    removed_reason TEXT,
+    submitter_ip TEXT,
+    submitter_ip_hashed BOOLEAN NOT NULL DEFAULT FALSE
 );
+
+-- Add columns to existing databases (idempotent)
+ALTER TABLE archives ADD COLUMN IF NOT EXISTS removed_at TIMESTAMPTZ;
+ALTER TABLE archives ADD COLUMN IF NOT EXISTS removed_reason TEXT;
+ALTER TABLE archives ADD COLUMN IF NOT EXISTS submitter_ip TEXT;
+ALTER TABLE archives ADD COLUMN IF NOT EXISTS submitter_ip_hashed BOOLEAN NOT NULL DEFAULT FALSE;
 
 CREATE INDEX IF NOT EXISTS idx_archives_url_hash ON archives(url_hash);
 CREATE INDEX IF NOT EXISTS idx_archives_status ON archives(status);
 CREATE INDEX IF NOT EXISTS idx_archives_created_at ON archives(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_archives_content_hash ON archives(content_hash);
+CREATE INDEX IF NOT EXISTS idx_archives_removed_at ON archives(removed_at);
 
 DO $$
 BEGIN
@@ -68,6 +81,37 @@ CREATE TABLE IF NOT EXISTS jobs (
 );
 
 CREATE INDEX IF NOT EXISTS idx_jobs_archive_id ON jobs(archive_id);
+
+CREATE TABLE IF NOT EXISTS audit_log (
+    id TEXT PRIMARY KEY,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    action TEXT NOT NULL,
+    archive_id TEXT REFERENCES archives(id) ON DELETE SET NULL,
+    admin_user TEXT,
+    ip_address TEXT,
+    details JSONB
+);
+
+CREATE INDEX IF NOT EXISTS idx_audit_log_created_at ON audit_log(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_log_archive_id ON audit_log(archive_id);
+
+CREATE TABLE IF NOT EXISTS reports (
+    id TEXT PRIMARY KEY,
+    archive_id TEXT NOT NULL REFERENCES archives(id) ON DELETE CASCADE,
+    reason TEXT NOT NULL,
+    details TEXT,
+    reporter_email TEXT,
+    reporter_ip TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    status TEXT NOT NULL DEFAULT 'pending',
+    resolved_at TIMESTAMPTZ,
+    resolved_by TEXT,
+    resolution_notes TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_reports_status ON reports(status);
+CREATE INDEX IF NOT EXISTS idx_reports_archive_id ON reports(archive_id);
+CREATE INDEX IF NOT EXISTS idx_reports_created_at ON reports(created_at DESC);
 """
 
 # Partial index for claimable jobs — needs special handling
