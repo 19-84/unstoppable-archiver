@@ -23,8 +23,9 @@ from playwright_stealth import Stealth
 
 from archiver.config import Settings
 from archiver.cookie_cache import CfClearanceCache
+from archiver.darknet import classify_url, get_proxy_for_network
 from archiver.detection import check_anti_bot
-from archiver.enums import CaptureTier
+from archiver.enums import CaptureTier, NetworkType
 from archiver.errors import AntiBotDetectedError, CaptureError
 from archiver.models import CaptureResult
 from archiver.singlefile import (
@@ -64,10 +65,22 @@ async def capture_page(  # noqa: C901, PLR0912, PLR0915
     warc_writer = PlaywrightWARCWriter()
     is_firefox = tier != CaptureTier.CHROMIUM
 
-    context = await browser.new_context(
-        viewport={"width": 1920, "height": 1080},
-        java_script_enabled=True,
-    )
+    # Route darknet URLs through their respective proxies
+    network = classify_url(url)
+    proxy = get_proxy_for_network(network, settings)
+    context_kwargs: dict[str, Any] = {
+        "viewport": {"width": 1920, "height": 1080},
+        "java_script_enabled": True,
+    }
+    if proxy is not None:
+        context_kwargs["proxy"] = {"server": proxy.server}
+        log.info(
+            "capture.darknet_proxy",
+            network=network.value,
+            proxy=proxy.server,
+        )
+
+    context = await browser.new_context(**context_kwargs)
 
     # Apply stealth patches on Chromium contexts to avoid basic detection
     if not is_firefox:
@@ -105,11 +118,14 @@ async def capture_page(  # noqa: C901, PLR0912, PLR0915
         page.on("response", _on_response)
 
         # Inject SingleFile bundle before navigation.
-        # When single-file-cli is available on Chromium, skip JS injection.
+        # NOTE: the single-file-cli subprocess integration is currently
+        # disabled. The CLI expects --flag=value syntax (yargs) and needs
+        # Chromium discovered via --browser-executable-path, and in our
+        # Docker setup it couldn't find the Playwright Chromium. The JS
+        # bundle path below works reliably in all tiers.
         bundle_js = load_bundle(settings.singlefile_bundle_path)
-        use_cli = not is_firefox and cli_available(settings.singlefile_cli_path)
-        if not use_cli:
-            await page.add_init_script(script=bundle_js)
+        use_cli = False
+        await page.add_init_script(script=bundle_js)
 
         # Navigate
         try:
