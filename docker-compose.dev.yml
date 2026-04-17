@@ -7,6 +7,7 @@ services:
     volumes:
       - ./src:/app/src
       - ./tests:/app/tests
+      - ./scripts:/app/scripts
       - artifacts:/data
 
   worker:

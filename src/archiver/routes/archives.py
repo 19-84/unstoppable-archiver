@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse
 
 from archiver.blocklist import DomainBlocklist
-from archiver.deps import get_blocklist, get_client_ip, get_db, require_api_key
+from archiver.deps import get_blocklist, get_client_ip_hash, get_db, require_api_key
 from archiver.enums import CaptureTier
 from archiver.errors import DuplicateCaptureError
 from archiver.models import (
@@ -63,7 +63,7 @@ async def create_archive(
             )
 
     archive = await _archive_repo.create(
-        conn, str(body.url), submitter_ip=get_client_ip(request)
+        conn, str(body.url), submitter_ip_hash=get_client_ip_hash(request)
     )
     await _job_repo.enqueue(
         conn, archive.id, CaptureTier.CHROMIUM, priority=body.priority

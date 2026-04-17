@@ -16,7 +16,7 @@ from fastapi.templating import Jinja2Templates
 from archiver.auth import require_admin_redirect, verify_password
 from archiver.blocklist import load_blocklist
 from archiver.config import Settings
-from archiver.deps import get_client_ip, get_db, get_settings
+from archiver.deps import get_client_ip_hash, get_db, get_settings
 from archiver.enums import AuditAction, ReportStatus
 from archiver.repository import (
     ArchiveRepository,
@@ -65,20 +65,20 @@ async def login_submit(
     if not settings.admin_enabled:
         raise HTTPException(status_code=404)
 
-    ip = get_client_ip(request)
+    ip = get_client_ip_hash(request)
     if verify_password(
         password, settings.admin_password_hash.get_secret_value()
     ):
         request.session["admin"] = True
         await _audit_repo.log(
-            conn, AuditAction.ADMIN_LOGIN, admin_user="admin", ip_address=ip
+            conn, AuditAction.ADMIN_LOGIN, admin_user="admin", ip_address_hash=ip
         )
         # Prevent open-redirect: only allow relative paths
         target = next if next.startswith("/") and not next.startswith("//") else "/admin/"
         return RedirectResponse(url=target, status_code=303)
 
     await _audit_repo.log(
-        conn, AuditAction.ADMIN_LOGIN_FAILED, admin_user="admin", ip_address=ip
+        conn, AuditAction.ADMIN_LOGIN_FAILED, admin_user="admin", ip_address_hash=ip
     )
     return templates.TemplateResponse(
         request,
@@ -99,7 +99,7 @@ async def logout(
             conn,
             AuditAction.ADMIN_LOGOUT,
             admin_user="admin",
-            ip_address=get_client_ip(request),
+            ip_address_hash=get_client_ip_hash(request),
         )
     request.session.clear()
     return RedirectResponse(url="/admin/login", status_code=303)
@@ -175,7 +175,7 @@ async def resolve_report(
     if report is None:
         raise HTTPException(status_code=404)
 
-    ip = get_client_ip(request)
+    ip = get_client_ip_hash(request)
 
     if action == "dismiss":
         await _report_repo.update_status(
@@ -184,7 +184,7 @@ async def resolve_report(
         )
         await _audit_repo.log(
             conn, AuditAction.REPORT_DISMISSED, archive_id=report.archive_id,
-            admin_user="admin", ip_address=ip,
+            admin_user="admin", ip_address_hash=ip,
             details={"report_id": report_id, "notes": notes},
         )
     else:  # resolve (takedown)
@@ -199,12 +199,12 @@ async def resolve_report(
         await _audit_repo.log(
             conn, AuditAction.ARCHIVE_SOFT_DELETE,
             archive_id=report.archive_id,
-            admin_user="admin", ip_address=ip,
+            admin_user="admin", ip_address_hash=ip,
             details={"report_id": report_id, "notes": notes},
         )
         await _audit_repo.log(
             conn, AuditAction.REPORT_RESOLVED, archive_id=report.archive_id,
-            admin_user="admin", ip_address=ip,
+            admin_user="admin", ip_address_hash=ip,
             details={"report_id": report_id},
         )
 
@@ -253,7 +253,7 @@ async def admin_remove_archive(
     )
     await _audit_repo.log(
         conn, AuditAction.ARCHIVE_SOFT_DELETE, archive_id=archive_id,
-        admin_user="admin", ip_address=get_client_ip(request),
+        admin_user="admin", ip_address_hash=get_client_ip_hash(request),
         details={"reason": reason},
     )
     return RedirectResponse(url="/admin/archives", status_code=303)
@@ -273,7 +273,7 @@ async def admin_restore_archive(
     await _archive_repo.restore(conn, archive_id)
     await _audit_repo.log(
         conn, AuditAction.ARCHIVE_RESTORE, archive_id=archive_id,
-        admin_user="admin", ip_address=get_client_ip(request),
+        admin_user="admin", ip_address_hash=get_client_ip_hash(request),
     )
     return RedirectResponse(url="/admin/archives", status_code=303)
 
@@ -300,7 +300,7 @@ async def admin_hard_delete_archive(
     await _archive_repo.delete(conn, archive_id)
     await _audit_repo.log(
         conn, AuditAction.ARCHIVE_HARD_DELETE, archive_id=archive_id,
-        admin_user="admin", ip_address=get_client_ip(request),
+        admin_user="admin", ip_address_hash=get_client_ip_hash(request),
     )
     return RedirectResponse(url="/admin/archives", status_code=303)
 

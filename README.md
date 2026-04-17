@@ -185,4 +185,5 @@ See `CLAUDE.md` for the full overview. Key components:
 
 ## License
 
-AGPL-3.0-or-later. See `LICENSE` (add one if you're forking).
+Public domain via [Unlicense](https://unlicense.org). See `LICENSE`.
+Do whatever you want with this.

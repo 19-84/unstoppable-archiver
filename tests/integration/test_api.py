@@ -108,6 +108,51 @@ class TestArchiveCreate:
         )
         assert resp.status_code == 422  # noqa: PLR2004
 
+    async def test_dedup_returns_409(
+        self,
+        client: AsyncClient,
+        pool: asyncpg.pool.Pool,
+    ) -> None:
+        """Second submission of a recently-complete URL returns 409."""
+        resp = await client.post(
+            "/api/archives", json={"url": "https://dedup.example/"}
+        )
+        archive_id = resp.json()["id"]
+        # Manually mark complete so the dedup check fires
+        async with pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE archives SET status='complete',"
+                " completed_at=now() WHERE id=$1",
+                archive_id,
+            )
+        resp2 = await client.post(
+            "/api/archives", json={"url": "https://dedup.example/"}
+        )
+        assert resp2.status_code == 409  # noqa: PLR2004
+        assert resp2.json()["existing_id"] == archive_id
+
+    async def test_force_override_dedup(
+        self,
+        client: AsyncClient,
+        pool: asyncpg.pool.Pool,
+    ) -> None:
+        resp = await client.post(
+            "/api/archives", json={"url": "https://force.example/"}
+        )
+        archive_id = resp.json()["id"]
+        async with pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE archives SET status='complete',"
+                " completed_at=now() WHERE id=$1",
+                archive_id,
+            )
+        resp2 = await client.post(
+            "/api/archives",
+            json={"url": "https://force.example/", "force": True},
+        )
+        assert resp2.status_code == 201  # noqa: PLR2004
+        assert resp2.json()["id"] != archive_id
+
     async def test_create_force_bypass_dedup(
         self, client: AsyncClient
     ) -> None:
@@ -304,3 +349,53 @@ class TestArtifactEndpoints:
             f"/api/archives/{archive.id}/thumbnail"
         )
         assert resp.status_code == 200  # noqa: PLR2004
+
+    async def test_artifact_404_when_archive_missing(
+        self, client: AsyncClient
+    ) -> None:
+        """All artifact endpoints return 404 for missing archive."""
+        for endpoint in ("snapshot", "warc", "screenshot", "thumbnail"):
+            resp = await client.get(
+                f"/api/archives/nonexistent/{endpoint}"
+            )
+            assert resp.status_code == 404  # noqa: PLR2004
+
+    async def test_artifact_404_when_no_artifacts(
+        self, client: AsyncClient
+    ) -> None:
+        """Archive exists but has no artifacts yet (pending)."""
+        resp = await client.post(
+            "/api/archives", json={"url": "https://example.com/no-art", "force": True}
+        )
+        archive_id = resp.json()["id"]
+        resp = await client.get(
+            f"/api/archives/{archive_id}/warc"
+        )
+        assert resp.status_code == 404  # noqa: PLR2004
+
+    async def test_delete_archive_with_artifacts(
+        self,
+        client: AsyncClient,
+        pool: asyncpg.pool.Pool,
+        tmp_path: Path,
+    ) -> None:
+        """DELETE endpoint removes artifact directory from disk."""
+        # Override artifacts_dir to a fresh tmp dir
+        client._transport.app.state.settings.artifacts_dir = tmp_path  # type: ignore[union-attr]
+        resp = await client.post(
+            "/api/archives",
+            json={"url": "https://example.com/del-art", "force": True},
+        )
+        archive_id = resp.json()["id"]
+        rel_dir = f"hash/{archive_id[:8]}"
+        artifact_path = tmp_path / rel_dir
+        artifact_path.mkdir(parents=True)
+        (artifact_path / "snapshot.html").write_bytes(b"test")
+        async with pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE archives SET artifact_dir=$1 WHERE id=$2",
+                rel_dir, archive_id,
+            )
+        resp = await client.delete(f"/api/archives/{archive_id}")
+        assert resp.status_code == 204  # noqa: PLR2004
+        assert not artifact_path.exists()

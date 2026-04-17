@@ -4,6 +4,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 from collections.abc import AsyncIterator
 
 import asyncpg.pool
@@ -31,14 +33,27 @@ def get_blocklist(request: Request) -> DomainBlocklist:
     return request.app.state.blocklist  # type: ignore[no-any-return]
 
 
-def get_client_ip(request: Request) -> str:
-    """Return submitter IP. Respects X-Forwarded-For only when trusted_proxies=True."""
+def get_client_ip_hash(request: Request) -> str:
+    """Return a privacy-preserving hash of the client IP.
+
+    Raw IPs never leave this function. Same IP produces the same hash
+    (for abuse correlation) but the hash is non-reversible with the salt.
+    """
     settings: Settings = request.app.state.settings
+    raw = request.client.host if request.client else ""
     if settings.trusted_proxies:
         xff = request.headers.get("x-forwarded-for", "")
         if xff:
-            return xff.split(",")[0].strip()
-    return request.client.host if request.client else ""
+            raw = xff.split(",")[0].strip()
+    if not raw:
+        return ""
+    salt = (
+        settings.ip_hash_salt.get_secret_value()
+        or settings.session_secret.get_secret_value()
+    )
+    return hmac.new(
+        salt.encode(), raw.encode(), hashlib.sha256
+    ).hexdigest()[:32]
 
 
 async def require_api_key(request: Request) -> None:

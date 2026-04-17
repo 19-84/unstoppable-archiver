@@ -13,7 +13,7 @@ from fastapi.templating import Jinja2Templates
 
 from archiver.captcha import generate_altcha_challenge
 from archiver.captcha import verify as verify_captcha
-from archiver.deps import get_client_ip, get_db, get_settings
+from archiver.deps import get_client_ip_hash, get_db, get_settings
 from archiver.enums import ReportReason
 from archiver.models import ReportCreate
 from archiver.rate_limit import enforce_limit
@@ -96,7 +96,7 @@ async def submit_report(  # noqa: PLR0913
     )
     await _report_repo.create(
         conn, archive_id, report_data,
-        reporter_ip=get_client_ip(request),
+        reporter_ip_hash=get_client_ip_hash(request),
     )
 
     return templates.TemplateResponse(

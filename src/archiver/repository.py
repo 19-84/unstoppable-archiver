@@ -101,7 +101,7 @@ _JOB_COLS = (
 
 # Pre-built SQL — column lists are module-level string constants, not user input.
 _SQL_INSERT_ARCHIVE = (
-    "INSERT INTO archives (id, url, url_hash, status, tier, submitter_ip)"
+    "INSERT INTO archives (id, url, url_hash, status, tier, submitter_ip_hash)"
     " VALUES ($1, $2, $3, $4, $5, $6)"
     " RETURNING " + _ARCHIVE_COLS
 )
@@ -188,7 +188,7 @@ class ArchiveRepository:
         url: str,
         *,
         priority: int = 0,
-        submitter_ip: str | None = None,
+        submitter_ip_hash: str | None = None,
     ) -> ArchiveRecord:
         """Create a new archive record and return it."""
         archive_id = _ulid()
@@ -202,7 +202,7 @@ class ArchiveRepository:
             uhash,
             ArchiveStatus.PENDING.value,
             CaptureTier.CHROMIUM.value,
-            submitter_ip,
+            submitter_ip_hash,
         )
         assert row is not None  # noqa: S101
         log.info("archive.created", archive_id=archive_id, url=normalized)
@@ -551,22 +551,22 @@ class AuditRepository:
         *,
         archive_id: str | None = None,
         admin_user: str | None = None,
-        ip_address: str | None = None,
+        ip_address_hash: str | None = None,
         details: dict[str, Any] | None = None,
     ) -> AuditLogEntry:
         """Record an admin or system action."""
         import json
         row = await conn.fetchrow(
             "INSERT INTO audit_log"
-            " (id, action, archive_id, admin_user, ip_address, details)"
+            " (id, action, archive_id, admin_user, ip_address_hash, details)"
             " VALUES ($1, $2, $3, $4, $5, $6::jsonb)"
             " RETURNING id, created_at, action, archive_id,"
-            " admin_user, ip_address, details",
+            " admin_user, ip_address_hash, details",
             _ulid(),
             action.value,
             archive_id,
             admin_user,
-            ip_address,
+            ip_address_hash,
             json.dumps(details) if details else None,
         )
         assert row is not None  # noqa: S101
@@ -576,7 +576,7 @@ class AuditRepository:
             action=AuditAction(row["action"]),
             archive_id=row["archive_id"],
             admin_user=row["admin_user"],
-            ip_address=row["ip_address"],
+            ip_address_hash=row["ip_address_hash"],
             details=json.loads(row["details"]) if row["details"] else None,
         )
 
@@ -592,7 +592,7 @@ class AuditRepository:
         import json
         rows = await conn.fetch(
             "SELECT id, created_at, action, archive_id,"
-            " admin_user, ip_address, details FROM audit_log"
+            " admin_user, ip_address_hash, details FROM audit_log"
             " ORDER BY created_at DESC LIMIT $1 OFFSET $2",
             limit,
             offset,
@@ -604,7 +604,7 @@ class AuditRepository:
                 action=AuditAction(r["action"]),
                 archive_id=r["archive_id"],
                 admin_user=r["admin_user"],
-                ip_address=r["ip_address"],
+                ip_address_hash=r["ip_address_hash"],
                 details=json.loads(r["details"]) if r["details"] else None,
             )
             for r in rows
@@ -621,22 +621,22 @@ class ReportRepository:
         archive_id: str,
         data: ReportCreate,
         *,
-        reporter_ip: str | None = None,
+        reporter_ip_hash: str | None = None,
     ) -> ReportRecord:
         """Create a new abuse report (no auth required)."""
         row = await conn.fetchrow(
             "INSERT INTO reports"
-            " (id, archive_id, reason, details, reporter_email, reporter_ip)"
+            " (id, archive_id, reason, details, reporter_email, reporter_ip_hash)"
             " VALUES ($1, $2, $3, $4, $5, $6)"
             " RETURNING id, archive_id, reason, details, reporter_email,"
-            " reporter_ip, created_at, status, resolved_at, resolved_by,"
+            " reporter_ip_hash, created_at, status, resolved_at, resolved_by,"
             " resolution_notes",
             _ulid(),
             archive_id,
             data.reason.value,
             data.details,
             data.reporter_email,
-            reporter_ip,
+            reporter_ip_hash,
         )
         assert row is not None  # noqa: S101
         log.info("report.created", archive_id=archive_id, reason=data.reason.value)
@@ -655,7 +655,7 @@ class ReportRepository:
         if status is None:
             rows = await conn.fetch(
                 "SELECT id, archive_id, reason, details, reporter_email,"
-                " reporter_ip, created_at, status, resolved_at, resolved_by,"
+                " reporter_ip_hash, created_at, status, resolved_at, resolved_by,"
                 " resolution_notes FROM reports"
                 " ORDER BY created_at DESC LIMIT $1 OFFSET $2",
                 limit,
@@ -664,7 +664,7 @@ class ReportRepository:
         else:
             rows = await conn.fetch(
                 "SELECT id, archive_id, reason, details, reporter_email,"
-                " reporter_ip, created_at, status, resolved_at, resolved_by,"
+                " reporter_ip_hash, created_at, status, resolved_at, resolved_by,"
                 " resolution_notes FROM reports WHERE status = $1"
                 " ORDER BY created_at DESC LIMIT $2 OFFSET $3",
                 status.value,
@@ -689,7 +689,7 @@ class ReportRepository:
         """Fetch a single report by ID."""
         row = await conn.fetchrow(
             "SELECT id, archive_id, reason, details, reporter_email,"
-            " reporter_ip, created_at, status, resolved_at, resolved_by,"
+            " reporter_ip_hash, created_at, status, resolved_at, resolved_by,"
             " resolution_notes FROM reports WHERE id = $1",
             report_id,
         )
@@ -710,7 +710,7 @@ class ReportRepository:
             "UPDATE reports SET status = $2, resolved_at = now(),"
             " resolved_by = $3, resolution_notes = $4"
             " WHERE id = $1 RETURNING id, archive_id, reason, details,"
-            " reporter_email, reporter_ip, created_at, status, resolved_at,"
+            " reporter_email, reporter_ip_hash, created_at, status, resolved_at,"
             " resolved_by, resolution_notes",
             report_id,
             status.value,
@@ -728,7 +728,7 @@ def _record_to_report(row: asyncpg.Record) -> ReportRecord:
         reason=ReportReason(row["reason"]),
         details=row["details"],
         reporter_email=row["reporter_email"],
-        reporter_ip=row["reporter_ip"],
+        reporter_ip_hash=row["reporter_ip_hash"],
         created_at=row["created_at"],
         status=ReportStatus(row["status"]),
         resolved_at=row["resolved_at"],

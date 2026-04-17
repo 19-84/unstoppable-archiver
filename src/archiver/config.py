@@ -83,8 +83,10 @@ class Settings(BaseSettings):
     allowlist_urls: str = ""
     allowlist_domains: str = ""
 
-    # Privacy / abuse correlation
-    submitter_ip_retention_days: int = 30
+    # Privacy — IPs are hashed on receipt and never stored raw.
+    # Salt for HMAC-SHA256 hash; if empty, falls back to session_secret.
+    # Same IP → same hash (for abuse correlation) but hash is non-reversible.
+    ip_hash_salt: SecretStr = SecretStr("")
     trusted_proxies: bool = False  # if True, trust X-Forwarded-For header
 
     # Logging

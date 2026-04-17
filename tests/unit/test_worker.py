@@ -274,7 +274,7 @@ class TestWorkerFallbackTiers:
         mock_capture: AsyncMock,
         mock_save: AsyncMock,
     ) -> None:
-        worker, mock_conn = _make_worker()
+        worker, _ = _make_worker()
         job = _make_job(tier=CaptureTier.WAYBACK)
         worker._archive_repo.get_by_id = AsyncMock(
             return_value=_make_archive()
@@ -315,7 +315,7 @@ class TestWorkerFallbackTiers:
         mock_capture: AsyncMock,
         mock_save: AsyncMock,
     ) -> None:
-        worker, mock_conn = _make_worker()
+        worker, _ = _make_worker()
         job = _make_job(tier=CaptureTier.ARCHIVE_TODAY)
         worker._archive_repo.get_by_id = AsyncMock(
             return_value=_make_archive()

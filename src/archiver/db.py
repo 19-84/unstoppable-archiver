@@ -39,15 +39,16 @@ CREATE TABLE IF NOT EXISTS archives (
     metadata JSONB,
     removed_at TIMESTAMPTZ,
     removed_reason TEXT,
-    submitter_ip TEXT,
-    submitter_ip_hashed BOOLEAN NOT NULL DEFAULT FALSE
+    submitter_ip_hash TEXT
 );
 
 -- Add columns to existing databases (idempotent)
 ALTER TABLE archives ADD COLUMN IF NOT EXISTS removed_at TIMESTAMPTZ;
 ALTER TABLE archives ADD COLUMN IF NOT EXISTS removed_reason TEXT;
-ALTER TABLE archives ADD COLUMN IF NOT EXISTS submitter_ip TEXT;
-ALTER TABLE archives ADD COLUMN IF NOT EXISTS submitter_ip_hashed BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE archives ADD COLUMN IF NOT EXISTS submitter_ip_hash TEXT;
+-- Drop old raw-IP columns if upgrading from an earlier version (privacy fix)
+ALTER TABLE archives DROP COLUMN IF EXISTS submitter_ip;
+ALTER TABLE archives DROP COLUMN IF EXISTS submitter_ip_hashed;
 
 CREATE INDEX IF NOT EXISTS idx_archives_url_hash ON archives(url_hash);
 CREATE INDEX IF NOT EXISTS idx_archives_status ON archives(status);
@@ -88,9 +89,19 @@ CREATE TABLE IF NOT EXISTS audit_log (
     action TEXT NOT NULL,
     archive_id TEXT REFERENCES archives(id) ON DELETE SET NULL,
     admin_user TEXT,
-    ip_address TEXT,
+    ip_address_hash TEXT,
     details JSONB
 );
+-- Rename on upgrade if coming from earlier schema (idempotent)
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns
+               WHERE table_name='audit_log' AND column_name='ip_address')
+       AND NOT EXISTS (SELECT 1 FROM information_schema.columns
+                       WHERE table_name='audit_log' AND column_name='ip_address_hash') THEN
+        ALTER TABLE audit_log RENAME COLUMN ip_address TO ip_address_hash;
+    END IF;
+END$$;
 
 CREATE INDEX IF NOT EXISTS idx_audit_log_created_at ON audit_log(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_audit_log_archive_id ON audit_log(archive_id);
@@ -101,13 +112,23 @@ CREATE TABLE IF NOT EXISTS reports (
     reason TEXT NOT NULL,
     details TEXT,
     reporter_email TEXT,
-    reporter_ip TEXT,
+    reporter_ip_hash TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     status TEXT NOT NULL DEFAULT 'pending',
     resolved_at TIMESTAMPTZ,
     resolved_by TEXT,
     resolution_notes TEXT
 );
+-- Rename on upgrade (idempotent)
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns
+               WHERE table_name='reports' AND column_name='reporter_ip')
+       AND NOT EXISTS (SELECT 1 FROM information_schema.columns
+                       WHERE table_name='reports' AND column_name='reporter_ip_hash') THEN
+        ALTER TABLE reports RENAME COLUMN reporter_ip TO reporter_ip_hash;
+    END IF;
+END$$;
 
 CREATE INDEX IF NOT EXISTS idx_reports_status ON reports(status);
 CREATE INDEX IF NOT EXISTS idx_reports_archive_id ON reports(archive_id);

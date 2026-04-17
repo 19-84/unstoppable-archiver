@@ -106,7 +106,7 @@ class AuditLogEntry(BaseModel):
     action: AuditAction
     archive_id: str | None = None
     admin_user: str | None = None
-    ip_address: str | None = None
+    ip_address_hash: str | None = None
     details: dict | None = None  # type: ignore[type-arg]
 
 
@@ -130,7 +130,7 @@ class ReportRecord(BaseModel):
     reason: ReportReason
     details: str | None = None
     reporter_email: str | None = None
-    reporter_ip: str | None = None
+    reporter_ip_hash: str | None = None
     created_at: datetime
     status: ReportStatus = ReportStatus.PENDING
     resolved_at: datetime | None = None

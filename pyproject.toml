@@ -3,7 +3,7 @@ name = "unstoppable-archive"
 version = "0.1.0"
 description = "Self-hosted web archiver with multi-tier anti-bot capture"
 requires-python = ">=3.12"
-license = { text = "AGPL-3.0-or-later" }
+license = { text = "Unlicense" }
 dependencies = [
     "fastapi>=0.135",
     "uvicorn[standard]>=0.44",

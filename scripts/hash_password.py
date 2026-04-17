@@ -8,6 +8,8 @@ from __future__ import annotations
 import getpass
 import sys
 
+MIN_PASSWORD_LEN = 8
+
 
 def main() -> int:
     try:
@@ -25,7 +27,7 @@ def main() -> int:
     else:
         pw = sys.stdin.read().strip()
 
-    if len(pw) < 8:
+    if len(pw) < MIN_PASSWORD_LEN:
         print("error: password must be at least 8 characters", file=sys.stderr)
         return 1
 

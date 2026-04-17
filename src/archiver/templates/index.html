@@ -43,9 +43,40 @@
 
 <div id="result-area"></div>
 
-<div class="w-full max-w-lg text-center text-xs text-neutral-500 mb-16 sm:mb-20">
+<div class="w-full max-w-lg text-center text-xs text-neutral-500 mb-8">
   Full-text search across titles, content, and URLs
 </div>
+
+{% if recent_archives %}
+<div class="w-full max-w-lg mb-12">
+  <h2 class="text-xs text-neutral-400 uppercase tracking-wider mb-3">Recent archives</h2>
+  <div class="bg-white/[0.02] rounded-2xl border border-white/[0.04] divide-y divide-white/[0.04]">
+    {% for a in recent_archives %}
+    <a href="/archive/{{ a.id }}" class="flex items-center gap-3 px-4 py-2.5 hover:bg-white/[0.02] transition group">
+      {% if a.artifact_dir %}
+      <img src="/api/archives/{{ a.id }}/thumbnail" alt="" class="w-10 h-8 object-cover rounded flex-shrink-0 bg-neutral-900">
+      {% else %}
+      <div class="w-10 h-8 rounded bg-neutral-900 flex-shrink-0" aria-hidden="true"></div>
+      {% endif %}
+      <div class="min-w-0 flex-1">
+        <div class="text-sm text-neutral-200 group-hover:text-white truncate">{{ a.title or a.url }}</div>
+        <div class="font-mono text-[11px] text-neutral-500 truncate">{{ a.url }}</div>
+      </div>
+      <div class="flex items-center gap-2 text-[11px] text-neutral-500 flex-shrink-0">
+        {% if a.status == "complete" %}
+        <span class="text-emerald-400">●</span>
+        {% elif a.status == "capturing" or a.status == "pending" %}
+        <span class="text-purple-400 pulse-slow">●</span>
+        {% else %}
+        <span class="text-red-400">●</span>
+        {% endif %}
+        <time>{{ a.created_at.strftime('%m-%d %H:%M') }}</time>
+      </div>
+    </a>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
 
 {% if stats %}
 <div class="w-full max-w-lg">

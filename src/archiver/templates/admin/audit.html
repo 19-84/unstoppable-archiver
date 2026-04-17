@@ -13,7 +13,7 @@
       <a href="/archive/{{ e.archive_id }}" class="text-xs font-mono text-purple-400 hover:text-purple-300 truncate">{{ e.archive_id }}</a>
       {% endif %}
       {% if e.admin_user %}<span class="text-xs text-neutral-400">{{ e.admin_user }}</span>{% endif %}
-      {% if e.ip_address %}<span class="text-xs text-neutral-500 font-mono ml-auto">{{ e.ip_address }}</span>{% endif %}
+      {% if e.ip_address_hash %}<span class="text-xs text-neutral-500 font-mono ml-auto" title="IP hash (raw IP never stored)">{{ e.ip_address_hash[:12] }}…</span>{% endif %}
     </div>
     {% else %}
     <div class="px-5 py-8 text-center text-neutral-400 text-sm">No audit entries yet.</div>

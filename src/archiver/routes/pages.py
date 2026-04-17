@@ -14,7 +14,7 @@ from fastapi.templating import Jinja2Templates
 from archiver.blocklist import DomainBlocklist
 from archiver.deps import (
     get_blocklist,
-    get_client_ip,
+    get_client_ip_hash,
     get_db,
     get_settings,
 )
@@ -53,8 +53,25 @@ async def index(
         "storage_mb": round((stats_row["total_bytes"] if stats_row else 0) / 1048576, 1),
         "success_rate": round(complete / total * 100, 1) if total > 0 else 0,
     }
+
+    settings = get_settings(request)
+    # Recent archives list — self-hosted only (public mode hides this to
+    # avoid providing a browsable index of all public submissions)
+    recent_archives: list[object] = []
+    if settings.mode == "self-hosted":
+        archives, _ = await _archive_repo.list_recent(
+            conn, limit=10, offset=0
+        )
+        recent_archives = list(archives)
+
     return templates.TemplateResponse(
-        request, "index.html", {"stats": stats}
+        request,
+        "index.html",
+        {
+            "stats": stats,
+            "recent_archives": recent_archives,
+            "mode": settings.mode,
+        },
     )
 
 
@@ -104,7 +121,7 @@ async def submit_form(
         )
 
     archive = await _archive_repo.create(
-        conn, url, submitter_ip=get_client_ip(request)
+        conn, url, submitter_ip_hash=get_client_ip_hash(request)
     )
     job_repo = JobRepository()
     await job_repo.enqueue(conn, archive.id, CaptureTier.CHROMIUM)

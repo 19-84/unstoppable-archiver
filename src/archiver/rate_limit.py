@@ -63,9 +63,9 @@ def enforce_limit(
     if not settings.rate_limit_enabled:
         return
 
-    from archiver.deps import get_client_ip
+    from archiver.deps import get_client_ip_hash
 
-    ip = get_client_ip(request) or "unknown"
+    ip = get_client_ip_hash(request) or "unknown"
     allowed, retry_after = _global_limiter.check(ip, limit, window_seconds)
     if not allowed:
         log.warning("rate_limit.exceeded", ip=ip, limit=limit)
