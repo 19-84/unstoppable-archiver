@@ -1,0 +1,54 @@
+# Reverse proxy + automatic HTTPS for Unstoppable Archive (public deployment)
+# Replace archive.example.com with your domain.
+#
+# Usage:
+#   1. Install Caddy: https://caddyserver.com/docs/install
+#   2. Copy this file to /etc/caddy/Caddyfile (or run `caddy run --config ./Caddyfile`)
+#   3. Caddy auto-provisions Let's Encrypt TLS on port 443
+#
+# Assumes the archiver app is bound to 127.0.0.1:8000 (public compose default).
+
+archive.example.com {
+    # Automatic HTTPS via Let's Encrypt
+    # (remove this line and use `http://` if you want HTTP only for testing)
+    tls admin@example.com
+
+    # Hardening headers
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+        X-Content-Type-Options nosniff
+        Referrer-Policy strict-origin-when-cross-origin
+        # Allow embedding the archive viewer iframe
+        Content-Security-Policy "frame-ancestors 'self'"
+        # Remove default Caddy Server header
+        -Server
+    }
+
+    # Upload cap: SingleFile HTML can be large but rarely >50MB
+    request_body {
+        max_size 100MB
+    }
+
+    # Rate limit at the proxy layer as a second line of defense
+    # (requires caddy-ratelimit plugin; optional)
+    # rate_limit {
+    #     zone public {
+    #         key {remote_host}
+    #         events 120
+    #         window 1m
+    #     }
+    # }
+
+    reverse_proxy 127.0.0.1:8000 {
+        # Pass through X-Forwarded-For so submitter IP logging works
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Proto {scheme}
+        header_up X-Forwarded-Host {host}
+    }
+
+    # Optional: block common scanner paths at the edge
+    @scanners {
+        path /wp-admin* /wp-login* /phpmyadmin* /.env /.git*
+    }
+    respond @scanners 404
+}

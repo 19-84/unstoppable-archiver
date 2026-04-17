@@ -1,0 +1,32 @@
+# Self-hosted deployment overlay — single user, local only
+# Usage:
+#   cp .env.example.selfhosted .env
+#   docker compose -f docker-compose.yml -f docker-compose.selfhosted.yml up -d
+# Or via Makefile:
+#   make run-selfhosted
+services:
+  postgres:
+    # DB not exposed to host — only app/worker talk to it over the Docker network
+    ports: !override []
+    environment:
+      POSTGRES_PASSWORD: ${ARCHIVER_DB_PASSWORD:-archiver}
+
+  app:
+    # Bind to localhost only — no external network exposure
+    ports:
+      - "127.0.0.1:8000:8000"
+    environment:
+      ARCHIVER_MODE: self-hosted
+      ARCHIVER_LOG_FORMAT: console
+      ARCHIVER_DB_URL: postgresql://archiver:${ARCHIVER_DB_PASSWORD:-archiver}@postgres:5432/archiver
+      # Optional admin UI — leave blank to disable
+      ARCHIVER_ADMIN_PASSWORD_HASH: ${ARCHIVER_ADMIN_PASSWORD_HASH:-}
+      ARCHIVER_SESSION_SECRET: ${ARCHIVER_SESSION_SECRET:-selfhosted-default-insecure-change-me}
+      # Optional blocklist (usually not needed for personal use)
+      ARCHIVER_BLOCKLIST_URLS: ${ARCHIVER_BLOCKLIST_URLS:-}
+      ARCHIVER_BLOCKLIST_DOMAINS: ${ARCHIVER_BLOCKLIST_DOMAINS:-}
+      ARCHIVER_ALLOWLIST_DOMAINS: ${ARCHIVER_ALLOWLIST_DOMAINS:-}
+
+  worker:
+    environment:
+      ARCHIVER_DB_URL: postgresql://archiver:${ARCHIVER_DB_PASSWORD:-archiver}@postgres:5432/archiver

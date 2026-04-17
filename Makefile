@@ -1,4 +1,6 @@
-.PHONY: test lint typecheck fmt all build dev clean bundle-singlefile
+.PHONY: test test-all lint typecheck fmt all build dev up down clean \
+        run-selfhosted run-public stop-selfhosted stop-public \
+        setup-selfhosted setup-public bundle-singlefile
 
 COMPOSE := docker compose
 RUN := $(COMPOSE) run --rm app
@@ -39,6 +41,27 @@ down:
 
 clean:
 	$(COMPOSE) down -v --remove-orphans
+
+# -- Deployment modes --
+
+setup-selfhosted:
+	@test -f .env || cp .env.example.selfhosted .env
+	@echo "Wrote .env (edit as needed), then run: make run-selfhosted"
+
+setup-public:
+	./scripts/setup-public.sh
+
+run-selfhosted:
+	$(COMPOSE) -f docker-compose.yml -f docker-compose.selfhosted.yml up -d
+
+run-public:
+	$(COMPOSE) -f docker-compose.yml -f docker-compose.public.yml up -d
+
+stop-selfhosted:
+	$(COMPOSE) -f docker-compose.yml -f docker-compose.selfhosted.yml down
+
+stop-public:
+	$(COMPOSE) -f docker-compose.yml -f docker-compose.public.yml down
 
 # -- Vendor --
 

@@ -1,0 +1,57 @@
+# Public deployment overlay — archive.today-style, admin moderates abuse
+# Usage:
+#   ./scripts/setup-public.sh        # generates .env with admin hash + session secret
+#   docker compose -f docker-compose.yml -f docker-compose.public.yml up -d
+# Or via Makefile:
+#   make run-public
+#
+# IMPORTANT: run behind a reverse proxy that terminates TLS (see deploy/Caddyfile).
+# App binds to 127.0.0.1:8000; your proxy forwards the public HTTPS port.
+services:
+  postgres:
+    # DB not exposed to host — inter-container only
+    ports: !override []
+    environment:
+      POSTGRES_PASSWORD: ${ARCHIVER_DB_PASSWORD}  # required — no default
+    restart: always
+
+  app:
+    # Bind to localhost — reverse proxy exposes 443 to the public
+    ports:
+      - "127.0.0.1:8000:8000"
+    environment:
+      ARCHIVER_MODE: public
+      ARCHIVER_LOG_FORMAT: json
+      ARCHIVER_LOG_LEVEL: INFO
+      ARCHIVER_DB_URL: postgresql://archiver:${ARCHIVER_DB_PASSWORD}@postgres:5432/archiver
+      # Required — admin moderation is mandatory in public mode
+      ARCHIVER_ADMIN_PASSWORD_HASH: ${ARCHIVER_ADMIN_PASSWORD_HASH}
+      ARCHIVER_SESSION_SECRET: ${ARCHIVER_SESSION_SECRET}
+      # Trust X-Forwarded-For from reverse proxy for accurate submitter IP
+      ARCHIVER_TRUSTED_PROXIES: "true"
+      # Domain blocklist / allowlist (empty is allowed but recommended to configure)
+      ARCHIVER_BLOCKLIST_URLS: ${ARCHIVER_BLOCKLIST_URLS:-}
+      ARCHIVER_BLOCKLIST_DOMAINS: ${ARCHIVER_BLOCKLIST_DOMAINS:-}
+      ARCHIVER_ALLOWLIST_DOMAINS: ${ARCHIVER_ALLOWLIST_DOMAINS:-}
+      # Rate limits (override defaults via env if needed)
+      ARCHIVER_RATE_LIMIT_SUBMIT_PER_HOUR: ${ARCHIVER_RATE_LIMIT_SUBMIT_PER_HOUR:-60}
+      ARCHIVER_RATE_LIMIT_REPORT_PER_HOUR: ${ARCHIVER_RATE_LIMIT_REPORT_PER_HOUR:-10}
+      # Optional captcha (none|hcaptcha|altcha)
+      ARCHIVER_CAPTCHA_PROVIDER: ${ARCHIVER_CAPTCHA_PROVIDER:-none}
+      ARCHIVER_HCAPTCHA_SITEKEY: ${ARCHIVER_HCAPTCHA_SITEKEY:-}
+      ARCHIVER_HCAPTCHA_SECRET: ${ARCHIVER_HCAPTCHA_SECRET:-}
+      ARCHIVER_ALTCHA_HMAC_KEY: ${ARCHIVER_ALTCHA_HMAC_KEY:-}
+    restart: always
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  worker:
+    environment:
+      ARCHIVER_LOG_FORMAT: json
+      ARCHIVER_LOG_LEVEL: INFO
+      ARCHIVER_DB_URL: postgresql://archiver:${ARCHIVER_DB_PASSWORD}@postgres:5432/archiver
+    restart: always

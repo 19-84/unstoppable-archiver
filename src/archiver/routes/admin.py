@@ -158,7 +158,7 @@ async def reports_list(
     )
 
 
-@router.post("/reports/{report_id}/resolve")
+@router.post("/reports/{report_id}/resolve", response_model=None)
 async def resolve_report(
     report_id: str,
     request: Request,
@@ -236,7 +236,7 @@ async def archives_list(
     )
 
 
-@router.post("/archives/{archive_id}/remove")
+@router.post("/archives/{archive_id}/remove", response_model=None)
 async def admin_remove_archive(
     archive_id: str,
     request: Request,
@@ -259,7 +259,7 @@ async def admin_remove_archive(
     return RedirectResponse(url="/admin/archives", status_code=303)
 
 
-@router.post("/archives/{archive_id}/restore")
+@router.post("/archives/{archive_id}/restore", response_model=None)
 async def admin_restore_archive(
     archive_id: str,
     request: Request,
@@ -278,7 +278,7 @@ async def admin_restore_archive(
     return RedirectResponse(url="/admin/archives", status_code=303)
 
 
-@router.post("/archives/{archive_id}/hard-delete")
+@router.post("/archives/{archive_id}/hard-delete", response_model=None)
 async def admin_hard_delete_archive(
     archive_id: str,
     request: Request,
@@ -305,7 +305,7 @@ async def admin_hard_delete_archive(
     return RedirectResponse(url="/admin/archives", status_code=303)
 
 
-@router.post("/blocklist/reload")
+@router.post("/blocklist/reload", response_model=None)
 async def reload_blocklist(
     request: Request,
     _admin: Annotated[str | RedirectResponse, Depends(require_admin_redirect)],
