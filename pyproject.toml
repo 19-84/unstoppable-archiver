@@ -24,6 +24,7 @@ dependencies = [
     "python-ulid>=3.1",
     "bcrypt>=4.2",
     "itsdangerous>=2.2",
+    "prometheus-client>=0.23",
 ]
 
 [project.optional-dependencies]

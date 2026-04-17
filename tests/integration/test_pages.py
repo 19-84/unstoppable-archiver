@@ -44,6 +44,7 @@ async def client(
     app = create_app(settings)
     app.state.pool = pool
     app.state.blocklist = DomainBlocklist()
+    app.state.settings = settings  # ensure self-hosted mode
     transport = ASGITransport(app=app)  # type: ignore[arg-type]
     async with AsyncClient(
         transport=transport, base_url="http://test"
@@ -74,6 +75,38 @@ class TestHomePage:
     ) -> None:
         resp = await client.get("/")
         assert "Full-text search" in resp.text
+
+    async def test_selfhosted_shows_bookmarklet(
+        self, client: AsyncClient
+    ) -> None:
+        resp = await client.get("/")
+        # Bookmarklet is only rendered in self-hosted mode (default)
+        assert "Archive this" in resp.text
+
+
+class TestRecapture:
+    async def test_recapture_creates_new_archive(
+        self, client: AsyncClient
+    ) -> None:
+        resp = await client.post(
+            "/api/archives",
+            json={"url": "https://example.com/", "force": True},
+        )
+        original_id = resp.json()["id"]
+        resp = await client.post(
+            f"/recapture/{original_id}", follow_redirects=False
+        )
+        assert resp.status_code == 303  # noqa: PLR2004
+        # Should redirect to a *new* archive, not the original
+        assert original_id not in resp.headers["location"]
+
+    async def test_recapture_404_for_missing_archive(
+        self, client: AsyncClient
+    ) -> None:
+        resp = await client.post(
+            "/recapture/nonexistent", follow_redirects=False
+        )
+        assert resp.status_code == 404  # noqa: PLR2004
 
 
 class TestArchiveDetailPage:

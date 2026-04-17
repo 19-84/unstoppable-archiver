@@ -68,6 +68,14 @@ class TestHealth:
         assert resp.status_code == 200  # noqa: PLR2004
         assert resp.json()["database"] == "connected"
 
+    async def test_metrics_endpoint(
+        self, client: AsyncClient
+    ) -> None:
+        resp = await client.get("/api/metrics")
+        assert resp.status_code == 200  # noqa: PLR2004
+        assert "text/plain" in resp.headers["content-type"]
+        assert "archiver_jobs_queued" in resp.text
+
 
 class TestArchiveCreate:
     async def test_create_archive(

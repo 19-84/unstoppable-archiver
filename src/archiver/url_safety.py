@@ -41,6 +41,9 @@ def check_url_safety(
         hostname = (urlparse(url).hostname or "").lower()
         block_reason = blocklist.check(hostname)
         if block_reason:
+            from archiver.metrics import blocklist_hits_total
+
+            blocklist_hits_total.inc()
             return block_reason
     return _check_resolved_ips(url)
 

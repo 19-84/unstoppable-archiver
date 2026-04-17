@@ -68,7 +68,10 @@ def enforce_limit(
     ip = get_client_ip_hash(request) or "unknown"
     allowed, retry_after = _global_limiter.check(ip, limit, window_seconds)
     if not allowed:
+        from archiver.metrics import rate_limit_exceeded_total
+
         log.warning("rate_limit.exceeded", ip=ip, limit=limit)
+        rate_limit_exceeded_total.labels(endpoint=request.url.path).inc()
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail=f"Rate limit exceeded ({limit}/hour). Retry in {retry_after}s.",

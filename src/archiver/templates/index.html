@@ -78,6 +78,17 @@
 </div>
 {% endif %}
 
+{% if mode == "self-hosted" %}
+<div class="w-full max-w-lg mb-8 text-center">
+  <p class="text-xs text-neutral-500 mb-2">Drag to your bookmark bar:</p>
+  {# The bookmarklet POSTs to /submit via a hidden form to preserve method + XHR headers are blocked by CSP on most sites. #}
+  <a href="javascript:(function(){var f=document.createElement('form');f.method='POST';f.action='{{ request.url_for('submit_form') }}';f.target='_blank';var i=document.createElement('input');i.name='url';i.value=location.href;f.appendChild(i);document.body.appendChild(f);f.submit();})();"
+     class="inline-block px-4 py-2 bg-purple-500/10 text-purple-300 text-sm rounded-xl border border-purple-500/30 hover:bg-purple-500/20 transition font-mono">
+    📎 Archive this
+  </a>
+</div>
+{% endif %}
+
 {% if stats %}
 <div class="w-full max-w-lg">
   <div class="bg-white/[0.02] rounded-2xl border border-white/[0.06] p-6" role="region" aria-label="Archive statistics">

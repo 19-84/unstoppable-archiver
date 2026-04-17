@@ -131,6 +131,36 @@ async def submit_form(
     )
 
 
+@router.post("/recapture/{archive_id}", response_model=None)
+async def recapture(
+    archive_id: str,
+    request: Request,
+    conn: Annotated[PgConnection, Depends(get_db)],
+) -> RedirectResponse:
+    """Queue a fresh capture of an existing archive's URL (self-hosted only)."""
+    settings = get_settings(request)
+    if settings.mode != "self-hosted":
+        raise HTTPException(status_code=404)
+    enforce_limit(request, settings.rate_limit_submit_per_hour)
+
+    from archiver.enums import CaptureTier
+    from archiver.repository import JobRepository
+
+    archive = await _archive_repo.get_by_id(conn, archive_id)
+    if archive is None:
+        raise HTTPException(status_code=404, detail="Archive not found")
+
+    new_archive = await _archive_repo.create(
+        conn, archive.url, submitter_ip_hash=get_client_ip_hash(request)
+    )
+    job_repo = JobRepository()
+    await job_repo.enqueue(conn, new_archive.id, CaptureTier.CHROMIUM)
+
+    return RedirectResponse(
+        url=f"/archive/{new_archive.id}", status_code=303
+    )
+
+
 @router.get("/archive/{archive_id}", response_class=HTMLResponse)
 async def archive_detail(
     archive_id: str,

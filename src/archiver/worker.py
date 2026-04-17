@@ -26,6 +26,11 @@ from archiver.fallback import (
     check_archive_today_availability,
     check_wayback_availability,
 )
+from archiver.metrics import (
+    capture_duration_seconds,
+    captures_total,
+    jobs_running,
+)
 from archiver.models import CaptureResult, JobRecord
 from archiver.repository import ArchiveRepository, JobRepository, PgConnection
 
@@ -109,10 +114,36 @@ class Worker:
 
             while self._running:
                 await self._claim_and_process()
-                await asyncio.sleep(
-                    self._settings.worker_poll_interval
-                )
+                # Sleep in short increments so shutdown is responsive
+                for _ in range(int(self._settings.worker_poll_interval * 10)):
+                    if not self._running:
+                        break
+                    await asyncio.sleep(0.1)
         finally:
+            # Drain in-flight jobs before tearing down (graceful shutdown).
+            # Bounded by 2x max_capture_timeout to prevent hung jobs from
+            # blocking shutdown forever.
+            if self._tasks:
+                drain_timeout = self._settings.max_capture_timeout * 2
+                log.info(
+                    "worker.draining",
+                    in_flight=len(self._tasks),
+                    timeout_s=drain_timeout,
+                )
+                try:
+                    await asyncio.wait_for(
+                        asyncio.gather(
+                            *self._tasks, return_exceptions=True
+                        ),
+                        timeout=drain_timeout,
+                    )
+                    log.info("worker.drained")
+                except TimeoutError:
+                    log.warning(
+                        "worker.drain_timeout",
+                        stuck=len(self._tasks),
+                    )
+
             await listen_conn.remove_listener(
                 "new_job", self._on_notify
             )
@@ -162,7 +193,24 @@ class Worker:
         """Process a single capture job with tier escalation."""
         async with self._semaphore:
             assert self._pool is not None  # noqa: S101
-            async with self._pool.acquire() as conn:
+            jobs_running.inc()
+            outcome = "failed"
+            try:
+                with capture_duration_seconds.labels(
+                    tier=job.tier.value
+                ).time():
+                    outcome = await self._process_job_inner(job)
+            finally:
+                jobs_running.dec()
+                captures_total.labels(
+                    tier=job.tier.value, outcome=outcome
+                ).inc()
+
+    @beartype
+    async def _process_job_inner(self, job: JobRecord) -> str:
+        """Inner job processing; returns outcome label for metrics."""
+        assert self._pool is not None  # noqa: S101
+        async with self._pool.acquire() as conn:
                 try:
                     await self._archive_repo.update_status(
                         conn,
@@ -179,7 +227,7 @@ class Worker:
                             job.id,
                             "Archive deleted before capture",
                         )
-                        return
+                        return "failed"
 
                     # Fallback tiers use public archives instead of direct capture
                     if job.tier == CaptureTier.WAYBACK:
@@ -228,16 +276,19 @@ class Worker:
                         source=source.value,
                     )
                     await self._job_repo.complete(conn, job.id)
+                    return "complete"
 
                 except AntiBotDetectedError as exc:
                     await self._handle_antibot(
                         conn, job, str(exc)
                     )
+                    return "antibot"
 
                 except CaptureError as exc:
                     await self._handle_capture_error(
                         conn, job, str(exc)
                     )
+                    return "failed"
 
                 except Exception as exc:
                     log.exception(
@@ -247,6 +298,7 @@ class Worker:
                     await self._handle_capture_error(
                         conn, job, str(exc)
                     )
+                    return "failed"
 
     # @beartype — private, conn is AsyncMock in tests
     async def _handle_antibot(
