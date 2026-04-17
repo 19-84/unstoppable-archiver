@@ -14,6 +14,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from archiver.auth import require_admin_redirect, verify_password
+from archiver.blocklist import load_blocklist
 from archiver.config import Settings
 from archiver.deps import get_client_ip, get_db, get_settings
 from archiver.enums import AuditAction, ReportStatus
@@ -118,6 +119,7 @@ async def dashboard(
     recent_archives, total_archives = await _archive_repo.list_recent(
         conn, limit=5, show_removed=True
     )
+    blocklist = request.app.state.blocklist
 
     return templates.TemplateResponse(
         request,
@@ -126,6 +128,7 @@ async def dashboard(
             "pending_reports": pending_reports,
             "recent_archives": recent_archives,
             "total_archives": total_archives,
+            "blocklist": blocklist,
         },
     )
 
@@ -300,6 +303,19 @@ async def admin_hard_delete_archive(
         admin_user="admin", ip_address=get_client_ip(request),
     )
     return RedirectResponse(url="/admin/archives", status_code=303)
+
+
+@router.post("/blocklist/reload")
+async def reload_blocklist(
+    request: Request,
+    _admin: Annotated[str | RedirectResponse, Depends(require_admin_redirect)],
+) -> RedirectResponse:
+    """Reload the domain blocklist + allowlist from configured sources."""
+    if isinstance(_admin, RedirectResponse):
+        return _admin
+    settings = get_settings(request)
+    request.app.state.blocklist = await load_blocklist(settings)
+    return RedirectResponse(url="/admin/", status_code=303)
 
 
 @router.get("/audit", response_class=HTMLResponse, response_model=None)

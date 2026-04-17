@@ -58,18 +58,32 @@ class Settings(BaseSettings):
     admin_password_hash: SecretStr = SecretStr("")
     session_secret: SecretStr = SecretStr("change-me-in-production-via-env-var")
 
-    # Abuse prevention — None auto-enables based on mode, explicit bool overrides
+    # Abuse prevention — rate limiting (auto-on in public mode unless overridden)
     rate_limit_enabled: bool | None = None
     rate_limit_submit_per_hour: int = 60
     rate_limit_report_per_hour: int = 10
 
-    captcha_enabled: bool | None = None
+    # Captcha — provider-agnostic. "none" = disabled.
+    # "hcaptcha" = third-party visual (needs sitekey + secret from hcaptcha.com)
+    # "altcha" = self-hosted proof-of-work (needs hmac_key, no external service)
+    captcha_provider: Literal["none", "hcaptcha", "altcha"] = "none"
     hcaptcha_sitekey: str = ""
     hcaptcha_secret: SecretStr = SecretStr("")
+    altcha_hmac_key: SecretStr = SecretStr("")
+    altcha_max_number: int = 50000  # PoW complexity upper bound
 
-    # Content policy — None auto-enables based on mode
-    respect_robots_txt: bool | None = None
-    url_blocklist_patterns: str = ""  # comma-separated regex patterns
+    # Domain blocklist (refuses capture of listed apex domains + all subdomains)
+    # Sources are unioned; supports hosts file format (0.0.0.0 example.com) or plain list
+    blocklist_file: Path | None = None
+    blocklist_urls: str = ""  # comma-separated remote URLs (e.g. GitHub raw lists)
+    blocklist_domains: str = ""  # comma-separated inline apex domains
+
+    # Domain allowlist — overrides blocklist; longest match wins
+    allowlist_file: Path | None = None
+    allowlist_urls: str = ""
+    allowlist_domains: str = ""
+
+    # Privacy / abuse correlation
     submitter_ip_retention_days: int = 30
     trusted_proxies: bool = False  # if True, trust X-Forwarded-For header
 
@@ -79,14 +93,9 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _apply_mode_defaults(self) -> Settings:
-        """Auto-enable public-mode features when mode=public (unless overridden)."""
-        public = self.mode == "public"
+        """Auto-enable rate limiting in public mode (unless explicitly overridden)."""
         if self.rate_limit_enabled is None:
-            self.rate_limit_enabled = public
-        if self.captcha_enabled is None:
-            self.captcha_enabled = public
-        if self.respect_robots_txt is None:
-            self.respect_robots_txt = public
+            self.rate_limit_enabled = self.mode == "public"
         return self
 
     @property

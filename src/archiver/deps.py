@@ -9,6 +9,7 @@ from collections.abc import AsyncIterator
 import asyncpg.pool
 from fastapi import HTTPException, Request
 
+from archiver.blocklist import DomainBlocklist
 from archiver.config import Settings
 from archiver.repository import PgConnection
 
@@ -23,6 +24,11 @@ async def get_db(request: Request) -> AsyncIterator[PgConnection]:
 def get_settings(request: Request) -> Settings:
     """Return the app-wide Settings instance."""
     return request.app.state.settings  # type: ignore[no-any-return]
+
+
+def get_blocklist(request: Request) -> DomainBlocklist:
+    """Return the app-wide DomainBlocklist instance."""
+    return request.app.state.blocklist  # type: ignore[no-any-return]
 
 
 def get_client_ip(request: Request) -> str:

@@ -11,7 +11,13 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
-from archiver.deps import get_client_ip, get_db, get_settings
+from archiver.blocklist import DomainBlocklist
+from archiver.deps import (
+    get_blocklist,
+    get_client_ip,
+    get_db,
+    get_settings,
+)
 from archiver.enums import ArchiveStatus
 from archiver.rate_limit import enforce_limit
 from archiver.repository import ArchiveRepository, PgConnection
@@ -56,6 +62,7 @@ async def index(
 async def submit_form(
     request: Request,
     conn: Annotated[PgConnection, Depends(get_db)],
+    blocklist: Annotated[DomainBlocklist, Depends(get_blocklist)],
 ) -> HTMLResponse | RedirectResponse:
     """Handle native HTML form submission (no-JS fallback).
 
@@ -87,7 +94,7 @@ async def submit_form(
 
     from archiver.url_safety import check_url_safety
 
-    safety_error = check_url_safety(url)
+    safety_error = check_url_safety(url, blocklist=blocklist)
     if safety_error:
         return templates.TemplateResponse(
             request,

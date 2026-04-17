@@ -16,6 +16,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
+from archiver.blocklist import load_blocklist
 from archiver.config import Settings
 from archiver.db import close_pool, create_pool, init_db
 from archiver.errors import AppError, DuplicateCaptureError, NotFoundError
@@ -31,12 +32,18 @@ log = structlog.get_logger()
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:  # pragma: no cover
-    """Manage DB pool lifecycle."""
+    """Manage DB pool + blocklist lifecycle."""
     settings: Settings = app.state.settings
     pool = await create_pool(settings.db_url.get_secret_value(), min_size=2, max_size=10)
     await init_db(pool)
     app.state.pool = pool
-    log.info("app.started", mode=settings.mode)
+    app.state.blocklist = await load_blocklist(settings)
+    log.info(
+        "app.started",
+        mode=settings.mode,
+        blocked=app.state.blocklist.blocked_count,
+        allowed=app.state.blocklist.allowed_count,
+    )
     yield
     await close_pool(pool)
     log.info("app.stopped")

@@ -38,9 +38,12 @@ async def pool() -> AsyncIterator[asyncpg.pool.Pool]:
 async def client(
     pool: asyncpg.pool.Pool,
 ) -> AsyncIterator[AsyncClient]:
+    from archiver.blocklist import DomainBlocklist
+
     settings = Settings(db_url=DB_URL, log_format="console")
     app = create_app(settings)
     app.state.pool = pool
+    app.state.blocklist = DomainBlocklist()
     transport = ASGITransport(app=app)  # type: ignore[arg-type]
     async with AsyncClient(
         transport=transport, base_url="http://test"

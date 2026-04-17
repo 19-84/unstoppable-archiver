@@ -11,7 +11,8 @@ import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse
 
-from archiver.deps import get_client_ip, get_db, require_api_key
+from archiver.blocklist import DomainBlocklist
+from archiver.deps import get_blocklist, get_client_ip, get_db, require_api_key
 from archiver.enums import CaptureTier
 from archiver.errors import DuplicateCaptureError
 from archiver.models import (
@@ -37,13 +38,14 @@ async def create_archive(
     body: ArchiveCreate,
     request: Request,
     conn: Annotated[PgConnection, Depends(get_db)],
+    blocklist: Annotated[DomainBlocklist, Depends(get_blocklist)],
 ) -> ArchiveRecord:
     """Submit a URL for archiving."""
     settings = request.app.state.settings
     enforce_limit(request, settings.rate_limit_submit_per_hour)
     from archiver.url_safety import check_url_safety
 
-    safety_error = check_url_safety(str(body.url))
+    safety_error = check_url_safety(str(body.url), blocklist=blocklist)
     if safety_error:
         raise HTTPException(status_code=400, detail=safety_error)
 

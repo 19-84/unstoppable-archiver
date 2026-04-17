@@ -12,6 +12,8 @@ from urllib.parse import urlparse
 from beartype import beartype
 from icontract import require
 
+from archiver.blocklist import DomainBlocklist
+
 # Hostnames that resolve to internal Docker services
 BLOCKED_HOSTNAMES: frozenset[str] = frozenset({
     "localhost",
@@ -28,11 +30,18 @@ BLOCKED_HOSTNAMES: frozenset[str] = frozenset({
 
 @beartype
 @require(lambda url: len(url) > 0, "URL must not be empty")
-def check_url_safety(url: str) -> str | None:
+def check_url_safety(
+    url: str, blocklist: DomainBlocklist | None = None
+) -> str | None:
     """Check if a URL is safe to fetch. Returns error message or None if safe."""
     error = _check_scheme_and_host(url)
     if error:
         return error
+    if blocklist is not None:
+        hostname = (urlparse(url).hostname or "").lower()
+        block_reason = blocklist.check(hostname)
+        if block_reason:
+            return block_reason
     return _check_resolved_ips(url)
 
 

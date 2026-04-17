@@ -21,6 +21,26 @@
   </div>
 
   <section>
+    <div class="bg-white/[0.02] border border-white/[0.04] rounded-xl p-5 flex items-center justify-between">
+      <div>
+        <div class="text-xs text-neutral-400 uppercase tracking-wider mb-2">Domain blocklist</div>
+        <div class="text-sm text-neutral-300">
+          <span class="text-red-400 font-semibold">{{ blocklist.blocked_count }}</span> blocked
+          <span class="text-neutral-500 mx-1">·</span>
+          <span class="text-emerald-400 font-semibold">{{ blocklist.allowed_count }}</span> allowed overrides
+          {% if blocklist.last_loaded %}
+          <span class="text-neutral-500 mx-1">·</span>
+          <span class="text-xs text-neutral-500">loaded {{ blocklist.last_loaded.strftime('%Y-%m-%d %H:%M UTC') }}</span>
+          {% endif %}
+        </div>
+      </div>
+      <form method="POST" action="/admin/blocklist/reload">
+        <button type="submit" class="px-3 py-1.5 bg-purple-500/80 text-white text-xs rounded-lg hover:bg-purple-500 transition">Reload</button>
+      </form>
+    </div>
+  </section>
+
+  <section>
     <h2 class="text-xs text-neutral-400 uppercase tracking-wider mb-3">Recent archives</h2>
     <div class="bg-white/[0.02] rounded-xl border border-white/[0.04] divide-y divide-white/[0.04]">
       {% for a in recent_archives %}
