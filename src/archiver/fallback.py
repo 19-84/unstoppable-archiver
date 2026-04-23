@@ -286,7 +286,9 @@ async def check_archive_today_availability(url: str) -> bool:
 
 
 @beartype
-async def find_archive_today_snapshot(url: str) -> str | None:
+async def find_archive_today_snapshot(
+    url: str, proxy: str | None = None
+) -> str | None:
     """Return the newest archive.today snapshot URL for `url`, or None.
 
     Queries the timemap endpoint on each mirror in parallel and returns
@@ -297,9 +299,14 @@ async def find_archive_today_snapshot(url: str) -> str | None:
     Trying all mirrors in parallel means the lookup latency equals the
     slowest mirror (not the sum), and we succeed as soon as any mirror
     responds with a snapshot.
+
+    `proxy`, if given, is a SOCKS5/HTTP URL routed through our
+    gate-passing pool — the archive.today CF edge scores our direct
+    server IP poorly so proxied reads recover coverage we can't get
+    any other way.
     """
     async def _query(host: str) -> str | None:
-        return await _timemap_latest_memento(host, url)
+        return await _timemap_latest_memento(host, url, proxy=proxy)
 
     tasks = [asyncio.create_task(_query(h)) for h in ARCHIVE_TODAY_MIRRORS]
     try:
@@ -326,7 +333,7 @@ async def find_archive_today_snapshot(url: str) -> str | None:
 
 
 async def _timemap_latest_memento(
-    mirror_host: str, url: str
+    mirror_host: str, url: str, proxy: str | None = None
 ) -> str | None:
     """Fetch timemap for `url` on `mirror_host` and return newest memento.
 
@@ -341,16 +348,25 @@ async def _timemap_latest_memento(
             follow_redirects=True,
             headers={**_stealth_headers(),
                      "Accept": "application/link-format, text/plain, */*"},
+            proxy=proxy,
         ) as client:
             resp = await client.get(
                 f"https://{mirror_host}/timemap/{url}"
             )
-    except Exception:
+    except Exception as exc:
         log.debug(
-            "fallback.archive_today.timemap_error", mirror=mirror_host
+            "fallback.archive_today.timemap_error",
+            mirror=mirror_host,
+            error_type=type(exc).__name__,
+            error=str(exc)[:120],
         )
         return None
     if resp.status_code != 200:  # noqa: PLR2004
+        log.debug(
+            "fallback.archive_today.timemap_bad_status",
+            mirror=mirror_host,
+            status=resp.status_code,
+        )
         return None
     body = resp.text
     if 'rel="memento"' not in body:
@@ -434,7 +450,7 @@ def strip_html_tags(html: str) -> str:
 
 @beartype
 async def fetch_archive_today_snapshot_html(
-    memento_url: str, timeout: float = 20.0
+    memento_url: str, timeout: float = 20.0, proxy: str | None = None
 ) -> str | None:
     """Fetch a memento's raw HTML via httpx (bypasses browser + CF).
 
@@ -449,14 +465,14 @@ async def fetch_archive_today_snapshot_html(
     mirror that isn't.
     """
     for candidate in _rotate_memento_across_mirrors(memento_url):
-        result = await _try_fetch(candidate, timeout)
+        result = await _try_fetch(candidate, timeout, proxy=proxy)
         if result is not None:
             return result
     return None
 
 
 async def _try_fetch(
-    url: str, timeout: float
+    url: str, timeout: float, proxy: str | None = None
 ) -> str | None:
     """One httpx attempt; returns HTML on success, None on any failure."""
     try:
@@ -464,6 +480,7 @@ async def _try_fetch(
             timeout=timeout,
             follow_redirects=True,
             headers=_stealth_headers(),
+            proxy=proxy,
         ) as client:
             resp = await client.get(url)
     except Exception as exc:

@@ -32,10 +32,13 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from archiver.commoncrawl import find_snapshot as cc_find_snapshot
+from archiver.config import Settings
+from archiver.db import close_pool, create_pool
 from archiver.fallback import (
     check_wayback_availability,
     find_archive_today_snapshot,
 )
+from archiver.repository import ProxyStatusRepository
 
 # Categories reflect hostility axes we actually care about for routing,
 # not editorial topic. The axis is: how do anti-bot/anti-archive
@@ -104,7 +107,9 @@ class Result:
     error: str | None
 
 
-async def _probe_one(url: str, category: str) -> Result:
+async def _probe_one(
+    url: str, category: str, at_proxy: str | None
+) -> Result:
     t0 = time.perf_counter()
     error: str | None = None
 
@@ -117,8 +122,11 @@ async def _probe_one(url: str, category: str) -> Result:
         error = f"wayback: {exc!s}"
     await asyncio.sleep(_SPACING_S)
 
+    # archive.today probes route through a gate-passing SOCKS5 proxy
+    # when one is available — the CF edge scores our direct IP poorly,
+    # so an unproxied timemap query is ~always walled.
     try:
-        at = await find_archive_today_snapshot(url)
+        at = await find_archive_today_snapshot(url, proxy=at_proxy)
     except Exception as exc:
         at = None
         error = (error + " | " if error else "") + f"archive.today: {exc!s}"
@@ -203,8 +211,43 @@ def _print_summary(summary: dict[str, dict[str, float]]) -> None:
         )
 
 
+async def _pick_gate_proxy() -> str | None:
+    """Read a fresh gate-passing SOCKS5 from proxy_status, or None."""
+    settings = Settings()
+    pool = await create_pool(
+        settings.db_url.get_secret_value(), min_size=1, max_size=2
+    )
+    try:
+        repo = ProxyStatusRepository()
+        async with pool.acquire() as conn:
+            passing = await repo.list_passing(conn, max_age_hours=24)
+    finally:
+        await close_pool(pool)
+    if not passing:
+        return None
+    import random
+    return random.choice(passing)  # noqa: S311 — not security-sensitive
+
+
 async def main() -> int:
     urls = [(u, c) for c, lst in CURATED.items() for u in lst]
+
+    at_proxy = await _pick_gate_proxy()
+    if at_proxy is None:
+        print(
+            "WARNING: no gate-passing proxies in DB — archive.today "
+            "probes will go direct (expect near-zero hits)",
+            flush=True,
+        )
+    else:
+        # Log scheme/host only, not full server string — the script
+        # output may be shared and proxy URLs are sensitive.
+        host = at_proxy.split("://", 1)[1].split(":", 1)[0]
+        print(
+            f"Using gate-passing SOCKS5 proxy {host}:*** for archive.today",
+            flush=True,
+        )
+
     print(
         f"Probing {len(urls)} URLs across {len(CURATED)} categories "
         f"(serial, ~{_SPACING_S * 3 * len(urls):.0f}s min)...",
@@ -215,7 +258,7 @@ async def main() -> int:
     results: list[Result] = []
     for idx, (url, cat) in enumerate(urls, 1):
         print(f"[{idx}/{len(urls)}] {url}", flush=True)
-        r = await _probe_one(url, cat)
+        r = await _probe_one(url, cat, at_proxy)
         results.append(r)
 
     _print_table(results)

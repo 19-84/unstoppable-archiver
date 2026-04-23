@@ -95,6 +95,10 @@ def _make_worker() -> tuple[Worker, AsyncMock]:
     worker._archive_repo = AsyncMock()
     worker._job_repo = AsyncMock()
     worker._obs_repo = AsyncMock()
+    proxy_status_repo = AsyncMock()
+    # list_passing returns [] by default — tier-5 falls through to direct.
+    proxy_status_repo.list_passing = AsyncMock(return_value=[])
+    worker._proxy_status_repo = proxy_status_repo
     return worker, mock_conn
 
 

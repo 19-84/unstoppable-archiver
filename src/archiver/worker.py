@@ -54,7 +54,10 @@ from archiver.models import CaptureResult, JobRecord
 from archiver.proxy import (
     ProxyConfig,
     ProxyRotator,
+    filter_by_asn,
+    filter_gate_passing,
     filter_healthy,
+    filter_socks5,
     load_proxies,
 )
 from archiver.repository import (
@@ -62,6 +65,7 @@ from archiver.repository import (
     DomainObservationsRepository,
     JobRepository,
     PgConnection,
+    ProxyStatusRepository,
 )
 from archiver.url import apex_of
 
@@ -118,6 +122,7 @@ class Worker:
         self._archive_repo = ArchiveRepository()
         self._job_repo = JobRepository()
         self._obs_repo = DomainObservationsRepository()
+        self._proxy_status_repo = ProxyStatusRepository()
         self._cookie_cache = CfClearanceCache()
         self._semaphore = asyncio.Semaphore(
             settings.max_concurrent_captures
@@ -160,6 +165,13 @@ class Worker:
         self._tasks.add(ua_periodic)
         ua_periodic.add_done_callback(self._tasks.discard)
         ua_periodic.add_done_callback(_log_task_exception)
+
+        # Background gate-probing against archive.ph. Keeps proxy_status
+        # warm so tier-5 reads don't go direct (our server IP is walled).
+        gate_task = asyncio.create_task(self._gate_probe_loop())
+        self._tasks.add(gate_task)
+        gate_task.add_done_callback(self._tasks.discard)
+        gate_task.add_done_callback(_log_task_exception)
 
         # Reclaim stale jobs from dead workers
         async with self._pool.acquire() as conn:
@@ -636,7 +648,13 @@ class Worker:
         was slow (30-120 s) and CF-gated, and archive.today publishes
         timemap specifically as a machine-friendly read interface.
         """
-        snapshot_url = await find_archive_today_snapshot(url)
+        # Archive.today's CF edge scores our server IP poorly enough
+        # that direct-IP timemap/snapshot reads nearly always 4xx.
+        # Route through a gate-passing SOCKS5 from proxy_status when
+        # one is available; fall back to direct if the pool is empty.
+        at_proxy = await self._pick_archive_today_proxy()
+
+        snapshot_url = await find_archive_today_snapshot(url, proxy=at_proxy)
         if snapshot_url is None:
             raise CaptureError(
                 f"No archive.today snapshot across {len(_ARCHIVE_TODAY_MIRRORS)}"
@@ -645,7 +663,9 @@ class Worker:
 
         # Try direct-fetch first — fast (1-3 s), bypasses CF challenge
         # by targeting the static snapshot URL with stealth headers.
-        raw_html = await fetch_archive_today_snapshot_html(snapshot_url)
+        raw_html = await fetch_archive_today_snapshot_html(
+            snapshot_url, proxy=at_proxy
+        )
         if raw_html is not None:
             return self._capture_result_from_html(
                 raw_html, snapshot_url
@@ -759,4 +779,93 @@ class Worker:
             "worker.proxy_rotator_ready",
             total=len(candidates),
             healthy=len(healthy),
+        )
+
+    async def _pick_archive_today_proxy(self) -> str | None:
+        """Return a fresh gate-passing SOCKS5, or None if pool is empty."""
+        assert self._pool is not None  # noqa: S101
+        async with self._pool.acquire() as conn:
+            passing = await self._proxy_status_repo.list_passing(
+                conn, max_age_hours=24
+            )
+        if not passing:
+            log.warning("worker.archive_today.no_gate_passers")
+            return None
+        import random
+        return random.choice(passing)  # noqa: S311 — not security-sensitive
+
+    async def _gate_probe_loop(self) -> None:  # pragma: no cover
+        """Periodically gate-probe a bounded sample against archive.ph.
+
+        Kept separate from the startup health check because each probe
+        launches a fresh Camoufox (~6-15 s). We batch 10 probes at a
+        time, then wait an hour — enough to refresh the gate-passing
+        set without turning into a sustained load on archive.ph.
+
+        Only SOCKS5 + consumer-ASN proxies are probed (the prior
+        empirical finding: datacenter ASNs pass ~0 %, HTTP proxies pass
+        ~0 %). Results land in proxy_status; tier-5 reads pick from
+        there via ProxyStatusRepository.list_passing.
+        """
+        # One-hour warmup so the initial healthy-rotator load settles
+        # before we start competing with real traffic for CPU.
+        await asyncio.sleep(60)
+        while self._running:
+            try:
+                await self._gate_probe_batch(batch_size=10)
+            except Exception as exc:
+                log.warning(
+                    "worker.gate_probe_batch_failed", error=str(exc)
+                )
+            # Sleep in short increments so shutdown is responsive.
+            for _ in range(3600):
+                if not self._running:
+                    return
+                await asyncio.sleep(1)
+
+    async def _gate_probe_batch(self, batch_size: int) -> None:
+        """Gate-probe up to `batch_size` fresh candidates."""
+        if not self._proxy_rotator.proxies:
+            return
+        # Preserve the healthy-rotator pool; filter for SOCKS5 and
+        # consumer-ASN here rather than pre-filtering up front so the
+        # generic rotator still benefits from datacenter IPs for
+        # non-archive.today captures.
+        socks = filter_socks5(list(self._proxy_rotator.proxies))
+        if not socks:
+            return
+
+        assert self._pool is not None  # noqa: S101
+        async with self._pool.acquire() as conn:
+            already = set(
+                await self._proxy_status_repo.list_passing(
+                    conn, max_age_hours=24
+                )
+            )
+        # Skip proxies already confirmed passing recently.
+        candidates = [p for p in socks if p.server not in already]
+        if not candidates:
+            log.debug("worker.gate_probe_no_fresh_candidates")
+            return
+
+        consumer = await filter_by_asn(candidates[: batch_size * 5])
+        if not consumer:
+            log.debug("worker.gate_probe_no_consumer_after_asn")
+            return
+
+        sample = consumer[:batch_size]
+        log.info("worker.gate_probe_batch_start", count=len(sample))
+        passing = await filter_gate_passing(sample, concurrency=3)
+
+        async with self._pool.acquire() as conn:
+            for proxy in sample:
+                await self._proxy_status_repo.record(
+                    conn,
+                    proxy.server,
+                    gate_passing=proxy in passing,
+                )
+        log.info(
+            "worker.gate_probe_batch_done",
+            tried=len(sample),
+            passing=len(passing),
         )
