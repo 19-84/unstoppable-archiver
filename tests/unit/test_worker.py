@@ -94,6 +94,7 @@ def _make_worker() -> tuple[Worker, AsyncMock]:
     worker._browser_pool = AsyncMock()
     worker._archive_repo = AsyncMock()
     worker._job_repo = AsyncMock()
+    worker._obs_repo = AsyncMock()
     return worker, mock_conn
 
 

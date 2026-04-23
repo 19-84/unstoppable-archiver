@@ -7,7 +7,7 @@ from __future__ import annotations
 import pytest
 from icontract import ViolationError
 
-from archiver.url import normalize_url, url_hash
+from archiver.url import apex_of, normalize_url, url_hash
 
 
 class TestNormalizeUrl:
@@ -100,3 +100,32 @@ class TestUrlHash:
         h1 = url_hash("https://example.com/page1")
         h2 = url_hash("https://example.com/page2")
         assert h1 != h2
+
+
+class TestApexOf:
+    def test_strips_www(self) -> None:
+        assert apex_of("https://www.example.com/page") == "example.com"
+
+    def test_preserves_non_www_subdomain(self) -> None:
+        assert apex_of("https://blog.example.com/") == "blog.example.com"
+
+    def test_lowercases_host(self) -> None:
+        assert apex_of("https://EXAMPLE.COM/") == "example.com"
+
+    def test_ignores_path_and_query(self) -> None:
+        assert (
+            apex_of("https://example.com/a/b?x=1#frag")
+            == "example.com"
+        )
+
+    def test_empty_on_malformed(self) -> None:
+        assert apex_of("not a url") == ""
+
+    def test_empty_on_empty(self) -> None:
+        assert apex_of("") == ""
+
+    def test_collapses_www_and_bare_to_same_key(self) -> None:
+        assert (
+            apex_of("https://www.example.com/a")
+            == apex_of("https://example.com/b")
+        )

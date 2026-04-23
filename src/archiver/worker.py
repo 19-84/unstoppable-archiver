@@ -57,7 +57,13 @@ from archiver.proxy import (
     filter_healthy,
     load_proxies,
 )
-from archiver.repository import ArchiveRepository, JobRepository, PgConnection
+from archiver.repository import (
+    ArchiveRepository,
+    DomainObservationsRepository,
+    JobRepository,
+    PgConnection,
+)
+from archiver.url import apex_of
 
 log = structlog.get_logger()
 
@@ -111,6 +117,7 @@ class Worker:
         self._browser_pool = BrowserPool(settings)
         self._archive_repo = ArchiveRepository()
         self._job_repo = JobRepository()
+        self._obs_repo = DomainObservationsRepository()
         self._cookie_cache = CfClearanceCache()
         self._semaphore = asyncio.Semaphore(
             settings.max_concurrent_captures
@@ -273,6 +280,7 @@ class Worker:
     async def _process_job_inner(self, job: JobRecord) -> str:  # noqa: C901, PLR0911, PLR0912
         """Inner job processing; returns outcome label for metrics."""
         assert self._pool is not None  # noqa: S101
+        apex = ""  # bound for the except handlers; set properly once archive is fetched
         async with self._pool.acquire() as conn:
                 try:
                     archive = await self._archive_repo.get_by_id(
@@ -300,6 +308,11 @@ class Worker:
                             archive_id=archive.id,
                         )
                         return "complete"
+
+                    # Computed up-front so the exception handlers below
+                    # can record the per-tier loss even if update_status
+                    # or a capture call raises before the happy path.
+                    apex = apex_of(archive.url)
 
                     await self._archive_repo.update_status(
                         conn,
@@ -367,17 +380,20 @@ class Worker:
                         source=source.value,
                     )
                     await self._job_repo.complete(conn, job.id)
+                    await self._obs_repo.record_outcome(
+                        conn, apex, job.tier, won=True,
+                    )
                     return "complete"
 
                 except AntiBotDetectedError as exc:
                     await self._handle_antibot(
-                        conn, job, str(exc)
+                        conn, job, str(exc), apex=apex,
                     )
                     return "antibot"
 
                 except CaptureError as exc:
                     await self._handle_capture_error(
-                        conn, job, str(exc)
+                        conn, job, str(exc), apex=apex,
                     )
                     return "failed"
 
@@ -387,7 +403,7 @@ class Worker:
                         job_id=job.id,
                     )
                     await self._handle_capture_error(
-                        conn, job, str(exc)
+                        conn, job, str(exc), apex=apex,
                     )
                     return "failed"
 
@@ -397,11 +413,15 @@ class Worker:
         conn: PgConnection,
         job: JobRecord,
         error: str,
+        apex: str = "",
     ) -> None:
         """Escalate to next tier on anti-bot detection."""
         escalated = next_tier(job.tier)
         await self._job_repo.fail(
             conn, job.id, error, retry=False
+        )
+        await self._obs_repo.record_outcome(
+            conn, apex, job.tier, won=False,
         )
 
         if escalated is not None:
@@ -436,6 +456,7 @@ class Worker:
         conn: PgConnection,
         job: JobRecord,
         error: str,
+        apex: str = "",
     ) -> None:
         """Handle capture failure with optional retry."""
         # Count total attempts at this tier (each retry creates a new job,
@@ -463,6 +484,9 @@ class Worker:
             escalated = next_tier(job.tier)
             await self._job_repo.fail(
                 conn, job.id, error, retry=False
+            )
+            await self._obs_repo.record_outcome(
+                conn, apex, job.tier, won=False,
             )
             if escalated is not None:
                 log.warning(

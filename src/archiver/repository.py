@@ -896,3 +896,87 @@ class CfClearanceRepository:
             "DELETE FROM cf_clearance_cache WHERE expires_at <= now()"
         )
         return int(result.split()[-1]) if result else 0
+
+
+class DomainObservationsRepository:
+    """Per-apex tier-outcome counters for routing-history analysis.
+
+    Write path only for now — no routing logic reads these yet. Once
+    we have real traffic, a later change will query this table to
+    pick the initial tier per URL based on empirical wins.
+    """
+
+    @beartype
+    async def record_outcome(
+        self,
+        conn: PgConnection,
+        apex: str,
+        tier: CaptureTier,
+        *,
+        won: bool,
+    ) -> None:
+        """Increment the win/loss counter for (apex, tier).
+
+        No-op when `apex` is empty (malformed URL) — we don't want a
+        single empty-string row absorbing every failed parse.
+        """
+        if not apex:
+            return
+        column = "tier_wins" if won else "tier_losses"
+        last_winner_sql = (
+            ", last_winning_tier = $2" if won else ""
+        )
+        # jsonb_set with create_missing=true initializes the key to 0
+        # before the increment; coalesce handles the null path.
+        await conn.execute(
+            f"""
+            INSERT INTO domain_observations (apex, {column}, last_winning_tier)
+            VALUES ($1,
+                    jsonb_build_object($2::text, 1),
+                    {"$2" if won else "NULL"})
+            ON CONFLICT (apex) DO UPDATE SET
+                last_seen_at = now(),
+                {column} = jsonb_set(
+                    coalesce(domain_observations.{column}, '{{}}'::jsonb),
+                    ARRAY[$2::text],
+                    to_jsonb(
+                        coalesce(
+                            (domain_observations.{column}->>$2)::int, 0
+                        ) + 1
+                    ),
+                    true
+                )
+                {last_winner_sql}
+            """,
+            apex,
+            tier.value,
+        )
+
+    @beartype
+    async def get(
+        self,
+        conn: PgConnection,
+        apex: str,
+    ) -> dict[str, Any] | None:
+        """Return the observation row or None if unseen.
+
+        JSONB columns are parsed into dicts — asyncpg hands them back
+        as raw strings otherwise.
+        """
+        import json as _json
+        row = await conn.fetchrow(
+            "SELECT apex, first_seen_at, last_seen_at, tier_wins,"
+            " tier_losses, last_winning_tier"
+            " FROM domain_observations WHERE apex = $1",
+            apex,
+        )
+        if row is None:
+            return None
+        return {
+            "apex": row["apex"],
+            "first_seen_at": row["first_seen_at"],
+            "last_seen_at": row["last_seen_at"],
+            "tier_wins": _json.loads(row["tier_wins"]),
+            "tier_losses": _json.loads(row["tier_losses"]),
+            "last_winning_tier": row["last_winning_tier"],
+        }

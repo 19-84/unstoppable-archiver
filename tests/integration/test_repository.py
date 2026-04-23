@@ -15,6 +15,7 @@ from archiver.enums import ArchiveStatus, CaptureTier, JobStatus
 from archiver.repository import (
     ArchiveRepository,
     CfClearanceRepository,
+    DomainObservationsRepository,
     JobRepository,
     ProxyStatusRepository,
 )
@@ -38,6 +39,7 @@ async def pool() -> AsyncIterator[asyncpg.pool.Pool]:
         await conn.execute("DELETE FROM archives")
         await conn.execute("DELETE FROM proxy_status")
         await conn.execute("DELETE FROM cf_clearance_cache")
+        await conn.execute("DELETE FROM domain_observations")
     await close_pool(p)
 
 
@@ -601,3 +603,121 @@ class TestCfClearanceRepository:
             purged = await repo.purge_expired(conn)
             assert purged == 1
             assert await repo.get(conn, "b", "") is not None
+
+
+class TestDomainObservationsRepository:
+    async def test_first_win_creates_row(
+        self, pool: asyncpg.pool.Pool
+    ) -> None:
+        repo = DomainObservationsRepository()
+        async with pool.acquire() as conn:
+            await repo.record_outcome(
+                conn, "example.com", CaptureTier.CHROMIUM, won=True,
+            )
+            row = await repo.get(conn, "example.com")
+            assert row is not None
+            assert row["tier_wins"] == {"chromium": 1}
+            assert row["tier_losses"] == {}
+            assert row["last_winning_tier"] == "chromium"
+
+    async def test_first_loss_creates_row_with_null_winner(
+        self, pool: asyncpg.pool.Pool
+    ) -> None:
+        repo = DomainObservationsRepository()
+        async with pool.acquire() as conn:
+            await repo.record_outcome(
+                conn, "wsj.com", CaptureTier.CHROMIUM, won=False,
+            )
+            row = await repo.get(conn, "wsj.com")
+            assert row is not None
+            assert row["tier_losses"] == {"chromium": 1}
+            assert row["tier_wins"] == {}
+            assert row["last_winning_tier"] is None
+
+    async def test_wins_accumulate(
+        self, pool: asyncpg.pool.Pool
+    ) -> None:
+        repo = DomainObservationsRepository()
+        async with pool.acquire() as conn:
+            for _ in range(3):
+                await repo.record_outcome(
+                    conn, "example.com", CaptureTier.WAYBACK, won=True,
+                )
+            row = await repo.get(conn, "example.com")
+            assert row is not None
+            assert row["tier_wins"] == {"wayback": 3}
+
+    async def test_mixed_tiers_separately_counted(
+        self, pool: asyncpg.pool.Pool
+    ) -> None:
+        repo = DomainObservationsRepository()
+        async with pool.acquire() as conn:
+            await repo.record_outcome(
+                conn, "nyt.com", CaptureTier.CHROMIUM, won=False,
+            )
+            await repo.record_outcome(
+                conn, "nyt.com", CaptureTier.CAMOUFOX, won=False,
+            )
+            await repo.record_outcome(
+                conn, "nyt.com", CaptureTier.WAYBACK, won=True,
+            )
+            row = await repo.get(conn, "nyt.com")
+            assert row is not None
+            assert row["tier_losses"] == {"chromium": 1, "camoufox": 1}
+            assert row["tier_wins"] == {"wayback": 1}
+            assert row["last_winning_tier"] == "wayback"
+
+    async def test_last_winning_tier_updates(
+        self, pool: asyncpg.pool.Pool
+    ) -> None:
+        """Win with tier X sets last_winning_tier=X even after prior Y win."""
+        repo = DomainObservationsRepository()
+        async with pool.acquire() as conn:
+            await repo.record_outcome(
+                conn, "ex.com", CaptureTier.CHROMIUM, won=True,
+            )
+            await repo.record_outcome(
+                conn, "ex.com", CaptureTier.CAMOUFOX, won=True,
+            )
+            row = await repo.get(conn, "ex.com")
+            assert row is not None
+            assert row["last_winning_tier"] == "camoufox"
+
+    async def test_loss_does_not_overwrite_last_winning_tier(
+        self, pool: asyncpg.pool.Pool
+    ) -> None:
+        """After a win, a loss should not wipe last_winning_tier."""
+        repo = DomainObservationsRepository()
+        async with pool.acquire() as conn:
+            await repo.record_outcome(
+                conn, "ex.com", CaptureTier.CHROMIUM, won=True,
+            )
+            await repo.record_outcome(
+                conn, "ex.com", CaptureTier.CAMOUFOX, won=False,
+            )
+            row = await repo.get(conn, "ex.com")
+            assert row is not None
+            assert row["last_winning_tier"] == "chromium"
+
+    async def test_empty_apex_is_noop(
+        self, pool: asyncpg.pool.Pool
+    ) -> None:
+        """Malformed URLs produce empty apex — we silently skip rather
+        than creating an empty-string catch-all row."""
+        repo = DomainObservationsRepository()
+        async with pool.acquire() as conn:
+            await repo.record_outcome(
+                conn, "", CaptureTier.CHROMIUM, won=True,
+            )
+            count = await conn.fetchval(
+                "SELECT count(*) FROM domain_observations"
+            )
+            assert count == 0
+
+    async def test_get_missing_returns_none(
+        self, pool: asyncpg.pool.Pool
+    ) -> None:
+        repo = DomainObservationsRepository()
+        async with pool.acquire() as conn:
+            assert await repo.get(conn, "never-seen.com") is None
+

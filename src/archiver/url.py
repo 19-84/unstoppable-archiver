@@ -106,3 +106,18 @@ def url_hash(url: str) -> str:
     """Compute SHA-256 hash of a normalized URL."""
     normalized = normalize_url(url)
     return hashlib.sha256(normalized.encode()).hexdigest()
+
+
+@beartype
+def apex_of(url: str) -> str:
+    """Return a routing key for a URL — hostname minus www prefix.
+
+    Used to group capture outcomes for tier-routing analysis. Not a
+    true public-suffix apex (no PSL lookup) — for our purpose the
+    goal is consistency (`www.a.b` and `a.b` collapse) rather than
+    RFC-level correctness. Returns empty string when parsing fails.
+    """
+    host = (urlparse(url).hostname or "").lower()
+    if host.startswith("www."):
+        host = host[_WWW_PREFIX_LEN:]
+    return host

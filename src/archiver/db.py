@@ -148,6 +148,21 @@ CREATE TABLE IF NOT EXISTS proxy_status (
 CREATE INDEX IF NOT EXISTS idx_proxy_status_passing
     ON proxy_status(last_checked_at DESC) WHERE gate_passing = true;
 
+-- Per-apex tier-outcome counters. Populated on every capture completion
+-- (win or loss) so future routing decisions can be empirical rather than
+-- relying on stated policy (robots.txt) or static priors. Keys on the
+-- hostname-minus-www routing key from url.apex_of(), not a true PSL apex.
+CREATE TABLE IF NOT EXISTS domain_observations (
+    apex TEXT PRIMARY KEY,
+    first_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    tier_wins JSONB NOT NULL DEFAULT '{}'::jsonb,
+    tier_losses JSONB NOT NULL DEFAULT '{}'::jsonb,
+    last_winning_tier TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_domain_observations_last_seen
+    ON domain_observations(last_seen_at DESC);
+
 -- Persistent cookie cache keyed by (domain, proxy). Empty proxy_server
 -- means direct connection. Stores solved cf_clearance so the next
 -- capture through the same (domain, proxy) skips the challenge.
