@@ -12,7 +12,12 @@ import pytest
 
 from archiver.db import close_pool, create_pool, init_db
 from archiver.enums import ArchiveStatus, CaptureTier, JobStatus
-from archiver.repository import ArchiveRepository, JobRepository
+from archiver.repository import (
+    ArchiveRepository,
+    CfClearanceRepository,
+    JobRepository,
+    ProxyStatusRepository,
+)
 from archiver.url import url_hash
 
 DB_URL = os.environ.get(
@@ -31,6 +36,8 @@ async def pool() -> AsyncIterator[asyncpg.pool.Pool]:
     async with p.acquire() as conn:
         await conn.execute("DELETE FROM jobs")
         await conn.execute("DELETE FROM archives")
+        await conn.execute("DELETE FROM proxy_status")
+        await conn.execute("DELETE FROM cf_clearance_cache")
     await close_pool(p)
 
 
@@ -458,3 +465,139 @@ class TestRepositoryEdgeCases:
             )
             assert result is not None
             assert result.id == a1.id
+
+
+class TestProxyStatusRepository:
+    async def test_record_and_list_passing(
+        self, pool: asyncpg.pool.Pool
+    ) -> None:
+        repo = ProxyStatusRepository()
+        async with pool.acquire() as conn:
+            await repo.record(
+                conn, "socks5://1.1.1.1:1080",
+                gate_passing=True, asn_org="MTS", country_code="RU",
+            )
+            await repo.record(
+                conn, "socks5://2.2.2.2:1080",
+                gate_passing=False, asn_org="Hetzner", country_code="DE",
+            )
+            passing = await repo.list_passing(conn)
+            assert passing == ["socks5://1.1.1.1:1080"]
+
+    async def test_record_updates_on_conflict(
+        self, pool: asyncpg.pool.Pool
+    ) -> None:
+        repo = ProxyStatusRepository()
+        async with pool.acquire() as conn:
+            await repo.record(conn, "socks5://a:1", gate_passing=False)
+            await repo.record(conn, "socks5://a:1", gate_passing=False)
+            await repo.record(conn, "socks5://a:1", gate_passing=False)
+            # All failed; now succeed — failure counter must reset.
+            await repo.record(conn, "socks5://a:1", gate_passing=True)
+            fails_after_success = await conn.fetchval(
+                "SELECT consecutive_failures FROM proxy_status "
+                "WHERE proxy_server='socks5://a:1'"
+            )
+            assert fails_after_success == 0
+
+    async def test_evict_dead(
+        self, pool: asyncpg.pool.Pool
+    ) -> None:
+        repo = ProxyStatusRepository()
+        async with pool.acquire() as conn:
+            for _ in range(4):
+                await repo.record(conn, "socks5://dead:1", gate_passing=False)
+            await repo.record(conn, "socks5://alive:1", gate_passing=True)
+            evicted = await repo.evict_dead(conn, failure_threshold=3)
+            assert evicted == 1
+            remaining = await conn.fetchval(
+                "SELECT count(*) FROM proxy_status"
+            )
+            assert remaining == 1
+
+
+class TestCfClearanceRepository:
+    async def test_put_and_get(self, pool: asyncpg.pool.Pool) -> None:
+        repo = CfClearanceRepository()
+        async with pool.acquire() as conn:
+            await repo.put(
+                conn, "archive.ph", "cf_clearance", "abc123",
+                proxy_server="socks5://p:1",
+            )
+            got = await repo.get(conn, "archive.ph", "socks5://p:1")
+            assert got is not None
+            assert got["value"] == "abc123"
+
+    async def test_get_wrong_proxy_returns_none(
+        self, pool: asyncpg.pool.Pool
+    ) -> None:
+        """Cookie cached for one proxy is not returned for another."""
+        repo = CfClearanceRepository()
+        async with pool.acquire() as conn:
+            await repo.put(
+                conn, "archive.ph", "cf_clearance", "token",
+                proxy_server="socks5://a:1",
+            )
+            assert await repo.get(conn, "archive.ph", "socks5://b:1") is None
+
+    async def test_direct_connection_stored_separately(
+        self, pool: asyncpg.pool.Pool
+    ) -> None:
+        """Empty proxy_server (direct) is its own key space."""
+        repo = CfClearanceRepository()
+        async with pool.acquire() as conn:
+            await repo.put(conn, "archive.ph", "cf_clearance", "direct_tok")
+            await repo.put(
+                conn, "archive.ph", "cf_clearance", "proxied_tok",
+                proxy_server="socks5://p:1",
+            )
+            d = await repo.get(conn, "archive.ph", "")
+            p = await repo.get(conn, "archive.ph", "socks5://p:1")
+            assert d is not None and d["value"] == "direct_tok"
+            assert p is not None and p["value"] == "proxied_tok"
+
+    async def test_update_on_conflict(
+        self, pool: asyncpg.pool.Pool
+    ) -> None:
+        repo = CfClearanceRepository()
+        async with pool.acquire() as conn:
+            await repo.put(conn, "archive.ph", "cf_clearance", "v1")
+            await repo.put(conn, "archive.ph", "cf_clearance", "v2")
+            got = await repo.get(conn, "archive.ph", "")
+            assert got is not None and got["value"] == "v2"
+
+    async def test_expired_not_returned(
+        self, pool: asyncpg.pool.Pool
+    ) -> None:
+        repo = CfClearanceRepository()
+        async with pool.acquire() as conn:
+            # Manually insert an already-expired row
+            await conn.execute(
+                """
+                INSERT INTO cf_clearance_cache
+                    (domain, proxy_server, cookie_name, cookie_value,
+                     cookie_path, expires_at)
+                VALUES ('old.example', '', 'cf_clearance', 'dead', '/',
+                        now() - interval '1 hour')
+                """,
+            )
+            assert await repo.get(conn, "old.example", "") is None
+
+    async def test_purge_expired(
+        self, pool: asyncpg.pool.Pool
+    ) -> None:
+        repo = CfClearanceRepository()
+        async with pool.acquire() as conn:
+            await conn.execute(
+                """
+                INSERT INTO cf_clearance_cache
+                    (domain, proxy_server, cookie_name, cookie_value,
+                     cookie_path, expires_at)
+                VALUES ('a', '', 'cf_clearance', 'v', '/',
+                        now() - interval '1 hour')
+                """,
+            )
+            await repo.put(conn, "b", "cf_clearance", "live")
+            purged = await repo.purge_expired(conn)
+            assert purged == 1
+            assert await repo.get(conn, "b", "") is not None

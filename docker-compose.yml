@@ -55,10 +55,22 @@ services:
       ARCHIVER_LOG_FORMAT: console
       ARCHIVER_LOG_LEVEL: INFO
       ARCHIVER_WORKER_ID: worker-1
+      ARCHIVER_WORKER_METRICS_PORT: "9090"
+      # SOCKS5-only curated lists. HTTP/HTTPS proxies are excluded because
+      # the archive.today CF gate rejects them (100% of HTTP proxies failed
+      # during gate fingerprinting). Refresh intervals vary: proxifly 5min,
+      # zloi-user 10min, TheSpeedX daily. Dedup happens in load_proxies().
+      ARCHIVER_PROXY_LIST_URLS: "https://raw.githubusercontent.com/monosans/proxy-list/main/proxies/socks5.txt,https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/socks5.txt,https://raw.githubusercontent.com/proxifly/free-proxy-list/main/proxies/protocols/socks5/data.txt,https://raw.githubusercontent.com/zloi-user/hideip.me/master/socks5.txt,https://raw.githubusercontent.com/mmpx12/proxy-list/master/socks5.txt,https://raw.githubusercontent.com/hookzof/socks5_list/master/proxy.txt"
+      # 0 = no cap. Startup health check filters dead entries regardless.
+      ARCHIVER_PROXY_MAX_COUNT: "0"
+      ARCHIVER_PROXY_HEALTH_CHECK_ENABLED: "true"
+      ARCHIVER_PROXY_HEALTH_CHECK_CONCURRENCY: "50"
       DISPLAY: ":99"
     entrypoint: >
       sh -c "Xvfb :99 -screen 0 1920x1080x24 &
              exec uv run python -m archiver"
+    ports:
+      - "127.0.0.1:9090:9090"
     depends_on:
       postgres:
         condition: service_healthy

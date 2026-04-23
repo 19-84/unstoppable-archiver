@@ -10,6 +10,7 @@ import hmac
 import json
 
 import httpx
+import pytest
 import respx
 
 from archiver.captcha import (
@@ -25,23 +26,6 @@ class TestVerifyNoneProvider:
         settings = Settings(captcha_provider="none")
         assert await verify(settings, "") is True
         assert await verify(settings, "anything") is True
-
-
-class TestUnknownProvider:
-    async def test_fallthrough_returns_false(self) -> None:
-        # Build a settings-like mock with an invalid provider
-        class FakeSettings:
-            captcha_provider = "not-real"  # type: ignore[assignment]
-        # verify() has a @beartype so we can't pass a fake; use a real
-        # Settings with a provider we know isn't handled (future-proofing)
-        # Instead test the altcha_challenge error path when hmac key missing
-        from archiver.captcha import generate_altcha_challenge
-        try:
-            generate_altcha_challenge("", max_number=10)
-        except ValueError:
-            pass
-        else:
-            raise AssertionError("should raise on empty hmac_key")
 
 
 class TestVerifyHcaptcha:
@@ -103,7 +87,49 @@ class TestVerifyAltchaProvider:
         assert await verify(settings, "any-token") is False
 
 
+class TestUnknownProvider:
+    async def test_unknown_provider_returns_false(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A captcha_provider value that isn't hcaptcha/altcha returns False.
+
+        Settings enums restrict the value, so we patch the attribute in
+        place to simulate a drift/future provider.
+        """
+        settings = Settings(captcha_provider="none")
+        monkeypatch.setattr(settings, "captcha_provider", "mystery")
+        assert await verify(settings, "tok") is False
+
+
+class TestVerifyAltchaUnit:
+    def test_wrong_algorithm_rejected(self) -> None:
+        payload = {
+            "algorithm": "MD5",
+            "challenge": "x" * 64,
+            "number": 1,
+            "salt": "s",
+            "signature": "y" * 64,
+        }
+        tok = base64.b64encode(json.dumps(payload).encode()).decode()
+        assert _verify_altcha(tok, "key") is False
+
+    def test_non_int_number_rejected(self) -> None:
+        payload = {
+            "algorithm": "SHA-256",
+            "challenge": "x" * 64,
+            "number": "not-an-int",
+            "salt": "s",
+            "signature": "y" * 64,
+        }
+        tok = base64.b64encode(json.dumps(payload).encode()).decode()
+        assert _verify_altcha(tok, "key") is False
+
+
 class TestAltchaChallenge:
+    def test_empty_key_raises(self) -> None:
+        with pytest.raises(ValueError, match="altcha_hmac_key"):
+            generate_altcha_challenge("")
+
     def test_generates_valid_challenge(self) -> None:
         c = generate_altcha_challenge("test-key", max_number=100)
         assert c["algorithm"] == "SHA-256"

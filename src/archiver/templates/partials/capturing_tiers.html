@@ -12,6 +12,7 @@
       ("Tier 3", "Proxy"),
       ("Tier 4", "Wayback"),
       ("Tier 5", "archive.today"),
+      ("Tier 6", "Common Crawl"),
     ] %}
     {% for label, name in tiers %}
     {% set tier_status = tier_results.get(label, "pending") if tier_results else "pending" %}

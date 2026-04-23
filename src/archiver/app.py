@@ -89,8 +89,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     if static_dir.exists():
         app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
-    # Routes
+    # Routes. Health router is mounted at both /api (legacy) and root so
+    # /metrics matches Prometheus scrape defaults without needing a
+    # metrics_path override in prometheus.yml.
     app.include_router(health_router, prefix="/api")
+    app.include_router(health_router)
     app.include_router(archives_router, prefix="/api")
     app.include_router(reports_router)
     app.include_router(admin_router)

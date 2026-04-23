@@ -11,7 +11,10 @@ import pytest
 from playwright.async_api import Browser
 
 from archiver.capture import (
+    _await_challenge_completion,
     _generate_thumbnail,
+    _looks_like_block_page,
+    _strip_csp_route,
     capture_page,
     save_artifacts,
 )
@@ -30,14 +33,20 @@ def _make_mock_page() -> AsyncMock:
     page.title = AsyncMock(return_value="Test Page")
     page.evaluate = AsyncMock(
         side_effect=[
-            # First call: body.innerText for detection
+            # 1st call: body.innerText for detection
             "Hello world content here " * 50,
-            # Second call: SingleFile getPageData
+            # 2nd call: documentElement.outerHTML for challenge detection
+            "<html><body>Hello world content</body></html>",
+            # 3rd call: consent-style cleanup (returns None)
+            None,
+            # 4th call: SingleFile getPageData
             {
                 "content": "<html><body>archived</body></html>",
                 "title": "Test Page",
             },
-            # Third call: body.innerText for text extraction
+            # 5th call: pre-screenshot scroll-through (returns None)
+            None,
+            # 6th call: body.innerText for text extraction
             "Hello world content here " * 50,
         ]
     )
@@ -125,14 +134,20 @@ class TestCapturePageSuccess:
         page.wait_for_function = AsyncMock()
         # evaluate calls:
         # 1. body.innerText for anti-bot detection
-        # 2. SINGLEFILE_CAPTURE_JS raises Xray error
-        # 3. read window.__sf_result (from script tag path)
-        # 4. body.innerText for text extraction
+        # 2. documentElement.outerHTML for challenge detection
+        # 3. consent-style cleanup
+        # 4. SINGLEFILE_CAPTURE_JS raises Xray error
+        # 5. read window.__sf_result (from script tag path)
+        # 6. pre-screenshot scroll-through
+        # 7. body.innerText for text extraction
         page.evaluate = AsyncMock(
             side_effect=[
                 "Hello world content here " * 50,
+                "<html><body>content</body></html>",
+                None,
                 Exception("Accessing TypedArray data over Xrays is slow"),
                 {"content": "<html>archived</html>", "title": "Test"},
+                None,
                 "Hello world content here " * 50,
             ]
         )
@@ -170,8 +185,11 @@ class TestCapturePageSuccess:
         page.goto = AsyncMock(
             side_effect=TimeoutError("navigation timeout")
         )
-        page.title = AsyncMock(return_value="Just a moment...")
-        page.evaluate = AsyncMock(return_value="Checking your browser")
+        # Title without challenge markers so the timeout falls to the
+        # plain anti-bot check (not the JS-challenge wait path).
+        page.title = AsyncMock(return_value="Access Denied")
+        page.evaluate = AsyncMock(return_value="Access denied by server")
+        page.wait_for_function = AsyncMock()
         browser = _make_mock_browser(page)
         settings = Settings(
             artifacts_dir=tmp_path,
@@ -184,29 +202,46 @@ class TestCapturePageSuccess:
             )
 
 
+    @patch("archiver.capture.capture_via_cli", new_callable=AsyncMock)
     @patch("archiver.capture.load_bundle", return_value="// fake JS")
     @patch("archiver.capture.check_anti_bot")
-    async def test_firefox_script_tag_error_raises(
+    async def test_cli_returns_block_page_falls_to_page_content(
         self,
         mock_detect: MagicMock,
         mock_bundle: MagicMock,
+        mock_cli: AsyncMock,
         tmp_path: Path,
     ) -> None:
-        """SingleFile error via script tag fallback raises CaptureError."""
+        """CLI's unbranded Chromium sometimes gets a 403 block page;
+        should fall through to page.content() (live DOM from stealth browser)."""
         from archiver.detection import DetectionSignal
         from archiver.enums import CaptureTier
 
         mock_detect.return_value = DetectionSignal(is_blocked=False)
+        mock_cli.return_value = (
+            "<html><head><title>403 Forbidden</title></head><body>nope</body></html>"
+        )
 
         page = _make_mock_page()
         page.add_script_tag = AsyncMock()
         page.wait_for_function = AsyncMock()
-        # evaluate: body text, Xray error (triggers fallback), script-tag result
+        # page.content() is the ultimate fallback — mock it.
+        page.content = AsyncMock(
+            return_value="<html><body>live dom content</body></html>"
+        )
+        # evaluate: body text, outerHTML for challenge, consent cleanup,
+        # Xray error (triggers fallback chain), script-tag result error
+        # (CLI fires, CLI returns block → page.content fires), then
+        # pre-screenshot scroll, body text for indexing.
         page.evaluate = AsyncMock(
             side_effect=[
                 "body text",
+                "<html><body>content</body></html>",
+                None,
                 Exception("Accessing TypedArray data over Xrays is slow"),
-                {"error": "SingleFile failed"},
+                {"error": "script tag blocked by CSP"},
+                None,
+                "body text",
             ]
         )
         browser = _make_mock_browser(page)
@@ -215,11 +250,109 @@ class TestCapturePageSuccess:
             singlefile_bundle_path=Path("fake.js"),
         )
 
-        with pytest.raises(CaptureError, match="script tag"):
-            await capture_page(
-                "https://example.com", browser, settings,
-                tier=CaptureTier.CAMOUFOX,
-            )
+        result = await capture_page(
+            "https://example.com", browser, settings,
+            tier=CaptureTier.CAMOUFOX,
+        )
+        assert isinstance(result, CaptureResult)
+        page.content.assert_awaited_once()
+        assert b"live dom content" in result.snapshot_html
+
+    @patch("archiver.capture.capture_via_cli", new_callable=AsyncMock)
+    @patch("archiver.capture.load_bundle", return_value="// fake JS")
+    @patch("archiver.capture.check_anti_bot")
+    async def test_cli_raises_falls_to_page_content(
+        self,
+        mock_detect: MagicMock,
+        mock_bundle: MagicMock,
+        mock_cli: AsyncMock,
+        tmp_path: Path,
+    ) -> None:
+        """CLI subprocess raising also falls through to page.content()."""
+        from archiver.detection import DetectionSignal
+        from archiver.enums import CaptureTier
+
+        mock_detect.return_value = DetectionSignal(is_blocked=False)
+        mock_cli.side_effect = CaptureError("CLI crashed")
+
+        page = _make_mock_page()
+        page.add_script_tag = AsyncMock()
+        page.wait_for_function = AsyncMock()
+        page.content = AsyncMock(return_value="<html>live</html>")
+        page.evaluate = AsyncMock(
+            side_effect=[
+                "body text",
+                "<html></html>",
+                None,
+                Exception("Xrays TypedArray"),
+                {"error": "script tag blocked"},
+                None,
+                "body text",
+            ]
+        )
+        browser = _make_mock_browser(page)
+        settings = Settings(
+            artifacts_dir=tmp_path,
+            singlefile_bundle_path=Path("fake.js"),
+        )
+        result = await capture_page(
+            "https://example.com", browser, settings,
+            tier=CaptureTier.CAMOUFOX,
+        )
+        assert b"live" in result.snapshot_html
+
+    @patch("archiver.capture.capture_via_cli", new_callable=AsyncMock)
+    @patch("archiver.capture.load_bundle", return_value="// fake JS")
+    @patch("archiver.capture.check_anti_bot")
+    async def test_firefox_script_tag_error_falls_through_to_cli(
+        self,
+        mock_detect: MagicMock,
+        mock_bundle: MagicMock,
+        mock_cli: AsyncMock,
+        tmp_path: Path,
+    ) -> None:
+        """Script-tag fallback failure now escalates to CLI subprocess.
+
+        This validates the tier-3 fallback — Firefox's world-isolation
+        can defeat both in-browser strategies; the CLI spawns an
+        independent Chromium and reliably captures even strict-CSP pages.
+        """
+        from archiver.detection import DetectionSignal
+        from archiver.enums import CaptureTier
+
+        mock_detect.return_value = DetectionSignal(is_blocked=False)
+        mock_cli.return_value = "<html>archived via CLI</html>"
+
+        page = _make_mock_page()
+        page.add_script_tag = AsyncMock()
+        page.wait_for_function = AsyncMock()
+        # evaluate: body text, html for challenge detect, consent
+        # cleanup, Xray error (triggers fallback), script-tag result
+        # (error → CLI fallback fires), then pre-screenshot scroll,
+        # then body text for indexing.
+        page.evaluate = AsyncMock(
+            side_effect=[
+                "body text",
+                "<html><body>content</body></html>",
+                None,
+                Exception("Accessing TypedArray data over Xrays is slow"),
+                {"error": "SingleFile failed"},
+                None,
+                "body text",
+            ]
+        )
+        browser = _make_mock_browser(page)
+        settings = Settings(
+            artifacts_dir=tmp_path,
+            singlefile_bundle_path=Path("fake.js"),
+        )
+
+        result = await capture_page(
+            "https://example.com", browser, settings,
+            tier=CaptureTier.CAMOUFOX,
+        )
+        assert isinstance(result, CaptureResult)
+        mock_cli.assert_awaited_once()
 
 
     @patch("archiver.capture.load_bundle", return_value="// fake JS")
@@ -289,6 +422,10 @@ class TestCapturePageErrors:
         mock_bundle: MagicMock,
         tmp_path: Path,
     ) -> None:
+        """SingleFile returning a dict-shaped but content-less result
+        should raise CaptureError('unexpected result') — it shouldn't
+        fall through to CLI because this looks like a successful call
+        that returned garbage. CLI is only for failure/None cases."""
         from archiver.detection import DetectionSignal
 
         mock_detect.return_value = DetectionSignal(is_blocked=False)
@@ -301,8 +438,10 @@ class TestCapturePageErrors:
         page.title = AsyncMock(return_value="Test")
         page.evaluate = AsyncMock(
             side_effect=[
-                "body text",
-                None,  # SingleFile returns None
+                "body text",                 # body.innerText for detection
+                "<html></html>",              # documentElement.outerHTML for challenge
+                None,                         # consent-style cleanup
+                {"wrong_shape": "no content"},  # SingleFile returned dict without "content"
             ]
         )
         page.on = MagicMock()
@@ -351,6 +490,69 @@ class TestCapturePageErrors:
 
         # Context should be closed even on error
         context.close.assert_awaited_once()
+
+
+class TestLooksLikeBlockPage:
+    def test_title_403_matches(self) -> None:
+        assert _looks_like_block_page("<html><head><title>403 Forbidden</title></head>") is True
+
+    def test_access_denied_title_matches(self) -> None:
+        assert _looks_like_block_page("<html><title>Access Denied</title>") is True
+
+    def test_normal_article_no_match(self) -> None:
+        html = "<html><title>A Very Long Article</title>" + "lorem ipsum " * 1000
+        assert _looks_like_block_page(html) is False
+
+    def test_403_deep_in_body_ignored(self) -> None:
+        """'403' in a late body section should NOT match — only first 4KB."""
+        html = "<html><title>Normal</title>" + "padding " * 600 + "<title>403</title>"
+        assert _looks_like_block_page(html) is False
+
+
+class TestStripCspRoute:
+    async def test_non_http_request_continues(self) -> None:
+        route = AsyncMock()
+        route.request.url = "data:text/html,<b>x</b>"
+        route.continue_ = AsyncMock()
+        await _strip_csp_route(route)
+        route.continue_.assert_awaited_once()
+
+    async def test_strips_csp_header(self) -> None:
+        route = AsyncMock()
+        route.request.url = "https://example.com/asset.css"
+        resp = MagicMock()
+        resp.headers = {
+            "Content-Security-Policy": "default-src 'self'",
+            "X-Frame-Options": "DENY",
+        }
+        route.fetch = AsyncMock(return_value=resp)
+        route.fulfill = AsyncMock()
+        await _strip_csp_route(route)
+        kwargs = route.fulfill.call_args.kwargs
+        headers = kwargs["headers"]
+        assert "content-security-policy" not in {k.lower() for k in headers}
+        assert "X-Frame-Options" in headers
+
+    async def test_fetch_exception_falls_back_to_continue(self) -> None:
+        route = AsyncMock()
+        route.request.url = "https://example.com/fail"
+        route.fetch = AsyncMock(side_effect=RuntimeError("boom"))
+        route.continue_ = AsyncMock()
+        await _strip_csp_route(route)
+        route.continue_.assert_awaited_once()
+
+
+class TestAwaitChallengeCompletion:
+    async def test_cleared_returns_true(self) -> None:
+        page = AsyncMock()
+        page.wait_for_function = AsyncMock()
+        page.wait_for_load_state = AsyncMock()
+        assert await _await_challenge_completion(page, timeout_ms=100) is True
+
+    async def test_timeout_returns_false(self) -> None:
+        page = AsyncMock()
+        page.wait_for_function = AsyncMock(side_effect=TimeoutError("nope"))
+        assert await _await_challenge_completion(page, timeout_ms=100) is False
 
 
 class TestGenerateThumbnail:
@@ -518,3 +720,68 @@ class TestCookieCacheIntegration:
 
         assert isinstance(result, CaptureResult)
         context.add_cookies.assert_not_awaited()
+
+
+class TestCapturePageStripSelectors:
+    @patch("archiver.capture.load_bundle", return_value="// fake JS")
+    @patch("archiver.capture.check_anti_bot")
+    async def test_strip_selectors_invokes_dom_removal(
+        self,
+        mock_detect: MagicMock,
+        mock_bundle: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """Pass-through test: strip selectors must run page.evaluate once each."""
+        from archiver.detection import DetectionSignal
+
+        mock_detect.return_value = DetectionSignal(is_blocked=False)
+
+        page = AsyncMock()
+        page.goto = AsyncMock(return_value=MagicMock(status=200))
+        page.wait_for_load_state = AsyncMock()
+        page.title = AsyncMock(return_value="T")
+        page.on = MagicMock()
+        page.add_init_script = AsyncMock()
+        page.screenshot = AsyncMock(return_value=_make_tiny_png())
+
+        # 1st: body text pre-detection
+        # 2nd: documentElement.outerHTML for challenge detection
+        # 3rd-4th: two strip selectors
+        # 5th: consent-style cleanup
+        # 6th: SingleFile getPageData
+        # 7th: pre-screenshot scroll-through
+        # 8th: body text post-capture
+        page.evaluate = AsyncMock(
+            side_effect=[
+                "hello " * 50,
+                "<html></html>",
+                None,
+                None,
+                None,
+                {"content": "<html></html>", "title": "T"},
+                None,
+                "hello " * 50,
+            ]
+        )
+
+        browser = _make_mock_browser(page)
+        settings = Settings(
+            artifacts_dir=tmp_path,
+            singlefile_bundle_path=Path("fake.js"),
+        )
+
+        await capture_page(
+            "https://archive.today/abc/https://example.com",
+            browser,
+            settings,
+            strip_selectors=["#HEADER", "#DIVSHARE"],
+        )
+
+        # Strip selectors were each passed to page.evaluate with the
+        # removal script as the first arg.
+        eval_calls = page.evaluate.call_args_list
+        selector_args = [
+            call.args[1] for call in eval_calls if len(call.args) > 1
+        ]
+        assert "#HEADER" in selector_args
+        assert "#DIVSHARE" in selector_args

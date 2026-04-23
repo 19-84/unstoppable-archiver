@@ -2,8 +2,9 @@
 
 Self-hosted web archiver with multi-tier anti-bot capture. Captures pages
 as self-contained HTML (SingleFile) + WARC + screenshot, with automatic
-escalation through Playwright Chromium, Camoufox stealth Firefox,
-rotating proxies, and public archive fallbacks.
+escalation across six tiers: Playwright Chromium → Camoufox stealth
+Firefox → Camoufox-over-proxy → Wayback Machine → archive.today →
+Common Crawl (both recent crawls and a full-history deep scan back to 2014).
 
 Two deployment modes:
 - **Self-hosted** — single user, local machine, no admin auth required
@@ -139,8 +140,12 @@ Restart after env changes: `make stop-public && make run-public`.
 | URL submission (anonymous) | ✓ | ✓ |
 | Full-text search | ✓ | ✓ |
 | Pagination | ✓ | ✓ |
-| Multi-tier capture (Chromium → Camoufox → Proxy → Wayback → archive.today) | ✓ | ✓ |
+| Multi-tier capture (Chromium → Camoufox → Proxy → Wayback → archive.today → Common Crawl) | ✓ | ✓ |
+| Common Crawl deep-scan fallback (2014–present) | ✓ | ✓ |
+| Rotating User-Agent pool (daily refresh, never identifies as archiver) | ✓ | ✓ |
 | playwright-stealth + cf_clearance cache | ✓ | ✓ |
+| CSP-header stripping for robust SingleFile injection | ✓ | ✓ |
+| SingleFile CLI subprocess fallback for strict-CSP sites | ✓ | ✓ |
 | Sandboxed snapshot viewer | ✓ | ✓ |
 | WARC + screenshot + thumbnail artifacts | ✓ | ✓ |
 | Delete button on archive page | ✓ (user) | hidden |
@@ -177,7 +182,14 @@ See `CLAUDE.md` for the full overview. Key components:
 - **FastAPI** app (API + htmx-rendered pages)
 - **PostgreSQL 17** with tsvector FTS + JSONB audit log
 - **Playwright** Chromium + **Camoufox** Firefox in the worker
-- **SingleFile** for self-contained HTML snapshots (CLI subprocess or JS fallback)
+- **SingleFile** for self-contained HTML snapshots — JS injection first,
+  CLI subprocess fallback for strict-CSP sites, `page.content()` as
+  ultimate safety net
+- **Common Crawl** as the final fallback tier — CDX lookup + WARC
+  range-fetch from `data.commoncrawl.org`, with deep-scan of all ~122
+  crawls back to 2014 when recent crawls miss
+- Rotating **User-Agent pool** refreshed daily from jnrbsn/user-agents
+  (never leaks archiver identity)
 - **Worker** processes a Postgres-backed job queue with LISTEN/NOTIFY
 - **htmx + Tailwind + Jinja2** frontend, all assets vendored locally
 

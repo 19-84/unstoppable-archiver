@@ -133,6 +133,36 @@ END$$;
 CREATE INDEX IF NOT EXISTS idx_reports_status ON reports(status);
 CREATE INDEX IF NOT EXISTS idx_reports_archive_id ON reports(archive_id);
 CREATE INDEX IF NOT EXISTS idx_reports_created_at ON reports(created_at DESC);
+
+-- Per-proxy gate-pass status. Separate from the live ProxyRotator's
+-- in-memory failure set so we can prefer known-good exits across
+-- worker restarts.
+CREATE TABLE IF NOT EXISTS proxy_status (
+    proxy_server TEXT PRIMARY KEY,
+    last_checked_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    gate_passing BOOLEAN NOT NULL DEFAULT false,
+    asn_org TEXT,
+    country_code TEXT,
+    consecutive_failures INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_proxy_status_passing
+    ON proxy_status(last_checked_at DESC) WHERE gate_passing = true;
+
+-- Persistent cookie cache keyed by (domain, proxy). Empty proxy_server
+-- means direct connection. Stores solved cf_clearance so the next
+-- capture through the same (domain, proxy) skips the challenge.
+CREATE TABLE IF NOT EXISTS cf_clearance_cache (
+    domain TEXT NOT NULL,
+    proxy_server TEXT NOT NULL DEFAULT '',
+    cookie_name TEXT NOT NULL,
+    cookie_value TEXT NOT NULL,
+    cookie_path TEXT NOT NULL DEFAULT '/',
+    expires_at TIMESTAMPTZ NOT NULL,
+    set_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (domain, proxy_server, cookie_name)
+);
+CREATE INDEX IF NOT EXISTS idx_cf_clearance_expires
+    ON cf_clearance_cache(expires_at);
 """
 
 # Partial index for claimable jobs — needs special handling

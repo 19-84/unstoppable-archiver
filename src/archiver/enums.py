@@ -34,6 +34,7 @@ class CaptureTier(StrEnum):
     CAMOUFOX_PROXY = "camoufox_proxy"
     WAYBACK = "wayback"
     ARCHIVE_TODAY = "archive_today"
+    COMMONCRAWL = "commoncrawl"
 
 
 class CaptureSource(StrEnum):
@@ -42,6 +43,7 @@ class CaptureSource(StrEnum):
     DIRECT = "direct"
     WAYBACK = "wayback"
     ARCHIVE_TODAY = "archive_today"
+    COMMONCRAWL = "commoncrawl"
 
 
 class NetworkType(StrEnum):
@@ -82,13 +84,17 @@ class ReportStatus(StrEnum):
     DISMISSED = "dismissed"
 
 
-# Tier escalation order for clearnet URLs
+# Tier escalation order for clearnet URLs. Common Crawl is last —
+# staleness (1-3 months) means it's strictly worse than Wayback when
+# both have coverage; it earns its place by catching long-tail URLs
+# (indie blogs, abandoned sites) that Wayback often missed.
 CLEARNET_TIER_ORDER: list[CaptureTier] = [
     CaptureTier.CHROMIUM,
     CaptureTier.CAMOUFOX,
     CaptureTier.CAMOUFOX_PROXY,
     CaptureTier.WAYBACK,
     CaptureTier.ARCHIVE_TODAY,
+    CaptureTier.COMMONCRAWL,
 ]
 
 # Tier escalation order for darknet URLs (no indirect tiers)

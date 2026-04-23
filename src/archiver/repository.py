@@ -237,6 +237,40 @@ class ArchiveRepository:
         return _record_to_archive(row) if row else None
 
     @beartype
+    async def get_closest_to_timestamp(
+        self,
+        conn: PgConnection,
+        uhash: str,
+        target_timestamp: str,
+    ) -> ArchiveRecord | None:
+        """Return the archive for `uhash` whose created_at is nearest to
+        `target_timestamp` (YYYYMMDDHHMMSS).
+
+        Mirrors the Wayback `/web/{ts}/{url}` resolution behavior —
+        given a user-supplied timestamp, we serve the closest snapshot
+        we have rather than requiring an exact match. Removed archives
+        are excluded.
+        """
+        if len(target_timestamp) != 14 or not target_timestamp.isdigit():  # noqa: PLR2004
+            return None
+        target = target_timestamp
+        row = await conn.fetchrow(
+            f"""
+            SELECT {_ARCHIVE_COLS}
+            FROM archives
+            WHERE url_hash = $1 AND removed_at IS NULL
+            ORDER BY
+              abs(extract(epoch from created_at) -
+                  extract(epoch from to_timestamp($2, 'YYYYMMDDHH24MISS'))
+                 ) ASC,
+              created_at DESC
+            LIMIT 1
+            """,
+            uhash, target,
+        )
+        return _record_to_archive(row) if row else None
+
+    @beartype
     async def check_recent_capture(
         self,
         conn: PgConnection,
@@ -735,3 +769,130 @@ def _record_to_report(row: asyncpg.Record) -> ReportRecord:
         resolved_by=row["resolved_by"],
         resolution_notes=row["resolution_notes"],
     )
+
+
+class ProxyStatusRepository:
+    """CRUD for proxy_status — tracks per-proxy archive-gate pass capability."""
+
+    @beartype
+    async def record(
+        self,
+        conn: PgConnection,
+        proxy_server: str,
+        *,
+        gate_passing: bool,
+        asn_org: str | None = None,
+        country_code: str | None = None,
+    ) -> None:
+        """Upsert a gate-check outcome for a proxy."""
+        await conn.execute(
+            """
+            INSERT INTO proxy_status
+                (proxy_server, gate_passing, asn_org, country_code,
+                 consecutive_failures, last_checked_at)
+            VALUES ($1, $2, $3, $4, CASE WHEN $2 THEN 0 ELSE 1 END, now())
+            ON CONFLICT (proxy_server) DO UPDATE SET
+                gate_passing = $2,
+                asn_org = COALESCE($3, proxy_status.asn_org),
+                country_code = COALESCE($4, proxy_status.country_code),
+                consecutive_failures = CASE
+                    WHEN $2 THEN 0
+                    ELSE proxy_status.consecutive_failures + 1
+                END,
+                last_checked_at = now()
+            """,
+            proxy_server, gate_passing, asn_org, country_code,
+        )
+
+    @beartype
+    async def list_passing(
+        self, conn: PgConnection, max_age_hours: int = 24
+    ) -> list[str]:
+        """Return proxy_server values known to pass the gate within max_age_hours."""
+        rows = await conn.fetch(
+            """
+            SELECT proxy_server FROM proxy_status
+            WHERE gate_passing = true
+              AND last_checked_at > now() - make_interval(hours => $1)
+            ORDER BY last_checked_at DESC
+            """,
+            max_age_hours,
+        )
+        return [r["proxy_server"] for r in rows]
+
+    @beartype
+    async def evict_dead(
+        self, conn: PgConnection, failure_threshold: int = 3
+    ) -> int:
+        """Delete proxies with ≥N consecutive failures. Returns eviction count."""
+        result = await conn.execute(
+            "DELETE FROM proxy_status WHERE consecutive_failures >= $1",
+            failure_threshold,
+        )
+        return int(result.split()[-1]) if result else 0
+
+
+class CfClearanceRepository:
+    """Persistent (domain, proxy) → cf_clearance cookie cache."""
+
+    @beartype
+    async def get(
+        self,
+        conn: PgConnection,
+        domain: str,
+        proxy_server: str = "",
+    ) -> dict[str, str] | None:
+        """Return cookie dict or None if missing/expired."""
+        row = await conn.fetchrow(
+            """
+            SELECT cookie_name, cookie_value, cookie_path
+            FROM cf_clearance_cache
+            WHERE domain = $1 AND proxy_server = $2
+              AND expires_at > now()
+            """,
+            domain, proxy_server,
+        )
+        if row is None:
+            return None
+        return {
+            "name": row["cookie_name"],
+            "value": row["cookie_value"],
+            "path": row["cookie_path"],
+        }
+
+    @beartype
+    async def put(  # noqa: PLR0913 — domain, proxy, cookie triple + TTL args are irreducible
+        self,
+        conn: PgConnection,
+        domain: str,
+        name: str,
+        value: str,
+        *,
+        proxy_server: str = "",
+        path: str = "/",
+        ttl_days: int = 15,
+    ) -> None:
+        """Upsert a cookie. TTL default matches cf_clearance's ~15-day validity."""
+        await conn.execute(
+            """
+            INSERT INTO cf_clearance_cache
+                (domain, proxy_server, cookie_name, cookie_value,
+                 cookie_path, expires_at)
+            VALUES ($1, $2, $3, $4, $5,
+                    now() + make_interval(days => $6))
+            ON CONFLICT (domain, proxy_server, cookie_name) DO UPDATE SET
+                cookie_value = $4,
+                cookie_path = $5,
+                expires_at = now() + make_interval(days => $6),
+                set_at = now()
+            """,
+            domain, proxy_server, name, value, path, ttl_days,
+        )
+
+    @beartype
+    async def purge_expired(self, conn: PgConnection) -> int:
+        """Delete expired entries. Returns deletion count."""
+        result = await conn.execute(
+            "DELETE FROM cf_clearance_cache WHERE expires_at <= now()"
+        )
+        return int(result.split()[-1]) if result else 0

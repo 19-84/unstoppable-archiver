@@ -122,16 +122,33 @@ class TestNextTier:
             == CaptureTier.ARCHIVE_TODAY
         )
 
-    def test_archive_today_returns_none(self) -> None:
-        assert next_tier(CaptureTier.ARCHIVE_TODAY) is None
+    def test_archive_today_escalates_to_commoncrawl(self) -> None:
+        assert (
+            next_tier(CaptureTier.ARCHIVE_TODAY)
+            == CaptureTier.COMMONCRAWL
+        )
 
-    def test_full_chain_has_five_tiers(self) -> None:
+    def test_commoncrawl_returns_none(self) -> None:
+        assert next_tier(CaptureTier.COMMONCRAWL) is None
+
+    def test_full_chain_has_six_tiers(self) -> None:
         tiers: list[CaptureTier] = [CaptureTier.CHROMIUM]
         tier: CaptureTier | None = CaptureTier.CHROMIUM
         while (tier := next_tier(tier)) is not None:
             tiers.append(tier)
-        total_tiers = 5
+        total_tiers = 6
         assert len(tiers) == total_tiers
+
+    def test_unknown_tier_returns_none(self) -> None:
+        """A tier not in CLEARNET_TIER_ORDER (e.g. darknet-only) yields None."""
+        import archiver.worker as worker_mod
+
+        orig = worker_mod.CLEARNET_TIER_ORDER
+        try:
+            worker_mod.CLEARNET_TIER_ORDER = [CaptureTier.CHROMIUM]
+            assert next_tier(CaptureTier.CAMOUFOX) is None
+        finally:
+            worker_mod.CLEARNET_TIER_ORDER = orig
 
 
 class TestWorkerProcessJob:
@@ -306,54 +323,94 @@ class TestWorkerFallbackTiers:
 
         worker._job_repo.fail.assert_awaited()
 
-    @patch("archiver.worker.save_artifacts", new_callable=AsyncMock, return_value="hash/20260101")
-    @patch("archiver.worker.capture_page", new_callable=AsyncMock)
-    @patch("archiver.worker.check_archive_today_availability", new_callable=AsyncMock)
-    async def test_archive_today_tier_uses_fallback(
+    @patch("archiver.worker.fetch_archive_today_snapshot_html", new_callable=AsyncMock)
+    @patch("archiver.worker.find_archive_today_snapshot", new_callable=AsyncMock)
+    async def test_archive_today_tier_direct_fetch_success(
         self,
-        mock_at: AsyncMock,
-        mock_capture: AsyncMock,
-        mock_save: AsyncMock,
+        mock_find: AsyncMock,
+        mock_fetch: AsyncMock,
     ) -> None:
+        """Direct-fetch short-circuit: timemap found + html fetched via httpx."""
         worker, _ = _make_worker()
         job = _make_job(tier=CaptureTier.ARCHIVE_TODAY)
         worker._archive_repo.get_by_id = AsyncMock(
             return_value=_make_archive()
         )
-        mock_at.return_value = True
+        mock_find.return_value = "https://archive.today/2024/foo"
+        mock_fetch.return_value = (
+            "<html><title>Real Article</title>"
+            "<body>actual content here</body></html>"
+        )
+
+        with patch(
+            "archiver.worker.save_artifacts",
+            new_callable=AsyncMock,
+            return_value="hash/20260101",
+        ):
+            await worker._process_job(job)
+
+        mock_find.assert_awaited_once()
+        mock_fetch.assert_awaited_once()
+        # Direct-fetch path — browser NOT invoked
+        assert not worker._browser_pool.get_browser.called
+        worker._job_repo.complete.assert_awaited_once()
+
+    @patch("archiver.worker.save_artifacts", new_callable=AsyncMock, return_value="hash/20260101")
+    @patch("archiver.worker.capture_page", new_callable=AsyncMock)
+    @patch("archiver.worker.fetch_archive_today_snapshot_html", new_callable=AsyncMock)
+    @patch("archiver.worker.find_archive_today_snapshot", new_callable=AsyncMock)
+    async def test_archive_today_tier_falls_back_to_browser(
+        self,
+        mock_find: AsyncMock,
+        mock_fetch: AsyncMock,
+        mock_capture: AsyncMock,
+        mock_save: AsyncMock,
+    ) -> None:
+        """Direct-fetch returns None (CF blocked) → Camoufox renders."""
+        worker, _ = _make_worker()
+        job = _make_job(tier=CaptureTier.ARCHIVE_TODAY)
+        worker._archive_repo.get_by_id = AsyncMock(
+            return_value=_make_archive()
+        )
+        mock_find.return_value = "https://archive.today/2024/foo"
+        mock_fetch.return_value = None  # simulate CF block
         mock_capture.return_value = _make_capture_result()
         worker._browser_pool.get_browser = AsyncMock()
 
         await worker._process_job(job)
 
-        mock_at.assert_awaited_once()
         mock_capture.assert_awaited_once()
         worker._job_repo.complete.assert_awaited_once()
 
+    @patch("archiver.worker.cc_find_snapshot_full_history", new_callable=AsyncMock)
+    @patch("archiver.worker.cc_find_snapshot", new_callable=AsyncMock)
     @patch("archiver.worker.capture_page", new_callable=AsyncMock)
-    @patch("archiver.worker.check_archive_today_availability", new_callable=AsyncMock)
+    @patch("archiver.worker.find_archive_today_snapshot", new_callable=AsyncMock)
     async def test_capture_error_all_tiers_exhausted(
         self,
-        mock_at: AsyncMock,
+        mock_find: AsyncMock,
         mock_capture: AsyncMock,
+        mock_cc: AsyncMock,
+        mock_cc_full: AsyncMock,
     ) -> None:
+        """Exhausting the *last* tier (now COMMONCRAWL) marks FAILED."""
         worker, mock_conn = _make_worker()
         job = _make_job(
-            tier=CaptureTier.ARCHIVE_TODAY,
+            tier=CaptureTier.COMMONCRAWL,
             attempts=3,
             max_attempts=3,
         )
         worker._archive_repo.get_by_id = AsyncMock(
             return_value=_make_archive()
         )
-        mock_at.return_value = True
-        mock_capture.side_effect = CaptureError("failed")
+        mock_find.return_value = None
+        mock_cc.return_value = None  # no recent CC snapshot
+        mock_cc_full.return_value = None  # no deep-scan snapshot either
         worker._browser_pool.get_browser = AsyncMock()
         mock_conn.fetchval = AsyncMock(return_value=3)
 
         await worker._process_job(job)
 
-        # archive_today is last tier, should mark FAILED
         calls = worker._archive_repo.update_status.call_args_list
         fail_call = [
             c for c in calls
@@ -361,18 +418,17 @@ class TestWorkerFallbackTiers:
         ]
         assert len(fail_call) == 1
 
-
-    @patch("archiver.worker.check_archive_today_availability", new_callable=AsyncMock)
-    async def test_archive_today_not_available_raises(
+    @patch("archiver.worker.find_archive_today_snapshot", new_callable=AsyncMock)
+    async def test_archive_today_no_snapshot_raises(
         self,
-        mock_at: AsyncMock,
+        mock_find: AsyncMock,
     ) -> None:
         worker, mock_conn = _make_worker()
         job = _make_job(tier=CaptureTier.ARCHIVE_TODAY)
         worker._archive_repo.get_by_id = AsyncMock(
             return_value=_make_archive()
         )
-        mock_at.return_value = False
+        mock_find.return_value = None
         mock_conn.fetchval = AsyncMock(return_value=1)
 
         await worker._process_job(job)
@@ -394,6 +450,173 @@ class TestWorkerFallbackTiers:
 
         await worker._process_job(job)
         worker._job_repo.fail.assert_awaited()
+
+
+class TestCaptureViaCommonCrawl:
+    @patch("archiver.worker.cc_fetch_record_html", new_callable=AsyncMock)
+    @patch("archiver.worker.cc_find_snapshot", new_callable=AsyncMock)
+    async def test_happy_path_returns_result(
+        self,
+        mock_find: AsyncMock,
+        mock_fetch: AsyncMock,
+    ) -> None:
+        from archiver.commoncrawl import CCSnapshot
+
+        worker, _ = _make_worker()
+        mock_find.return_value = CCSnapshot(
+            url="https://example.com/",
+            timestamp="20260101120000",
+            crawl_id="CC-MAIN-2026-12",
+            filename="x.warc.gz",
+            offset=0, length=100, status=200, mime="text/html",
+        )
+        mock_fetch.return_value = b"<html><body>cc body</body></html>"
+        result = await worker._capture_via_commoncrawl("https://example.com/")
+        assert b"cc body" in result.snapshot_html
+
+    @patch("archiver.worker.cc_find_snapshot_full_history", new_callable=AsyncMock)
+    @patch("archiver.worker.cc_find_snapshot", new_callable=AsyncMock)
+    async def test_no_snapshot_raises(
+        self, mock_find: AsyncMock, mock_full: AsyncMock
+    ) -> None:
+        worker, _ = _make_worker()
+        mock_find.return_value = None
+        mock_full.return_value = None
+        import pytest as _pt
+
+        with _pt.raises(CaptureError, match="No Common Crawl snapshot"):
+            await worker._capture_via_commoncrawl("https://example.com/")
+
+    @patch("archiver.worker.cc_fetch_record_html", new_callable=AsyncMock)
+    @patch("archiver.worker.cc_find_snapshot_full_history", new_callable=AsyncMock)
+    @patch("archiver.worker.cc_find_snapshot", new_callable=AsyncMock)
+    async def test_recent_miss_falls_to_deep_scan(
+        self,
+        mock_find: AsyncMock,
+        mock_full: AsyncMock,
+        mock_fetch: AsyncMock,
+    ) -> None:
+        """Recent-crawl miss triggers full-history scan, which finds a hit."""
+        from archiver.commoncrawl import CCSnapshot
+
+        worker, _ = _make_worker()
+        mock_find.return_value = None
+        mock_full.return_value = CCSnapshot(
+            url="https://example.com/",
+            timestamp="20140101120000",
+            crawl_id="CC-MAIN-2014-10",
+            filename="x.warc.gz",
+            offset=0, length=100, status=200, mime="text/html",
+        )
+        mock_fetch.return_value = b"<html>old archive from 2014</html>"
+        result = await worker._capture_via_commoncrawl("https://example.com/")
+        assert b"2014" in result.snapshot_html
+        mock_full.assert_awaited_once()
+
+    @patch("archiver.worker.cc_fetch_record_html", new_callable=AsyncMock)
+    @patch("archiver.worker.cc_find_snapshot", new_callable=AsyncMock)
+    async def test_fetch_error_wrapped(
+        self,
+        mock_find: AsyncMock,
+        mock_fetch: AsyncMock,
+    ) -> None:
+        from archiver.commoncrawl import CCSnapshot
+
+        worker, _ = _make_worker()
+        mock_find.return_value = CCSnapshot(
+            url="https://example.com/",
+            timestamp="20260101120000",
+            crawl_id="CC-MAIN-2026-12",
+            filename="x.warc.gz",
+            offset=0, length=100, status=200, mime="text/html",
+        )
+        mock_fetch.side_effect = RuntimeError("range fetch 500")
+        import pytest as _pt
+
+        with _pt.raises(CaptureError, match="range-fetch failed"):
+            await worker._capture_via_commoncrawl("https://example.com/")
+
+
+class TestAntibotExhaustion:
+    async def test_antibot_on_last_tier_marks_failed(self) -> None:
+        """Antibot on the final tier → archive moved to FAILED."""
+        worker, mock_conn = _make_worker()
+        job = _make_job(tier=CaptureTier.COMMONCRAWL)
+        await worker._handle_antibot(mock_conn, job, "blocked everywhere")
+        # Archive must have been marked FAILED.
+        calls = worker._archive_repo.update_status.call_args_list
+        fail_calls = [
+            c for c in calls
+            if len(c[0]) >= 3 and c[0][2] == ArchiveStatus.FAILED  # noqa: PLR2004
+        ]
+        assert len(fail_calls) == 1
+        # No escalation enqueue on exhaustion.
+        worker._job_repo.enqueue.assert_not_awaited()
+
+
+class TestCommonCrawlSuccessSource:
+    @patch("archiver.worker.save_artifacts", new_callable=AsyncMock)
+    @patch("archiver.worker.cc_fetch_record_html", new_callable=AsyncMock)
+    @patch("archiver.worker.cc_find_snapshot", new_callable=AsyncMock)
+    async def test_commoncrawl_success_sets_source(
+        self,
+        mock_find: AsyncMock,
+        mock_fetch: AsyncMock,
+        mock_save: AsyncMock,
+    ) -> None:
+        """A successful COMMONCRAWL capture records source=commoncrawl."""
+        from archiver.commoncrawl import CCSnapshot
+
+        worker, _ = _make_worker()
+        job = _make_job(tier=CaptureTier.COMMONCRAWL)
+        worker._archive_repo.get_by_id = AsyncMock(
+            return_value=_make_archive()
+        )
+        mock_find.return_value = CCSnapshot(
+            url="https://example.com/",
+            timestamp="20260101120000",
+            crawl_id="CC-MAIN-2026-12",
+            filename="x.warc.gz",
+            offset=0, length=100, status=200, mime="text/html",
+        )
+        mock_fetch.return_value = b"<html>cc</html>"
+        mock_save.return_value = "x/y"
+
+        await worker._process_job(job)
+
+        # Check source was COMMONCRAWL in update_status kwargs.
+        calls = worker._archive_repo.update_status.call_args_list
+        complete_calls = [
+            c for c in calls
+            if len(c[0]) >= 3 and c[0][2] == ArchiveStatus.COMPLETE  # noqa: PLR2004
+        ]
+        assert any(
+            c.kwargs.get("source") == CaptureSource.COMMONCRAWL.value
+            for c in complete_calls
+        )
+
+
+class TestWorkerShortCircuit:
+    @patch("archiver.worker.capture_page", new_callable=AsyncMock)
+    async def test_skips_already_complete_archive(
+        self, mock_capture: AsyncMock
+    ) -> None:
+        """A queued job for an already-COMPLETE archive should no-op."""
+        worker, _conn = _make_worker()
+        job = _make_job()
+        done = _make_archive()
+        done = ArchiveRecord(
+            id=done.id, url=done.url, url_hash=done.url_hash,
+            status=ArchiveStatus.COMPLETE, tier=done.tier, source=done.source,
+            created_at=done.created_at,
+        )
+        worker._archive_repo.get_by_id = AsyncMock(return_value=done)
+        worker._browser_pool.get_browser = AsyncMock()
+
+        await worker._process_job(job)
+
+        mock_capture.assert_not_awaited()
+        worker._job_repo.complete.assert_awaited_once()
 
 
 class TestWorkerOnNotify:

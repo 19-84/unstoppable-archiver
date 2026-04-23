@@ -101,6 +101,48 @@ class TestCaptureViaCli:
         proc.kill.assert_called_once()
 
     @patch("archiver.singlefile.asyncio.create_subprocess_exec")
+    async def test_empty_stdout_raises(self, mock_exec: MagicMock) -> None:
+        proc = AsyncMock()
+        proc.communicate = AsyncMock(
+            return_value=(b"   \n  ", b"some warning on stderr")
+        )
+        proc.returncode = 0
+        mock_exec.return_value = proc
+
+        with pytest.raises(CaptureError, match="empty output"):
+            await capture_via_cli(
+                "https://example.com", browser_path="/fake/chromium"
+            )
+
+    @patch("archiver.singlefile._discover_chromium_for_cli")
+    async def test_no_chromium_found_raises(
+        self, mock_discover: MagicMock
+    ) -> None:
+        mock_discover.return_value = None
+        with pytest.raises(CaptureError, match="Chromium binary"):
+            await capture_via_cli("https://example.com")
+
+    @patch("archiver.singlefile._discover_chromium_for_cli")
+    async def test_discover_returns_path_used(
+        self, mock_discover: MagicMock
+    ) -> None:
+        """When browser_path is None, discovery is consulted."""
+        mock_discover.return_value = "/discovered/chromium"
+        with patch(
+            "archiver.singlefile.asyncio.create_subprocess_exec"
+        ) as mock_exec:
+            proc = AsyncMock()
+            proc.communicate = AsyncMock(
+                return_value=(b"<html>ok</html>", b"")
+            )
+            proc.returncode = 0
+            mock_exec.return_value = proc
+            result = await capture_via_cli("https://example.com")
+            assert result == "<html>ok</html>"
+            args = mock_exec.call_args.args
+            assert "/discovered/chromium" in args
+
+    @patch("archiver.singlefile.asyncio.create_subprocess_exec")
     async def test_browser_path_passed(self, mock_exec: MagicMock) -> None:
         proc = AsyncMock()
         proc.communicate = AsyncMock(return_value=(b"<html/>", b""))
@@ -132,6 +174,15 @@ class TestBuildOptions:
     def test_html_compression_enabled(self) -> None:
         opts = build_options("https://example.com")
         assert opts["compressHTML"] is True
+
+    def test_overrides_merge_over_defaults(self) -> None:
+        opts = build_options(
+            "https://example.com",
+            overrides={"removeScripts": False, "custom_key": 42},
+        )
+        assert opts["removeScripts"] is False
+        assert opts["custom_key"] == 42  # noqa: PLR2004
+        assert opts["url"] == "https://example.com"
 
 
 class TestCaptureJs:

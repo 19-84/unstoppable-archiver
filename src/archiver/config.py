@@ -43,9 +43,33 @@ class Settings(BaseSettings):
     worker_poll_interval: float = 5.0
     max_concurrent_captures: int = 2
     recapture_interval_seconds: int = 3600
+    # Prometheus metrics scrape port for the worker process. 0 disables.
+    worker_metrics_port: int = 9090
 
-    # Proxy
-    proxy_list: str = ""  # comma-separated protocol://host:port or path to file
+    # Proxy — custom proxies for CAMOUFOX_PROXY tier (tier 3 of 5).
+    # `proxy_list` accepts: comma-separated endpoints, or a path to a
+    # newline-separated file. Each endpoint is protocol://host:port.
+    proxy_list: str = ""
+    # `proxy_list_urls` accepts comma-separated URLs to fetch proxy lists
+    # from at startup (e.g., curated GitHub-raw proxy list files).
+    # Examples: https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/http.txt
+    # Entries are normalized to scheme://host:port and unioned with proxy_list.
+    proxy_list_urls: str = ""
+    # Cap on total proxies loaded. 0 = no cap. Lists are usually in the
+    # low thousands post-dedup; health-check runs with bounded concurrency
+    # so even 10k entries complete in a few minutes. Cap exists only as
+    # a circuit-breaker against pathologically large lists.
+    proxy_max_count: int = 0
+    # Default URL scheme to assume when a proxy entry lacks one (most
+    # curated lists emit bare "host:port" and split HTTP/SOCKS by filename).
+    proxy_default_scheme: str = "http"
+    # Health-check: probe each loaded proxy once at startup and discard
+    # those that don't respond in time. Disable for fast iteration on
+    # static, already-validated lists.
+    proxy_health_check_enabled: bool = True
+    proxy_health_check_url: str = "https://httpbin.org/ip"
+    proxy_health_check_timeout: float = 8.0
+    proxy_health_check_concurrency: int = 20
 
     # Tor / I2P
     tor_proxy: str = "socks5://tor:9050"

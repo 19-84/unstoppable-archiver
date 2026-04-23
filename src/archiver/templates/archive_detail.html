@@ -10,12 +10,14 @@
     <div class="flex items-center gap-4 min-w-0">
       <a href="/" class="text-purple-400 hover:text-purple-300 text-sm shrink-0" aria-label="Back to home">←</a>
       <div class="h-4 w-px bg-white/[0.06]" aria-hidden="true"></div>
-      <span class="font-mono text-xs text-neutral-400 truncate">{{ archive.url }}</span>
+      <a href="{{ archive.url }}" target="_blank" rel="noopener noreferrer"
+         class="font-mono text-xs text-neutral-400 hover:text-purple-300 truncate transition"
+         title="Open original site in a new tab">{{ archive.url }}</a>
       <div class="h-4 w-px bg-white/[0.06]" aria-hidden="true"></div>
       {% include "partials/archive_status.html" %}
     </div>
     {% if archive.status == "complete" %}
-    <a href="/archive/{{ archive.id }}/view" class="px-3 py-1 bg-purple-500 text-white text-xs font-medium rounded-lg hover:bg-purple-400 transition shrink-0">View →</a>
+    <a href="{{ archive | wayback_url }}" class="px-3 py-1 bg-purple-500 text-white text-xs font-medium rounded-lg hover:bg-purple-400 transition shrink-0">View →</a>
     {% endif %}
   </div>
 </header>
@@ -46,7 +48,10 @@
 
   {% if archive.status == "complete" %}
   <div class="flex flex-wrap gap-2">
-    <a href="/archive/{{ archive.id }}/view" class="px-4 py-2 bg-purple-500 text-white text-sm font-medium rounded-xl hover:bg-purple-400 transition">View Snapshot</a>
+    <a href="{{ archive | wayback_url }}" class="px-4 py-2 bg-purple-500 text-white text-sm font-medium rounded-xl hover:bg-purple-400 transition">View Snapshot</a>
+    <a href="{{ archive.url }}" target="_blank" rel="noopener noreferrer"
+       class="px-4 py-2 bg-white/[0.03] text-purple-300 text-sm rounded-xl border border-purple-500/30 hover:border-purple-500/60 transition"
+       title="Open the original site in a new tab">Original ↗</a>
     <a href="/api/archives/{{ archive.id }}/warc" class="px-4 py-2 bg-white/[0.03] text-neutral-400 text-sm rounded-xl border border-white/[0.06] hover:border-white/[0.12] transition" download>WARC ↓</a>
     <a href="/api/archives/{{ archive.id }}/snapshot" class="px-4 py-2 bg-white/[0.03] text-neutral-400 text-sm rounded-xl border border-white/[0.06] hover:border-white/[0.12] transition" download>HTML ↓</a>
     <a href="/api/archives/{{ archive.id }}/screenshot" class="px-4 py-2 bg-white/[0.03] text-neutral-400 text-sm rounded-xl border border-white/[0.06] hover:border-white/[0.12] transition" download>Screenshot ↓</a>
@@ -61,14 +66,24 @@
     {% endif %}
   </div>
 
-  <a href="/archive/{{ archive.id }}/view" class="block rounded-2xl overflow-hidden border border-white/[0.05] hover:border-purple-500/30 transition group">
-    <div class="aspect-video bg-gradient-to-br from-[#0c0a14] to-[#0a0812] flex items-center justify-center">
-      {% if archive.artifact_dir %}
-      <img src="/api/archives/{{ archive.id }}/screenshot" alt="Screenshot of {{ archive.title or archive.url }}" class="w-full h-full object-cover">
-      {% else %}
-      <span class="text-neutral-400 group-hover:text-neutral-300 transition text-sm">Click to view archived page →</span>
-      {% endif %}
+  <a href="{{ archive | wayback_url }}" class="block rounded-2xl overflow-hidden border border-white/[0.05] hover:border-purple-500/30 transition group">
+    {% if archive.artifact_dir %}
+    {# Screenshots are full-page (often 20k+ px tall). Display the top
+       slice at the page's natural aspect ratio so we show the
+       above-the-fold view — the most recognizable part — without
+       letterboxing a 21k-pixel image into a tiny thumbnail. #}
+    <div class="bg-gradient-to-br from-[#0c0a14] to-[#0a0812] overflow-hidden max-h-[70vh]">
+      <img src="/api/archives/{{ archive.id }}/screenshot"
+           alt="Screenshot of {{ archive.title or archive.url }}"
+           class="w-full block"
+           style="object-fit: cover; object-position: top;"
+           loading="lazy">
     </div>
+    {% else %}
+    <div class="aspect-video bg-gradient-to-br from-[#0c0a14] to-[#0a0812] flex items-center justify-center">
+      <span class="text-neutral-400 group-hover:text-neutral-300 transition text-sm">Click to view archived page →</span>
+    </div>
+    {% endif %}
   </a>
   {% elif archive.status == "capturing" %}
   <div hx-get="/partials/status/{{ archive.id }}" hx-trigger="every 2s" hx-swap="outerHTML" id="capture-progress">

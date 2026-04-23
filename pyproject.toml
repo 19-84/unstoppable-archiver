@@ -19,7 +19,9 @@ dependencies = [
     "pillow>=12.2",
     "asyncpg>=0.31",
     "warcio>=1.8",
-    "httpx>=0.28",
+    # `[socks]` extras pull in `socksio` so httpx can route through
+    # socks4/socks5 proxies (85%+ of public proxy lists are SOCKS5).
+    "httpx[socks]>=0.28",
     "python-multipart>=0.0.26",
     "python-ulid>=3.1",
     "bcrypt>=4.2",

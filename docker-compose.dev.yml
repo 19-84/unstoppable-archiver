@@ -16,6 +16,7 @@ services:
       target: dev
     volumes:
       - ./src:/app/src
+      - ./scripts:/app/scripts
       - artifacts:/data
 
 volumes:

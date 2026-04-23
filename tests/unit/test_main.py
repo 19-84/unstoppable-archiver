@@ -24,10 +24,11 @@ class TestMain:
         mock_settings = MagicMock()
         mock_settings.log_level = "INFO"
         mock_settings.log_format = "json"
+        mock_settings.worker_metrics_port = 0
         mock_settings_cls.return_value = mock_settings
 
         mock_worker = MagicMock()
-        mock_worker.run = AsyncMock()
+        mock_worker.run = MagicMock()
         mock_worker.shutdown = AsyncMock()
         mock_worker_cls.return_value = mock_worker
 
@@ -58,10 +59,11 @@ class TestMain:
         mock_settings = MagicMock()
         mock_settings.log_level = "INFO"
         mock_settings.log_format = "json"
+        mock_settings.worker_metrics_port = 0
         mock_settings_cls.return_value = mock_settings
 
         mock_worker = MagicMock()
-        mock_worker.run = AsyncMock()
+        mock_worker.run = MagicMock()
         mock_worker.shutdown = AsyncMock()
         mock_worker_cls.return_value = mock_worker
 
@@ -72,3 +74,69 @@ class TestMain:
 
         # Two signal handlers: SIGINT and SIGTERM
         assert mock_loop.add_signal_handler.call_count == 2  # noqa: PLR2004
+
+    @patch("archiver.__main__.start_http_server")
+    @patch("archiver.__main__.asyncio")
+    @patch("archiver.__main__.Worker")
+    @patch("archiver.__main__.setup_logging")
+    @patch("archiver.__main__.Settings")
+    def test_main_starts_metrics_server_when_port_set(
+        self,
+        mock_settings_cls: MagicMock,
+        mock_setup_logging: MagicMock,
+        mock_worker_cls: MagicMock,
+        mock_asyncio: MagicMock,
+        mock_start_http: MagicMock,
+    ) -> None:
+        from archiver.__main__ import main
+
+        mock_settings = MagicMock()
+        mock_settings.log_level = "INFO"
+        mock_settings.log_format = "json"
+        mock_settings.worker_metrics_port = 9090
+        mock_settings_cls.return_value = mock_settings
+
+        mock_worker = MagicMock()
+        mock_worker.run = MagicMock()
+        mock_worker.shutdown = AsyncMock()
+        mock_worker_cls.return_value = mock_worker
+
+        mock_loop = MagicMock()
+        mock_asyncio.new_event_loop.return_value = mock_loop
+
+        main()
+
+        mock_start_http.assert_called_once_with(9090)
+
+    @patch("archiver.__main__.start_http_server")
+    @patch("archiver.__main__.asyncio")
+    @patch("archiver.__main__.Worker")
+    @patch("archiver.__main__.setup_logging")
+    @patch("archiver.__main__.Settings")
+    def test_main_skips_metrics_server_when_port_zero(
+        self,
+        mock_settings_cls: MagicMock,
+        mock_setup_logging: MagicMock,
+        mock_worker_cls: MagicMock,
+        mock_asyncio: MagicMock,
+        mock_start_http: MagicMock,
+    ) -> None:
+        from archiver.__main__ import main
+
+        mock_settings = MagicMock()
+        mock_settings.log_level = "INFO"
+        mock_settings.log_format = "json"
+        mock_settings.worker_metrics_port = 0
+        mock_settings_cls.return_value = mock_settings
+
+        mock_worker = MagicMock()
+        mock_worker.run = MagicMock()
+        mock_worker.shutdown = AsyncMock()
+        mock_worker_cls.return_value = mock_worker
+
+        mock_loop = MagicMock()
+        mock_asyncio.new_event_loop.return_value = mock_loop
+
+        main()
+
+        mock_start_http.assert_not_called()

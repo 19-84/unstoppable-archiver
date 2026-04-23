@@ -21,11 +21,25 @@ from archiver.deps import (
 from archiver.enums import ArchiveStatus
 from archiver.rate_limit import enforce_limit
 from archiver.repository import ArchiveRepository, PgConnection
+from archiver.url import url_hash
 
 router = APIRouter(tags=["pages"])
 
 _templates_dir = Path(__file__).parent.parent / "templates"
 templates = Jinja2Templates(directory=str(_templates_dir))
+
+
+def _wayback_url(archive: object) -> str:
+    """Jinja filter: produce the `/web/{ts}/{url}` link for an archive."""
+    created_at = getattr(archive, "created_at", None)
+    url = getattr(archive, "url", None)
+    if created_at is None or url is None:
+        return ""
+    ts = created_at.strftime("%Y%m%d%H%M%S")
+    return f"/web/{ts}/{url}"
+
+
+templates.env.filters["wayback_url"] = _wayback_url
 
 _archive_repo = ArchiveRepository()
 
@@ -92,14 +106,28 @@ async def submit_form(
 
     form = await request.form()
     url = str(form.get("url", "")).strip()
+    is_htmx = request.headers.get("HX-Request") == "true"
 
-    if not url:
+    def _submit_error(msg: str) -> HTMLResponse:
+        # For htmx requests, return a compact partial with status 200
+        # so htmx swaps it into #result-area. Non-htmx fallback (raw
+        # form POST from the bookmarklet without JS) gets the full
+        # index page at 400 so the browser renders a usable error.
+        if is_htmx:
+            return templates.TemplateResponse(
+                request,
+                "partials/submit_error.html",
+                {"error": msg},
+            )
         return templates.TemplateResponse(
             request,
             "index.html",
-            {"stats": {}, "error": "Please enter a URL"},
+            {"stats": {}, "error": msg},
             status_code=400,
         )
+
+    if not url:
+        return _submit_error("Please enter a URL")
 
     # Detect if input is a search query (no http/https scheme = search)
     if not url.startswith(("http://", "https://")):
@@ -113,12 +141,7 @@ async def submit_form(
 
     safety_error = check_url_safety(url, blocklist=blocklist)
     if safety_error:
-        return templates.TemplateResponse(
-            request,
-            "index.html",
-            {"stats": {}, "error": safety_error},
-            status_code=400,
-        )
+        return _submit_error(safety_error)
 
     archive = await _archive_repo.create(
         conn, url, submitter_ip_hash=get_client_ip_hash(request)
@@ -186,13 +209,17 @@ async def archive_detail(
     )
 
 
-@router.get("/archive/{archive_id}/view", response_class=HTMLResponse)
+@router.get("/archive/{archive_id}/view", response_model=None)
 async def archive_view(
     archive_id: str,
     request: Request,
     conn: Annotated[PgConnection, Depends(get_db)],
-) -> HTMLResponse:
-    """Snapshot viewer — sandboxed iframe loads content from /api/archives/{id}/snapshot."""
+) -> HTMLResponse | RedirectResponse:
+    """Legacy viewer URL — redirects to the Wayback-style /web/ form.
+
+    Kept as a 301 redirect so external links and bookmarks keep working
+    while /web/{ts}/{url} becomes the canonical viewer URL.
+    """
     archive = await _archive_repo.get_by_id(conn, archive_id)
     if archive is None:
         raise HTTPException(status_code=404, detail="Archive not found")
@@ -201,11 +228,108 @@ async def archive_view(
     if not archive.artifact_dir:
         raise HTTPException(status_code=404, detail="No artifacts")
 
+    ts = archive.created_at.strftime("%Y%m%d%H%M%S") if archive.created_at else ""
+    if ts:
+        return RedirectResponse(
+            url=f"/web/{ts}/{archive.url}", status_code=301
+        )
     return templates.TemplateResponse(
-        request,
-        "archive_view.html",
-        {"archive": archive},
+        request, "archive_view.html", {"archive": archive},
     )
+
+
+# --- Wayback-style URL routing ---
+# Pattern: /web/{timestamp|latest}/{full-url}
+#   /web/20260418234032/https://example.com/page
+#   /web/latest/https://example.com/page
+# Mirrors web.archive.org's URL scheme — makes archives referenceable
+# by original URL + date rather than opaque ULID, and lets external
+# links follow the familiar Wayback format.
+
+
+@router.get("/web/latest/{url:path}", response_model=None)
+async def wayback_latest(
+    url: str,
+    request: Request,
+    conn: Annotated[PgConnection, Depends(get_db)],
+) -> HTMLResponse | RedirectResponse:
+    """Resolve to the newest complete archive for `url` and render viewer."""
+    target = _normalize_path_url(url, request)
+    uhash = url_hash(target)
+    archive = await _archive_repo.get_latest_complete(conn, uhash)
+    if archive is None or not archive.artifact_dir:
+        raise HTTPException(status_code=404, detail="No snapshot for this URL")
+    return templates.TemplateResponse(
+        request, "archive_view.html", {"archive": archive},
+    )
+
+
+@router.get("/web/{timestamp}/{url:path}", response_model=None)
+async def wayback_timestamped(
+    timestamp: str,
+    url: str,
+    request: Request,
+    conn: Annotated[PgConnection, Depends(get_db)],
+) -> HTMLResponse | RedirectResponse:
+    """Resolve to the archive closest in time to `timestamp` and render viewer.
+
+    Accepts both 14-digit exact timestamps (YYYYMMDDHHMMSS) and
+    shorter prefixes (YYYY, YYYYMM, YYYYMMDD) which get padded.
+    """
+    # Accept truncated timestamps like `2026` or `20260418` — pad with
+    # the latest-possible values so "give me the 2026 snapshot" picks
+    # the newest one in that year.
+    padded = _pad_timestamp(timestamp)
+    if padded is None:
+        raise HTTPException(status_code=400, detail="Invalid timestamp")
+    target = _normalize_path_url(url, request)
+    uhash = url_hash(target)
+    archive = await _archive_repo.get_closest_to_timestamp(
+        conn, uhash, padded
+    )
+    if archive is None or not archive.artifact_dir:
+        raise HTTPException(status_code=404, detail="No snapshot near this timestamp")
+    return templates.TemplateResponse(
+        request, "archive_view.html", {"archive": archive},
+    )
+
+
+def _normalize_path_url(raw: str, request: Request) -> str:
+    """Normalize a URL parsed from a path segment.
+
+    FastAPI's `{url:path}` strips a single leading slash after matching,
+    and Starlette decodes `%2F` → `/` etc. We also preserve any query
+    string the client sent (not part of the path match).
+    """
+    # Reconstruct the query string, if any.
+    query = request.url.query
+    if query:
+        raw = f"{raw}?{query}"
+    # Clients sometimes send `https:/example.com` (single slash after
+    # scheme) because the path matcher collapses `//`. Repair that.
+    for scheme in ("http", "https"):
+        prefix = f"{scheme}:"
+        if raw.startswith(prefix) and not raw.startswith(f"{scheme}://"):
+            raw = f"{scheme}://{raw[len(prefix):].lstrip('/')}"
+    return raw
+
+
+def _pad_timestamp(ts: str) -> str | None:
+    """Pad a partial YYYY[MM[DD[HH[MM[SS]]]]] to 14 digits.
+
+    Shorter prefixes resolve to "the end of that period" so asking for
+    `2026` returns the newest 2026 snapshot, not the first. Returns
+    None if the input isn't a valid numeric prefix of 14 digits.
+    """
+    if not ts.isdigit() or not 4 <= len(ts) <= 14:  # noqa: PLR2004
+        return None
+    # Pad with the last moment of each field: month→12, day→31, time→59.
+    pads = ["12", "31", "23", "59", "59"]
+    out = ts
+    # Positions: 4 (year done), 6 (month), 8 (day), 10 (hour), 12 (min), 14 (sec)
+    while len(out) < 14:  # noqa: PLR2004
+        out += pads[(len(out) - 4) // 2]
+    return out[:14]
 
 
 @router.get("/search", response_class=HTMLResponse)

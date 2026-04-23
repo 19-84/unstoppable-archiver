@@ -1,0 +1,32 @@
+# Overlay that turns the `tor` service into a hidden-service host for
+# the archiver UI. Brings tor out of the `darknet` profile so it runs
+# by default, mounts a persistent volume for the onion keys, and
+# installs torrc that forwards :80 → app:8000.
+#
+# Usage:
+#   make hs-up       # bring stack up with hidden service
+#   make hs-address  # print the .onion hostname
+#
+# The first startup generates a fresh v3 .onion and caches it in the
+# `tor_hidden_service` volume; subsequent startups keep the same
+# address. Delete the volume to rotate.
+
+services:
+  tor:
+    profiles: []  # override base compose's "darknet" profile to always-on
+    environment:
+      # leplusorg/tor's wrapper overwrites /etc/tor/torrc from a template
+      # on every start unless this flag is set. Without it our mounted
+      # config is ignored (and the rw mount fails silently).
+      SKIP_TEMPLATE: "true"
+    volumes:
+      - ./tor/torrc.hidden-service:/etc/tor/torrc:ro
+      - tor_hidden_service:/var/lib/tor
+    depends_on:
+      - app
+    # No host port binding — the worker reaches tor at `tor:9050` via
+    # the docker network, and exposing SOCKS to the host would collide
+    # with any other tor instance already running there.
+
+volumes:
+  tor_hidden_service:

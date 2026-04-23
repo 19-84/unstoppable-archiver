@@ -150,3 +150,54 @@ class TestBrowserPoolClose:
     ) -> None:
         pool = BrowserPool(_make_settings())
         await pool.close()
+
+
+class TestBrowserPoolDisconnectHandlers:
+    def test_chromium_disconnected_clears_ref(self) -> None:
+        pool = BrowserPool(_make_settings())
+        pool._chromium = _mock_browser()
+        pool._on_chromium_disconnected()
+        assert pool._chromium is None
+
+    def test_camoufox_disconnected_clears_refs(self) -> None:
+        pool = BrowserPool(_make_settings())
+        pool._camoufox = _mock_browser()
+        pool._camoufox_ctx = AsyncMock()
+        pool._on_camoufox_disconnected()
+        assert pool._camoufox is None
+        assert pool._camoufox_ctx is None
+
+    @patch("archiver.browser_pool.async_playwright")
+    async def test_stale_chromium_relaunches(
+        self, mock_pw_fn: MagicMock
+    ) -> None:
+        """A disconnected cached browser must be replaced, not returned."""
+        stale = _mock_browser()
+        stale.is_connected = MagicMock(return_value=False)
+        fresh = _mock_browser()
+        fresh.is_connected = MagicMock(return_value=True)
+        mock_pw = AsyncMock()
+        mock_pw.chromium.launch = AsyncMock(return_value=fresh)
+        mock_pw_fn.return_value.start = AsyncMock(return_value=mock_pw)
+
+        pool = BrowserPool(_make_settings())
+        pool._chromium = stale  # simulate a prior launch that died
+        browser = await pool.get_browser(CaptureTier.CHROMIUM)
+        assert browser is fresh
+
+    async def test_stale_camoufox_relaunches(self) -> None:
+        stale = _mock_browser()
+        stale.is_connected = MagicMock(return_value=False)
+        fresh = _mock_browser()
+        fresh.is_connected = MagicMock(return_value=True)
+        mock_ctx = AsyncMock()
+        mock_ctx.__aenter__ = AsyncMock(return_value=fresh)
+
+        pool = BrowserPool(_make_settings())
+        pool._camoufox = stale
+        pool._camoufox_ctx = AsyncMock()
+        with patch(
+            "camoufox.async_api.AsyncCamoufox", return_value=mock_ctx
+        ):
+            browser = await pool.get_browser(CaptureTier.CAMOUFOX)
+        assert browser is fresh

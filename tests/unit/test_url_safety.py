@@ -72,3 +72,14 @@ class TestCheckUrlSafety:
     def test_blocks_zero_ip(self) -> None:
         result = check_url_safety("http://0.0.0.0/")
         assert result is not None
+
+    def test_domain_blocklist_hit_reported(self) -> None:
+        """A passed-in blocklist should intercept before DNS resolution."""
+        from archiver.blocklist import DomainBlocklist
+
+        bl = DomainBlocklist(blocked={"evil.example.com"})
+        result = check_url_safety(
+            "https://evil.example.com/", blocklist=bl
+        )
+        assert result is not None
+        assert "evil.example.com" in result

@@ -18,6 +18,34 @@ from archiver.errors import CaptureError
 log = structlog.get_logger()
 
 
+# Candidate Chromium paths to try for single-file-cli when none is
+# explicitly configured. The Playwright base image lays Chromium down
+# at a versioned path; we glob to tolerate upgrades.
+_CHROMIUM_CANDIDATES: tuple[str, ...] = (
+    "/root/.cache/ms-playwright/chromium-*/chrome-linux64/chrome",
+    "/root/.cache/ms-playwright/chromium-*/chrome-linux/chrome",
+    "/usr/bin/chromium",
+    "/usr/bin/chromium-browser",
+    "/usr/bin/google-chrome",
+)
+
+
+@functools.cache
+def _discover_chromium_for_cli() -> str | None:
+    """Find a Chromium binary single-file-cli can drive.
+
+    Cached — this is stable for the lifetime of the worker process.
+    Returns None if nothing found; the caller should surface a helpful
+    error rather than try to run the CLI blindly.
+    """
+    import glob
+    for pattern in _CHROMIUM_CANDIDATES:
+        for path in sorted(glob.glob(pattern), reverse=True):
+            if Path(path).exists():
+                return path
+    return None
+
+
 @beartype
 async def capture_via_cli(
     url: str,
@@ -27,20 +55,48 @@ async def capture_via_cli(
 ) -> str:
     """Capture a page using single-file-cli as a subprocess.
 
-    Returns the HTML content as a string. Falls back to bundle
-    injection if the CLI is not installed.
+    Spawns an independent Chromium via the CLI and returns the HTML
+    content written to stdout. Last-resort path when in-browser
+    strategies (page.evaluate + Xray script-tag) fail — Firefox's
+    world-isolation issues don't affect a separate Chromium process.
+
+    Raises CaptureError on non-zero exit, timeout, or if Chromium
+    can't be located.
     """
+    if browser_path is None:
+        browser_path = _discover_chromium_for_cli()
+    if browser_path is None:
+        raise CaptureError(
+            "single-file-cli needs a Chromium binary; none found "
+            "in the usual Playwright cache paths. Set "
+            "ARCHIVER_SINGLEFILE_CHROMIUM_PATH explicitly."
+        )
+
+    # NB: single-file-cli uses yargs, which prints its help message (not
+    # an error) and exits 0 when it sees an unknown flag. Pass ONLY
+    # flags present in `single-file --help`.
+    #   - `--block-scripts` (default true) covers script removal.
+    #   - `--remove-unused-styles` (default true).
+    #   - Values starting with "-" need separate argv entries (yargs
+    #     misparses `--flag=--val` as two flags).
+    # User-Agent rotation — never identify as the archiver. The CLI's
+    # bundled Chromium sends a `HeadlessChrome/...` UA by default which
+    # triggers bot detection on many origins; replace with a current
+    # real-browser UA from our rotating pool.
+    from archiver import user_agents as _ua
+    ua = _ua.pick()
     cmd = [
         cli_path, url,
-        "--dump-content",
+        "--browser-executable-path", browser_path,
+        "--browser-arg", "--no-sandbox",
+        "--browser-arg", "--disable-gpu",
+        "--browser-arg", "--disable-dev-shm-usage",
+        "--user-agent", ua,
+        "--dump-content",                      # HTML → stdout
         "--compress-HTML",
-        "--remove-scripts",
         "--load-deferred-images",
         "--load-deferred-images-max-idle-time", "3000",
-        "--remove-unused-styles",
     ]
-    if browser_path:
-        cmd.extend(["--browser-executable-path", browser_path])
 
     proc = await asyncio.create_subprocess_exec(
         *cmd,
@@ -59,7 +115,13 @@ async def capture_via_cli(
         raise CaptureError(
             f"single-file-cli exit {proc.returncode}: {stderr.decode()[:500]}"
         )
-    return stdout.decode("utf-8")
+    html = stdout.decode("utf-8", errors="replace")
+    if not html.strip():
+        raise CaptureError(
+            "single-file-cli returned empty output "
+            f"(stderr: {stderr.decode()[:200]})"
+        )
+    return html
 
 
 @beartype
@@ -95,18 +157,41 @@ def load_bundle(bundle_path: Path) -> str:
 
 
 @beartype
-def build_options(url: str) -> dict[str, Any]:
-    """Build the options dict for singlefile.getPageData()."""
-    return {
+def build_options(
+    url: str,
+    overrides: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Build the options dict for singlefile.getPageData().
+
+    `overrides` merges into the defaults — used by the A/B benchmark
+    and by future Settings-level tuning without editing this function.
+    """
+    opts: dict[str, Any] = {
+        # Keep iframes — many sites (Guardian's Sourcepoint consent,
+        # embedded YouTube, etc.) render meaningful content inside them.
         "removeFrames": False,
+        # Scroll to trigger lazy-loaded images before snapshotting.
         "loadDeferredImages": True,
         "loadDeferredImagesMaxIdleTime": 3000,
+        # Scripts are stripped — the archive is a dead document by design.
         "removeScripts": True,
+        # Preserve display:none elements by default — many sites use
+        # them for menus/modals the user reveals via interaction; a
+        # faithful archive keeps them. Benchmark shows this is the
+        # biggest single lever for file size when we relax it.
         "removeHiddenElements": False,
+        # Minify HTML + CSS output. Lossless — same render, smaller file.
         "compressHTML": True,
+        "compressCSS": True,
+        # Dead-code-eliminate CSS rules that don't match any element in
+        # the captured DOM. Lossless for static archives (no JS runs to
+        # add new matching elements after capture).
         "removeUnusedStyles": True,
         "url": url,
     }
+    if overrides:
+        opts.update(overrides)
+    return opts
 
 
 SINGLEFILE_CAPTURE_JS = """

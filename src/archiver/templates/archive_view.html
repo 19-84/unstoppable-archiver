@@ -9,11 +9,42 @@
 <title>{{ archive.title or archive.url }} — Snapshot</title>
 <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' data:; frame-src 'self';">
 <style>
-  body { margin: 0; font-family: 'DM Sans', system-ui, sans-serif; display: flex; flex-direction: column; height: 100vh; }
+  html, body { margin: 0; padding: 0; height: 100%; }
+  body { font-family: 'DM Sans', system-ui, sans-serif; display: flex; flex-direction: column; background: #0a0812; color: #e5e5e5; }
   .font-mono { font-family: 'DM Mono', ui-monospace, monospace; }
   *:focus-visible { outline: 2px solid #a855f7; outline-offset: 2px; }
   .sr-only { position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0; }
-  iframe { flex: 1; width: 100%; border: 0; }
+
+  /* Viewer frame pane fills the remaining height after the toolbar.
+     `position: relative` anchors the loading overlay inside it. */
+  .viewer-frame { flex: 1 1 auto; position: relative; min-height: 0; display: flex; background: #f8fafc; }
+  .viewer-frame iframe { flex: 1; width: 100%; height: 100%; border: 0; background: #fff; }
+
+  /* Loading overlay — visible until iframe fires `load` and we add the
+     `loaded` class. Indeterminate progress bar at the top + a centered
+     status caption so 30+ MB snapshots don't feel hung. */
+  .loading-overlay {
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    background: rgba(10,8,18,0.92); color: #e5e5e5; font-size: 14px; letter-spacing: 0.02em;
+    transition: opacity 250ms ease, visibility 250ms ease;
+    z-index: 1;
+  }
+  .viewer-frame.loaded .loading-overlay { opacity: 0; visibility: hidden; }
+  .loading-overlay .spinner {
+    width: 18px; height: 18px; margin-right: 12px;
+    border: 2px solid rgba(168,85,247,0.25); border-top-color: #c084fc;
+    border-radius: 50%; animation: spin 800ms linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Indeterminate progress bar — a thin gradient sweeping across. */
+  .loading-bar {
+    position: absolute; top: 0; left: 0; right: 0; height: 2px;
+    background: linear-gradient(90deg, transparent, #a855f7, transparent);
+    background-size: 200% 100%; animation: slide 1.6s ease-in-out infinite;
+  }
+  @keyframes slide { 0% { background-position: 200% 0; } 100% { background-position: -100% 0; } }
+  .viewer-frame.loaded .loading-bar { display: none; }
 </style>
 <link rel="stylesheet" href="/static/css/fonts.css">
 </head>
@@ -36,22 +67,44 @@
       {% endif %}
       <time style="font-size:12px;color:#a3a3a3;">{{ archive.created_at.strftime('%Y-%m-%d') if archive.created_at else '' }}</time>
       <div style="width:1px;height:16px;background:#262626;" aria-hidden="true"></div>
+      <a href="{{ archive.url }}" target="_blank" rel="noopener noreferrer" style="font-size:10px;padding:4px 8px;background:rgba(168,85,247,0.15);color:#c084fc;border-radius:4px;text-decoration:none;" title="Open the original site in a new tab">Original ↗</a>
       <a href="/api/archives/{{ archive.id }}/warc" style="font-size:10px;padding:4px 8px;background:rgba(255,255,255,0.05);color:#a3a3a3;border-radius:4px;text-decoration:none;" download>WARC</a>
       <a href="/api/archives/{{ archive.id }}/snapshot" style="font-size:10px;padding:4px 8px;background:rgba(255,255,255,0.05);color:#a3a3a3;border-radius:4px;text-decoration:none;" download>HTML</a>
     </div>
   </div>
 </nav>
 
-<main>
+<main class="viewer-frame" id="viewerFrame">
+  <div class="loading-bar" aria-hidden="true"></div>
+  <div class="loading-overlay" role="status" aria-live="polite">
+    <span class="spinner" aria-hidden="true"></span>
+    <span>Loading snapshot… (large captures may take several seconds)</span>
+  </div>
   <!-- Sandboxed iframe: archived content runs in a fully isolated context.
        No allow-same-origin — prevents any script execution from accessing
-       the parent page's cookies, API, or DOM. CSS that depends on
-       same-origin font loading may break, but security comes first. -->
+       the parent page's cookies, API, or DOM. -->
   <iframe sandbox=""
           src="/api/archives/{{ archive.id }}/snapshot"
           title="Archived snapshot of {{ archive.title or archive.url }}"
-          loading="lazy"></iframe>
+          id="snapshotIframe"></iframe>
 </main>
+
+<script>
+  // Reveal the iframe once the archived HTML has actually rendered.
+  // Uses a capture-phase `load` listener on the iframe; falls back to
+  // a 60-second timeout so the overlay never stays forever.
+  (function() {
+    const frame = document.getElementById('viewerFrame');
+    const iframe = document.getElementById('snapshotIframe');
+    if (!frame || !iframe) return;
+    let done = false;
+    const finish = () => { if (done) return; done = true; frame.classList.add('loaded'); };
+    iframe.addEventListener('load', finish);
+    // Absolute safety net: force-reveal after 60s even if `load`
+    // never fires (some CSP-heavy archives block the iframe event).
+    setTimeout(finish, 60000);
+  })();
+</script>
 
 </body>
 </html>

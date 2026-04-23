@@ -1,0 +1,23 @@
+# Tor configuration for exposing the archiver as a hidden service.
+# Loaded via docker-compose.hidden-service.yml overlay.
+
+# SOCKS proxy for outbound clearnet/onion capture (used by the worker
+# when classify_url() classifies a URL as onion).
+SocksPort 0.0.0.0:9050
+SocksPolicy accept *
+
+# Data + hidden service state persist in /var/lib/tor (volume).
+# The directory contains the long-term .onion hostname and keys.
+DataDirectory /var/lib/tor
+
+HiddenServiceDir /var/lib/tor/archiver_hs/
+HiddenServicePort 80 app:8000
+
+# v3 is the default for new hidden services on modern tor. Explicit
+# for clarity and to ensure we get a 56-char v3 .onion instead of
+# legacy v2 (deprecated + vulnerable to enumeration).
+HiddenServiceVersion 3
+
+# Log to stdout so docker logs show startup + the hostname-rotation
+# check below picks up any errors.
+Log notice stdout

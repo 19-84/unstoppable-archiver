@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import asyncio
+from typing import Any
 
 import asyncpg
 import structlog
@@ -12,6 +13,15 @@ from beartype import beartype
 
 from archiver.browser_pool import BrowserPool
 from archiver.capture import capture_page, save_artifacts
+from archiver.commoncrawl import (
+    fetch_record_html as cc_fetch_record_html,
+)
+from archiver.commoncrawl import (
+    find_snapshot as cc_find_snapshot,
+)
+from archiver.commoncrawl import (
+    find_snapshot_full_history as cc_find_snapshot_full_history,
+)
 from archiver.config import Settings
 from archiver.cookie_cache import CfClearanceCache
 from archiver.db import create_pool, init_db
@@ -23,8 +33,17 @@ from archiver.enums import (
 )
 from archiver.errors import AntiBotDetectedError, CaptureError
 from archiver.fallback import (
-    check_archive_today_availability,
+    ARCHIVE_TODAY_MIRRORS as _ARCHIVE_TODAY_MIRRORS,
+)
+from archiver.fallback import (
+    ARCHIVE_TODAY_STRIP_SELECTORS,
+    WAYBACK_STRIP_SELECTORS,
     check_wayback_availability,
+    extract_title_from_html,
+    fetch_archive_today_snapshot_html,
+    find_archive_today_snapshot,
+    save_to_wayback,
+    strip_html_tags,
 )
 from archiver.metrics import (
     capture_duration_seconds,
@@ -32,9 +51,26 @@ from archiver.metrics import (
     jobs_running,
 )
 from archiver.models import CaptureResult, JobRecord
+from archiver.proxy import (
+    ProxyConfig,
+    ProxyRotator,
+    filter_healthy,
+    load_proxies,
+)
 from archiver.repository import ArchiveRepository, JobRepository, PgConnection
 
 log = structlog.get_logger()
+
+# Minimal valid 1x1 transparent PNG for direct-fetch fallback snapshots
+# that skip the browser entirely and so have no real screenshot.
+_PLACEHOLDER_PNG = (
+    b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR"
+    b"\x00\x00\x00\x01\x00\x00\x00\x01"
+    b"\x08\x06\x00\x00\x00\x1f\x15\xc4\x89"
+    b"\x00\x00\x00\rIDATx\x9cc\xf8\xff"
+    b"\xff?\x00\x05\xfe\x02\xfe\xdc\xccY\xe7"
+    b"\x00\x00\x00\x00IEND\xaeB`\x82"
+)
 
 
 def _log_task_exception(task: asyncio.Task[None]) -> None:  # pragma: no cover
@@ -82,6 +118,7 @@ class Worker:
         self._running = True
         self._pool: asyncpg.Pool | None = None
         self._tasks: set[asyncio.Task[None]] = set()
+        self._proxy_rotator: ProxyRotator = ProxyRotator()
 
     @beartype
     async def run(self) -> None:  # pragma: no cover
@@ -90,6 +127,32 @@ class Worker:
             self._settings.db_url.get_secret_value(), min_size=2, max_size=5
         )
         await init_db(self._pool)
+
+        # Refresh the User-Agent rotation pool from the daily-updated
+        # public source. Bundled fallback covers us if the fetch fails.
+        from archiver import user_agents as _ua
+        ua_task = asyncio.create_task(_ua.refresh(force=True))
+        self._tasks.add(ua_task)
+        ua_task.add_done_callback(self._tasks.discard)
+        ua_task.add_done_callback(_log_task_exception)
+
+        # Kick off proxy loading + health-checking as a background task.
+        # Large public lists (7k+ entries) can take 15+ min to probe; we
+        # don't want to block accepting work on that. CAMOUFOX_PROXY jobs
+        # running before the check completes see an empty rotator and
+        # fall through to direct Camoufox, which is still better than
+        # crashing or waiting.
+        proxy_task = asyncio.create_task(self._init_proxy_rotator())
+        self._tasks.add(proxy_task)
+        proxy_task.add_done_callback(self._tasks.discard)
+        proxy_task.add_done_callback(_log_task_exception)
+
+        # Periodic UA-pool refresh every 6 hours — upstream updates its
+        # dataset daily. Runs for the worker's lifetime.
+        ua_periodic = asyncio.create_task(self._ua_refresh_loop())
+        self._tasks.add(ua_periodic)
+        ua_periodic.add_done_callback(self._tasks.discard)
+        ua_periodic.add_done_callback(_log_task_exception)
 
         # Reclaim stale jobs from dead workers
         async with self._pool.acquire() as conn:
@@ -207,17 +270,11 @@ class Worker:
                 ).inc()
 
     @beartype
-    async def _process_job_inner(self, job: JobRecord) -> str:
+    async def _process_job_inner(self, job: JobRecord) -> str:  # noqa: C901, PLR0911, PLR0912
         """Inner job processing; returns outcome label for metrics."""
         assert self._pool is not None  # noqa: S101
         async with self._pool.acquire() as conn:
                 try:
-                    await self._archive_repo.update_status(
-                        conn,
-                        job.archive_id,
-                        ArchiveStatus.CAPTURING,
-                    )
-
                     archive = await self._archive_repo.get_by_id(
                         conn, job.archive_id
                     )
@@ -229,6 +286,27 @@ class Worker:
                         )
                         return "failed"
 
+                    # Short-circuit: if another job already captured this
+                    # archive (tier escalation can race when a retry runs
+                    # after a previous attempt finished), skip the
+                    # redundant work. Without this early-exit, extra
+                    # queued jobs re-run captures and revert a COMPLETE
+                    # archive back to CAPTURING.
+                    if archive.status == ArchiveStatus.COMPLETE:
+                        await self._job_repo.complete(conn, job.id)
+                        log.info(
+                            "worker.skipped_already_complete",
+                            job_id=job.id,
+                            archive_id=archive.id,
+                        )
+                        return "complete"
+
+                    await self._archive_repo.update_status(
+                        conn,
+                        job.archive_id,
+                        ArchiveStatus.CAPTURING,
+                    )
+
                     # Fallback tiers use public archives instead of direct capture
                     if job.tier == CaptureTier.WAYBACK:
                         result = await self._capture_via_wayback(
@@ -238,16 +316,27 @@ class Worker:
                         result = await self._capture_via_archive_today(
                             archive.url
                         )
+                    elif job.tier == CaptureTier.COMMONCRAWL:
+                        result = await self._capture_via_commoncrawl(
+                            archive.url
+                        )
                     else:
                         browser = await self._browser_pool.get_browser(
                             job.tier
                         )
-                        result = await capture_page(
-                            url=archive.url,
-                            browser=browser,
-                            settings=self._settings,
-                            tier=job.tier,
-                            cookie_cache=self._cookie_cache,
+                        # CAMOUFOX_PROXY tier pulls a rotating proxy from
+                        # the pool; other tiers go direct (None).
+                        tier_proxy: ProxyConfig | None = None
+                        if job.tier == CaptureTier.CAMOUFOX_PROXY:
+                            tier_proxy = self._proxy_rotator.next()
+                            if tier_proxy is None:
+                                log.warning(
+                                    "worker.camoufox_proxy_no_proxy"
+                                    "_available_going_direct",
+                                    job_id=job.id,
+                                )
+                        result = await self._capture_page_with_proxy_retry(
+                            job, archive.url, browser, tier_proxy
                         )
 
                     artifact_dir = await save_artifacts(
@@ -261,6 +350,8 @@ class Worker:
                         source = CaptureSource.WAYBACK
                     elif job.tier == CaptureTier.ARCHIVE_TODAY:
                         source = CaptureSource.ARCHIVE_TODAY
+                    elif job.tier == CaptureTier.COMMONCRAWL:
+                        source = CaptureSource.COMMONCRAWL
 
                     await self._archive_repo.update_status(
                         conn,
@@ -401,11 +492,61 @@ class Worker:
                     error_message=error,
                 )
 
+    async def _capture_page_with_proxy_retry(
+        self,
+        job: JobRecord,
+        url: str,
+        browser: Any,
+        proxy: ProxyConfig | None,
+    ) -> CaptureResult:
+        """Run capture_page; mark proxy failed and raise on error.
+
+        Marking a proxy failed removes it from the rotator for this
+        worker's lifetime, so subsequent CAMOUFOX_PROXY jobs skip it.
+        The retry itself happens at the job/tier layer, not here — we
+        don't want one capture to serially try N proxies.
+        """
+        try:
+            return await capture_page(
+                url=url,
+                browser=browser,
+                settings=self._settings,
+                tier=job.tier,
+                cookie_cache=self._cookie_cache,
+                proxy=proxy,
+            )
+        except Exception:
+            if proxy is not None:
+                self._proxy_rotator.mark_failed(proxy)
+            raise
+
     async def _capture_via_wayback(self, url: str) -> CaptureResult:
-        """Capture a page via Wayback Machine fallback."""
+        """Capture a page via Wayback Machine fallback.
+
+        Flow:
+        1. Check if URL is already archived (with URL variant fallback).
+        2. If not, submit via Save Page Now — this both creates a
+           permanent public record AND gives us a snapshot URL to
+           capture from.
+        3. Capture the snapshot URL, stripping Wayback toolbar chrome
+           so our archive contains only the original page.
+        """
         snapshot_url = await check_wayback_availability(url)
         if not snapshot_url:
-            raise CaptureError(f"URL not in Wayback Machine: {url}")
+            log.info("worker.wayback.spn_attempting", url=url)
+            browser = await self._browser_pool.get_browser(
+                CaptureTier.CHROMIUM
+            )
+            context = await browser.new_context()
+            try:
+                page = await context.new_page()
+                snapshot_url = await save_to_wayback(url, page)
+            finally:
+                await context.close()
+            if not snapshot_url:
+                raise CaptureError(
+                    f"URL not in Wayback and SPN submission failed: {url}"
+                )
 
         browser = await self._browser_pool.get_browser(CaptureTier.CHROMIUM)
         result = await capture_page(
@@ -413,26 +554,185 @@ class Worker:
             browser=browser,
             settings=self._settings,
             tier=CaptureTier.CHROMIUM,
+            strip_selectors=WAYBACK_STRIP_SELECTORS,
         )
         return result
 
-    async def _capture_via_archive_today(self, url: str) -> CaptureResult:
-        """Capture a page via archive.today fallback."""
-        available = await check_archive_today_availability(url)
-        if not available:
-            raise CaptureError(f"URL not in archive.today: {url}")
+    async def _capture_via_commoncrawl(self, url: str) -> CaptureResult:
+        """Last-tier fallback: fetch a cached version from Common Crawl.
 
+        Two-pass lookup:
+        1. Fast path — 3 most recent crawls in parallel (~1-3s).
+        2. Deep scan — on miss, sequentially walks every crawl back
+           to 2014. Paced at ~5 req/s so a full 122-crawl sweep takes
+           ~30-60s. Catches the long-tail case where a URL was only
+           ever crawled years ago (indie blogs, defunct sites).
+
+        Raises CaptureError if both passes miss. The snapshot.html is
+        the raw HTTP response body CC captured at crawl time; it's NOT
+        self-contained (external images/CSS reference originals).
+        """
+        snapshot = await cc_find_snapshot(url)
+        if snapshot is None:
+            log.info("worker.commoncrawl.recent_miss_deep_scanning", url=url)
+            snapshot = await cc_find_snapshot_full_history(url)
+        if snapshot is None:
+            raise CaptureError(
+                f"No Common Crawl snapshot across all crawls: {url}"
+            )
+        try:
+            body = await cc_fetch_record_html(snapshot)
+        except Exception as exc:
+            raise CaptureError(
+                f"Common Crawl range-fetch failed: {exc}"
+            ) from exc
+        html_str = body.decode("utf-8", errors="replace")
+        # Build a result with CC's original URL as the source marker
+        # so the archive records the true crawl-time URL (may differ
+        # from the user-submitted URL due to server-side canonicalization).
+        log.info(
+            "worker.commoncrawl.snapshot_used",
+            url=url,
+            cc_url=snapshot.url,
+            crawl=snapshot.crawl_id,
+            timestamp=snapshot.timestamp,
+        )
+        return self._capture_result_from_html(html_str, snapshot.url)
+
+    async def _capture_via_archive_today(self, url: str) -> CaptureResult:
+        """Capture a page via archive.today fallback.
+
+        Tier 5 is read-only — it looks for existing snapshots across
+        all mirrors, fetches the raw HTML directly (bypassing CF), and
+        only falls through to a full Camoufox render if direct-fetch
+        hits a challenge.
+
+        We deliberately do NOT submit new captures here — Wayback SPN
+        in tier 4 already handles that role, submission-via-Camoufox
+        was slow (30-120 s) and CF-gated, and archive.today publishes
+        timemap specifically as a machine-friendly read interface.
+        """
+        snapshot_url = await find_archive_today_snapshot(url)
+        if snapshot_url is None:
+            raise CaptureError(
+                f"No archive.today snapshot across {len(_ARCHIVE_TODAY_MIRRORS)}"
+                f" mirrors: {url}"
+            )
+
+        # Try direct-fetch first — fast (1-3 s), bypasses CF challenge
+        # by targeting the static snapshot URL with stealth headers.
+        raw_html = await fetch_archive_today_snapshot_html(snapshot_url)
+        if raw_html is not None:
+            return self._capture_result_from_html(
+                raw_html, snapshot_url
+            )
+
+        # Fallback: full Camoufox render against the memento URL.
+        log.info(
+            "worker.archive_today.direct_fetch_failed_fallback_browser",
+            memento=snapshot_url,
+        )
         browser = await self._browser_pool.get_browser(CaptureTier.CAMOUFOX)
-        result = await capture_page(
-            url=f"https://archive.today/newest/{url}",
+        return await capture_page(
+            url=snapshot_url,
             browser=browser,
             settings=self._settings,
             tier=CaptureTier.CAMOUFOX,
+            strip_selectors=ARCHIVE_TODAY_STRIP_SELECTORS,
         )
-        return result
+
+    def _capture_result_from_html(
+        self, html: str, source_url: str
+    ) -> CaptureResult:
+        """Build a CaptureResult from raw HTML (direct-fetch path).
+
+        No screenshot, no WARC — direct-fetch doesn't go through a
+        browser. We substitute a placeholder PNG so the artifact layout
+        stays consistent and the UI doesn't 404 on missing images.
+        """
+        import hashlib
+
+        snapshot_html = html.encode("utf-8")
+        placeholder_png = _PLACEHOLDER_PNG
+        return CaptureResult(
+            snapshot_html=snapshot_html,
+            screenshot_png=placeholder_png,
+            thumbnail_png=placeholder_png,
+            text_content=strip_html_tags(html),
+            title=extract_title_from_html(html) or source_url,
+            warc_path=None,
+            warc_size=0,
+            content_hash=hashlib.sha256(snapshot_html).hexdigest(),
+            screenshot_hash=hashlib.sha256(
+                placeholder_png
+            ).hexdigest(),
+        )
 
     @beartype
     async def shutdown(self) -> None:
         """Gracefully stop the worker."""
         log.info("worker.shutting_down")
         self._running = False
+
+    async def _ua_refresh_loop(self) -> None:  # pragma: no cover
+        """Refresh the UA pool every 6h.
+
+        Upstream dataset updates daily; 6h cadence keeps us fresh
+        without being noisy. Idempotent — internal staleness check
+        suppresses the HTTP fetch when the cache is recent.
+        """
+        from archiver import user_agents as _ua
+        while self._running:
+            for _ in range(6 * 60 * 60 // 100):  # sleep in 100ms ticks
+                if not self._running:
+                    return
+                await asyncio.sleep(0.1)
+            try:
+                await _ua.refresh()
+            except Exception as exc:
+                log.warning("worker.ua_refresh_failed", error=str(exc))
+
+    async def _init_proxy_rotator(self) -> None:  # pragma: no cover
+        """Load proxies from config + URL lists, optionally health-check.
+
+        Runs once at startup. Failures are logged but non-fatal — the
+        worker can still function without any proxies (CAMOUFOX_PROXY
+        tier simply degrades to direct Camoufox when the rotator is empty).
+        """
+        try:
+            candidates = await load_proxies(
+                self._settings.proxy_list,
+                self._settings.proxy_list_urls,
+                default_scheme=self._settings.proxy_default_scheme,
+                max_count=self._settings.proxy_max_count,
+            )
+        except Exception as exc:
+            log.warning("worker.proxy_load_failed", error=str(exc))
+            return
+
+        if not candidates:
+            log.info("worker.proxy_list_empty")
+            return
+
+        if self._settings.proxy_health_check_enabled:
+            log.info(
+                "worker.proxy_health_check_start",
+                candidates=len(candidates),
+            )
+            healthy = await filter_healthy(
+                candidates,
+                probe_url=self._settings.proxy_health_check_url,
+                timeout=self._settings.proxy_health_check_timeout,
+                concurrency=(
+                    self._settings.proxy_health_check_concurrency
+                ),
+            )
+        else:
+            healthy = candidates
+
+        self._proxy_rotator = ProxyRotator(proxies=healthy)
+        log.info(
+            "worker.proxy_rotator_ready",
+            total=len(candidates),
+            healthy=len(healthy),
+        )
