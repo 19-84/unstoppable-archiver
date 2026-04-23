@@ -473,6 +473,7 @@ _GATE_CHALLENGE_MARKERS: tuple[str, ...] = (
 async def probe_archive_gate(
     proxy: ProxyConfig,
     timeout: float = 45.0,
+    geoip: bool = False,
 ) -> bool:
     """Probe archive.ph through `proxy` via Camoufox. True if gate passed.
 
@@ -483,6 +484,13 @@ async def probe_archive_gate(
     Uses Camoufox (not httpx) because httpx gets fingerprinted
     deterministically by CF — only realistic-browser traffic scores
     high enough to clear the gate.
+
+    `geoip` defaults to False for probing because Camoufox's geoip
+    bootstrap does an IP-lookup HTTP call through the candidate
+    proxy; a proxy that can't forward that call raises InvalidIP
+    before we ever navigate to archive.ph — indistinguishable from
+    a gate failure. Production captures can re-enable geoip on the
+    subset of probe-passing proxies where realistic locale matters.
     """
     from camoufox.async_api import AsyncCamoufox  # type: ignore[import-untyped]
 
@@ -490,7 +498,7 @@ async def probe_archive_gate(
         async with AsyncCamoufox(
             headless="virtual",
             humanize=True,
-            geoip=True,
+            geoip=geoip,
             proxy={"server": proxy.server},
         ) as browser:
             context = await browser.new_context(

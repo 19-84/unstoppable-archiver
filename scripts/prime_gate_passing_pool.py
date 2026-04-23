@@ -45,10 +45,53 @@ from archiver.proxy import (
 from archiver.repository import ProxyStatusRepository
 
 
+async def _tcp_reachable(proxy: ProxyConfig, timeout: float = 3.0) -> bool:
+    """Open a TCP connection to the proxy's host:port; close immediately.
+
+    Cheap (< timeout s) dead-endpoint filter. Independent of any HTTP
+    service, so unlike httpbin it can't get us rate-limited. Catches
+    the majority of dead entries from public lists before we spend 5-
+    125 s each on the full Camoufox gate probe.
+    """
+    try:
+        # proxy.server is "socks5://host:port"
+        hostport = proxy.server.split("://", 1)[1]
+        host, port_s = hostport.rsplit(":", 1)
+        port = int(port_s)
+    except (IndexError, ValueError):
+        return False
+    import contextlib
+    try:
+        _, writer = await asyncio.wait_for(
+            asyncio.open_connection(host, port), timeout=timeout,
+        )
+        writer.close()
+        with contextlib.suppress(Exception):
+            await writer.wait_closed()
+        return True
+    except Exception:
+        return False
+
+
+async def _tcp_filter(
+    proxies: list[ProxyConfig], concurrency: int = 100
+) -> list[ProxyConfig]:
+    """Keep only proxies whose host:port accepts a TCP connection."""
+    sem = asyncio.Semaphore(concurrency)
+
+    async def _one(p: ProxyConfig) -> tuple[ProxyConfig, bool]:
+        async with sem:
+            ok = await _tcp_reachable(p)
+        return p, ok
+
+    results = await asyncio.gather(*(_one(p) for p in proxies))
+    return [p for p, ok in results if ok]
+
+
 async def _load_and_prefilter(
     settings: Settings, max_candidates: int
 ) -> list[ProxyConfig]:
-    """Load proxy lists + SOCKS5 + ASN filters + cap."""
+    """Load proxy lists + SOCKS5 + TCP liveness + ASN filters + cap."""
     print("Loading proxy lists...", flush=True)
     raw = await load_proxies(
         settings.proxy_list,
@@ -61,8 +104,22 @@ async def _load_and_prefilter(
     socks = filter_socks5(raw)
     print(f"  after socks5-only: {len(socks)}", flush=True)
 
-    print("Looking up ASNs (~0.2 s each, cached)...", flush=True)
-    consumer = await filter_by_asn(socks, concurrency=20)
+    # TCP liveness first — the cheapest filter, drops the ~70-90% of
+    # public-list entries whose host:port no longer accepts connections.
+    # Skips the Camoufox-downstream InvalidIP failures we'd otherwise
+    # burn browser time on.
+    print(
+        f"TCP liveness check ({len(socks)} candidates, 3s timeout)...",
+        flush=True,
+    )
+    alive = await _tcp_filter(socks)
+    print(f"  after tcp-alive: {len(alive)}", flush=True)
+
+    print(
+        f"Looking up ASNs ({len(alive)} candidates, cached)...",
+        flush=True,
+    )
+    consumer = await filter_by_asn(alive, concurrency=20)
     print(f"  after consumer-ASN filter: {len(consumer)}", flush=True)
 
     if len(consumer) > max_candidates:
