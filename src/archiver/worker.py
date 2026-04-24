@@ -42,6 +42,7 @@ from archiver.fallback import (
     extract_title_from_html,
     fetch_archive_today_snapshot_html,
     find_archive_today_snapshot,
+    save_to_archive_today,
     save_to_wayback,
     strip_html_tags,
 )
@@ -349,6 +350,10 @@ class Worker:
                         result = await self._capture_via_commoncrawl(
                             archive.url
                         )
+                    elif job.tier == CaptureTier.ARCHIVE_TODAY_SUBMIT:
+                        result = await self._capture_via_archive_today_submit(
+                            archive.url
+                        )
                     else:
                         browser = await self._browser_pool.get_browser(
                             job.tier
@@ -377,7 +382,10 @@ class Worker:
                     source = CaptureSource.DIRECT
                     if job.tier == CaptureTier.WAYBACK:
                         source = CaptureSource.WAYBACK
-                    elif job.tier == CaptureTier.ARCHIVE_TODAY:
+                    elif job.tier in (
+                        CaptureTier.ARCHIVE_TODAY,
+                        CaptureTier.ARCHIVE_TODAY_SUBMIT,
+                    ):
                         source = CaptureSource.ARCHIVE_TODAY
                     elif job.tier == CaptureTier.COMMONCRAWL:
                         source = CaptureSource.COMMONCRAWL
@@ -688,6 +696,71 @@ class Worker:
             tier=CaptureTier.CAMOUFOX,
             strip_selectors=ARCHIVE_TODAY_STRIP_SELECTORS,
         )
+
+    async def _capture_via_archive_today_submit(
+        self, url: str
+    ) -> CaptureResult:
+        """Submit URL to archive.today and fetch the resulting memento.
+
+        Last-resort write path — all read tiers have already failed to
+        find an existing copy anywhere. We're imposing real load on a
+        volunteer free service so this runs at most once per URL.
+
+        Requires a gate-passing SOCKS5: the submission form is CF-gated
+        + Turnstile, and our direct IP gets walled. If the pool is empty
+        we fail out immediately rather than 403-ing our way through.
+        """
+        at_proxy = await self._pick_archive_today_proxy()
+        if at_proxy is None:
+            raise CaptureError(
+                "archive.today submit: no gate-passing proxy available"
+            )
+
+        # One-shot Camoufox bound to the gate-passer. Can't reuse the
+        # browser_pool's shared Camoufox — proxy is a launch-time arg.
+        from camoufox.async_api import (  # type: ignore[import-untyped]
+            AsyncCamoufox,
+        )
+
+        snapshot_url: str | None = None
+        async with AsyncCamoufox(
+            headless=self._settings.camoufox_headless,
+            humanize=True,
+            geoip=False,  # see probe_archive_gate for rationale
+            proxy={"server": at_proxy},
+        ) as browser:
+            context = await browser.new_context(
+                viewport={"width": 1280, "height": 900},
+            )
+            page = await context.new_page()
+            try:
+                snapshot_url = await save_to_archive_today(url, page)
+            finally:
+                await page.close()
+                await context.close()
+
+        if snapshot_url is None:
+            raise CaptureError(
+                f"archive.today submit failed for {url}"
+            )
+
+        log.info(
+            "worker.archive_today.submit_success",
+            url=url,
+            snapshot=snapshot_url,
+        )
+
+        # Fetch the fresh memento through the same proxy — CF edge walls
+        # direct-IP reads on newly-created snapshots just like on old ones.
+        raw_html = await fetch_archive_today_snapshot_html(
+            snapshot_url, proxy=at_proxy
+        )
+        if raw_html is None:
+            raise CaptureError(
+                "archive.today submit succeeded but memento fetch failed: "
+                f"{snapshot_url}"
+            )
+        return self._capture_result_from_html(raw_html, snapshot_url)
 
     def _capture_result_from_html(
         self, html: str, source_url: str

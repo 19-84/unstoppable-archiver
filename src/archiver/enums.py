@@ -35,6 +35,11 @@ class CaptureTier(StrEnum):
     WAYBACK = "wayback"
     ARCHIVE_TODAY = "archive_today"
     COMMONCRAWL = "commoncrawl"
+    # Last-resort write path: submit to archive.today on behalf of the
+    # user. Slow (30-120 s) and imposes real load on their free service,
+    # so we only do it when every read tier has failed to find an
+    # existing snapshot.
+    ARCHIVE_TODAY_SUBMIT = "archive_today_submit"
 
 
 class CaptureSource(StrEnum):
@@ -95,6 +100,7 @@ CLEARNET_TIER_ORDER: list[CaptureTier] = [
     CaptureTier.WAYBACK,
     CaptureTier.ARCHIVE_TODAY,
     CaptureTier.COMMONCRAWL,
+    CaptureTier.ARCHIVE_TODAY_SUBMIT,
 ]
 
 # Tier escalation order for darknet URLs (no indirect tiers)

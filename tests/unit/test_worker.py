@@ -133,15 +133,21 @@ class TestNextTier:
             == CaptureTier.COMMONCRAWL
         )
 
-    def test_commoncrawl_returns_none(self) -> None:
-        assert next_tier(CaptureTier.COMMONCRAWL) is None
+    def test_commoncrawl_escalates_to_archive_today_submit(self) -> None:
+        assert (
+            next_tier(CaptureTier.COMMONCRAWL)
+            == CaptureTier.ARCHIVE_TODAY_SUBMIT
+        )
 
-    def test_full_chain_has_six_tiers(self) -> None:
+    def test_archive_today_submit_returns_none(self) -> None:
+        assert next_tier(CaptureTier.ARCHIVE_TODAY_SUBMIT) is None
+
+    def test_full_chain_has_seven_tiers(self) -> None:
         tiers: list[CaptureTier] = [CaptureTier.CHROMIUM]
         tier: CaptureTier | None = CaptureTier.CHROMIUM
         while (tier := next_tier(tier)) is not None:
             tiers.append(tier)
-        total_tiers = 6
+        total_tiers = 7
         assert len(tiers) == total_tiers
 
     def test_unknown_tier_returns_none(self) -> None:
@@ -398,19 +404,21 @@ class TestWorkerFallbackTiers:
         mock_cc: AsyncMock,
         mock_cc_full: AsyncMock,
     ) -> None:
-        """Exhausting the *last* tier (now COMMONCRAWL) marks FAILED."""
+        """Exhausting the last tier (ARCHIVE_TODAY_SUBMIT) marks FAILED."""
         worker, mock_conn = _make_worker()
         job = _make_job(
-            tier=CaptureTier.COMMONCRAWL,
+            tier=CaptureTier.ARCHIVE_TODAY_SUBMIT,
             attempts=3,
             max_attempts=3,
         )
         worker._archive_repo.get_by_id = AsyncMock(
             return_value=_make_archive()
         )
+        # No gate-passers in the pool → submit tier raises immediately.
+        worker._proxy_status_repo.list_passing = AsyncMock(return_value=[])
         mock_find.return_value = None
-        mock_cc.return_value = None  # no recent CC snapshot
-        mock_cc_full.return_value = None  # no deep-scan snapshot either
+        mock_cc.return_value = None
+        mock_cc_full.return_value = None
         worker._browser_pool.get_browser = AsyncMock()
         mock_conn.fetchval = AsyncMock(return_value=3)
 
@@ -546,7 +554,7 @@ class TestAntibotExhaustion:
     async def test_antibot_on_last_tier_marks_failed(self) -> None:
         """Antibot on the final tier → archive moved to FAILED."""
         worker, mock_conn = _make_worker()
-        job = _make_job(tier=CaptureTier.COMMONCRAWL)
+        job = _make_job(tier=CaptureTier.ARCHIVE_TODAY_SUBMIT)
         await worker._handle_antibot(mock_conn, job, "blocked everywhere")
         # Archive must have been marked FAILED.
         calls = worker._archive_repo.update_status.call_args_list
@@ -599,6 +607,91 @@ class TestCommonCrawlSuccessSource:
             c.kwargs.get("source") == CaptureSource.COMMONCRAWL.value
             for c in complete_calls
         )
+
+
+class TestCaptureViaArchiveTodaySubmit:
+    async def test_no_gate_passer_raises(self) -> None:
+        """Submit tier refuses to run without a gate-passing proxy."""
+        from archiver.errors import CaptureError
+
+        worker, _ = _make_worker()
+        worker._proxy_status_repo.list_passing = AsyncMock(return_value=[])
+
+        import pytest
+        with pytest.raises(CaptureError, match="no gate-passing"):
+            await worker._capture_via_archive_today_submit(
+                "https://example.com/"
+            )
+
+    @patch(
+        "archiver.worker.fetch_archive_today_snapshot_html",
+        new_callable=AsyncMock,
+    )
+    @patch(
+        "archiver.worker.save_to_archive_today", new_callable=AsyncMock
+    )
+    @patch("camoufox.async_api.AsyncCamoufox")
+    async def test_success_path(
+        self,
+        mock_camoufox_cls: MagicMock,
+        mock_save: AsyncMock,
+        mock_fetch: AsyncMock,
+    ) -> None:
+        """Happy path: gate-passer → camoufox submit → fetch → result."""
+        worker, _ = _make_worker()
+        worker._proxy_status_repo.list_passing = AsyncMock(
+            return_value=["socks5://1.2.3.4:1080"]
+        )
+        mock_save.return_value = "https://archive.ph/abc/https://example.com/"
+        mock_fetch.return_value = (
+            "<html><title>Archived</title><body>content</body></html>"
+        )
+
+        # Mock the async context manager returning a browser with
+        # new_context / new_page chain returning AsyncMocks.
+        mock_page = AsyncMock()
+        mock_context = AsyncMock()
+        mock_context.new_page = AsyncMock(return_value=mock_page)
+        mock_browser = AsyncMock()
+        mock_browser.new_context = AsyncMock(return_value=mock_context)
+        mock_camoufox_cls.return_value.__aenter__.return_value = mock_browser
+
+        result = await worker._capture_via_archive_today_submit(
+            "https://example.com/"
+        )
+
+        mock_save.assert_awaited_once()
+        mock_fetch.assert_awaited_once()
+        assert isinstance(result, CaptureResult)
+
+    @patch("archiver.worker.save_to_archive_today", new_callable=AsyncMock)
+    @patch("camoufox.async_api.AsyncCamoufox")
+    async def test_submit_returns_none_raises(
+        self,
+        mock_camoufox_cls: MagicMock,
+        mock_save: AsyncMock,
+    ) -> None:
+        """Submission returned None → CaptureError (escalation or FAIL)."""
+        from archiver.errors import CaptureError
+
+        worker, _ = _make_worker()
+        worker._proxy_status_repo.list_passing = AsyncMock(
+            return_value=["socks5://1.2.3.4:1080"]
+        )
+        mock_save.return_value = None
+
+        mock_page = AsyncMock()
+        mock_context = AsyncMock()
+        mock_context.new_page = AsyncMock(return_value=mock_page)
+        mock_browser = AsyncMock()
+        mock_browser.new_context = AsyncMock(return_value=mock_context)
+        mock_camoufox_cls.return_value.__aenter__.return_value = mock_browser
+
+        import pytest
+        with pytest.raises(CaptureError, match="submit failed"):
+            await worker._capture_via_archive_today_submit(
+                "https://example.com/"
+            )
 
 
 class TestWorkerShortCircuit:
