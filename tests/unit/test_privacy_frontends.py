@@ -112,6 +112,17 @@ class TestRegistry:
 
     def test_frontend_policy_is_frozen(self) -> None:
         """Dataclass is frozen — callers can't mutate the registry at runtime."""
-        p = FrontendPolicy(target_apex="test.com", instances=("https://a",))
+        p = FrontendPolicy(
+            target_apex="test.com",
+            instances=("https://a",),
+            probe_path="/",
+            probe_marker="test",
+        )
         with pytest.raises(AttributeError):
             p.target_apex = "other.com"  # type: ignore[misc]
+
+    def test_all_policies_have_probe_targets(self) -> None:
+        """Every policy needs a probe_path + probe_marker for validation."""
+        for policy in FRONTENDS:
+            assert policy.probe_path.startswith("/"), policy
+            assert policy.probe_marker, policy

@@ -898,6 +898,86 @@ class CfClearanceRepository:
         return int(result.split()[-1]) if result else 0
 
 
+class FrontendStatusRepository:
+    """Per-instance content-verification state for privacy frontends.
+
+    Mirrors ProxyStatusRepository but keyed on (frontend_base) rather
+    than (proxy_server). The `target_apex` column lets capture-time
+    lookups filter by which site an instance fronts.
+    """
+
+    @beartype
+    async def record(
+        self,
+        conn: PgConnection,
+        frontend_base: str,
+        target_apex: str,
+        *,
+        content_verified: bool,
+    ) -> None:
+        """Upsert a probe outcome."""
+        await conn.execute(
+            """
+            INSERT INTO frontend_status
+                (frontend_base, target_apex, content_verified,
+                 consecutive_failures, last_checked_at)
+            VALUES ($1, $2, $3,
+                    CASE WHEN $3 THEN 0 ELSE 1 END, now())
+            ON CONFLICT (frontend_base) DO UPDATE SET
+                target_apex = $2,
+                content_verified = $3,
+                consecutive_failures = CASE
+                    WHEN $3 THEN 0
+                    ELSE frontend_status.consecutive_failures + 1
+                END,
+                last_checked_at = now()
+            """,
+            frontend_base, target_apex, content_verified,
+        )
+
+    @beartype
+    async def list_passing(
+        self,
+        conn: PgConnection,
+        target_apex: str,
+        max_age_hours: int = 24,
+    ) -> list[str]:
+        """Return frontend base URLs known to serve real content for `target_apex`.
+
+        Excludes instances whose last pass was older than `max_age_hours`
+        to avoid routing through stale-verified instances that may have
+        since broken.
+        """
+        rows = await conn.fetch(
+            """
+            SELECT frontend_base FROM frontend_status
+            WHERE target_apex = $1
+              AND content_verified = true
+              AND last_checked_at > now() - make_interval(hours => $2)
+            ORDER BY last_checked_at DESC
+            """,
+            target_apex, max_age_hours,
+        )
+        return [r["frontend_base"] for r in rows]
+
+    @beartype
+    async def get(
+        self,
+        conn: PgConnection,
+        frontend_base: str,
+    ) -> dict[str, Any] | None:
+        """Return the status row or None if unseen."""
+        row = await conn.fetchrow(
+            "SELECT frontend_base, target_apex, content_verified,"
+            " last_checked_at, consecutive_failures"
+            " FROM frontend_status WHERE frontend_base = $1",
+            frontend_base,
+        )
+        if row is None:
+            return None
+        return dict(row)
+
+
 class DomainObservationsRepository:
     """Per-apex tier-outcome counters for routing-history analysis.
 

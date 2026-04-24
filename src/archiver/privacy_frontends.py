@@ -24,20 +24,37 @@ URLs only.
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from urllib.parse import urlparse, urlunparse
 
+import structlog
 from beartype import beartype
 
 from archiver.url import apex_of
 
+log = structlog.get_logger()
+
 
 @dataclass(frozen=True)
 class FrontendPolicy:
-    """Routing policy for one target apex."""
+    """Routing policy for one target apex.
+
+    `probe_path` + `probe_marker` drive content-positive validation:
+    we navigate an instance to `{instance}{probe_path}` and assert that
+    `probe_marker` is present in the rendered body. A 200 OK from an
+    Anubis/CF challenge page otherwise looks identical to a 200 OK
+    from real content — the marker is what discriminates.
+
+    Pick `probe_path` to point at stable, long-lived content (a
+    historical tweet, a classic article, a permanent subreddit) so
+    probes don't break when upstream sites rotate their content.
+    """
 
     target_apex: str             # the site we're fronting (e.g. "reddit.com")
     instances: tuple[str, ...]   # base URLs to try in order (scheme://host)
+    probe_path: str              # path for the canonical content probe
+    probe_marker: str            # substring that must appear in real content
 
 
 # Registry of (target_apex → policy). Order within `instances` is
@@ -48,30 +65,44 @@ class FrontendPolicy:
 # Camoufox+SOCKS5.
 FRONTENDS: tuple[FrontendPolicy, ...] = (
     # Medium paywall bypass. Scribe is the reference implementation;
-    # LibMedium is a secondary hosted by batsense.
+    # LibMedium is a secondary hosted by batsense. Probe target is
+    # Venkatesh Rao's Gervais Principle — a 2009 article that's been
+    # stable for over 15 years, so the probe won't rot.
     FrontendPolicy(
         target_apex="medium.com",
         instances=(
             "https://scribe.rip",
             "https://libmedium.batsense.net",
         ),
+        probe_path=(
+            "/@vgr/the-gervais-principle-the-office-"
+            "according-to-the-office-44d29c441f76"
+        ),
+        probe_marker="The Gervais Principle",
     ),
     # Twitter / X. Nitter's content endpoints effectively returned
     # empty bodies since guest-account removal; xcancel is the one
-    # working descendant as of 2026-Q2.
+    # working descendant as of 2026-Q2. Probe target is Jack's first
+    # tweet (2006) — permanent.
     FrontendPolicy(
         target_apex="twitter.com",
         instances=("https://xcancel.com",),
+        probe_path="/jack/status/20",
+        probe_marker="just setting up my twttr",
     ),
     FrontendPolicy(
         target_apex="x.com",
         instances=("https://xcancel.com",),
+        probe_path="/jack/status/20",
+        probe_marker="just setting up my twttr",
     ),
     # Reddit. Redlib (fork of Libreddit) maintains an instance list
     # separately; clearnet instances we've confirmed TCP-reachable.
     # The top two don't CF-403 our server IP — they use Anubis which
     # Camoufox clears. The third is kept as a tertiary despite being
     # sometimes CF-walled (the gate-passing SOCKS5 clears CF too).
+    # Probe target is r/announcements — Reddit's official channel,
+    # never renamed, always public.
     FrontendPolicy(
         target_apex="reddit.com",
         instances=(
@@ -79,6 +110,8 @@ FRONTENDS: tuple[FrontendPolicy, ...] = (
             "https://redlib.privadency.com",
             "https://redlib.perennialte.ch",
         ),
+        probe_path="/r/announcements/",
+        probe_marker="r/announcements",
     ),
 )
 
@@ -126,3 +159,77 @@ def rewrite_to_instance(url: str, instance_base: str) -> str:
             "",  # drop fragment — never useful in a captured archive
         )
     )
+
+
+@beartype
+async def probe_frontend_instance(
+    policy: FrontendPolicy,
+    instance_base: str,
+    proxy_server: str,
+    timeout: float = 60.0,
+) -> bool:
+    """Does `instance_base` serve real content (not just an Anubis challenge)?
+
+    Navigates through Camoufox + the given SOCKS5 proxy to the
+    policy's canonical probe URL and waits up to `timeout` seconds
+    for the `probe_marker` to appear in the page body. Challenge
+    pages and "Welcome" shells lack the marker so they fail cleanly.
+
+    Camoufox handles CF/Anubis JS resolution automatically given
+    enough time; we poll rather than relying on `wait_for_function`
+    so the same shape works across every frontend's challenge UI.
+    Returns False on any exception — a dead instance is a failed
+    probe, same bucket as a challenge-gated one.
+    """
+    from camoufox.async_api import (  # type: ignore[import-untyped]
+        AsyncCamoufox,
+    )
+
+    probe_url = instance_base.rstrip("/") + policy.probe_path
+    try:
+        async with AsyncCamoufox(
+            headless="virtual",
+            humanize=True,
+            geoip=False,
+            proxy={"server": proxy_server},
+        ) as browser:
+            context = await browser.new_context(
+                viewport={"width": 1280, "height": 900},
+            )
+            page = await context.new_page()
+            try:
+                await page.goto(
+                    probe_url,
+                    wait_until="domcontentloaded",
+                    timeout=int(timeout * 1000),
+                )
+                # Poll for the content marker. Give challenge resolvers
+                # up to ~30 s total by checking every 3 s.
+                for _ in range(10):
+                    body = await page.content()
+                    if policy.probe_marker in body:
+                        log.debug(
+                            "privacy_frontend.probe_passed",
+                            instance=instance_base,
+                            target=policy.target_apex,
+                        )
+                        return True
+                    await asyncio.sleep(3)
+                log.debug(
+                    "privacy_frontend.probe_no_marker",
+                    instance=instance_base,
+                    target=policy.target_apex,
+                )
+                return False
+            finally:
+                await page.close()
+                await context.close()
+    except Exception as exc:
+        log.debug(
+            "privacy_frontend.probe_error",
+            instance=instance_base,
+            target=policy.target_apex,
+            error_type=type(exc).__name__,
+            error=str(exc)[:120],
+        )
+        return False

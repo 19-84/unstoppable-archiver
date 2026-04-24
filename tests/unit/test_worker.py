@@ -99,6 +99,13 @@ def _make_worker() -> tuple[Worker, AsyncMock]:
     # list_passing returns [] by default — tier-5 falls through to direct.
     proxy_status_repo.list_passing = AsyncMock(return_value=[])
     worker._proxy_status_repo = proxy_status_repo
+    frontend_status_repo = AsyncMock()
+    # Default: one verified instance per apex so happy-path tests don't
+    # need to mock it. Tests exercising the empty-pool path override this.
+    frontend_status_repo.list_passing = AsyncMock(
+        return_value=["https://scribe.rip"]
+    )
+    worker._frontend_status_repo = frontend_status_repo
     return worker, mock_conn
 
 
@@ -724,14 +731,34 @@ class TestCaptureViaPrivacyFrontend:
                 "https://medium.com/@vgr/foo"
             )
 
-    @patch("archiver.worker.capture_page", new_callable=AsyncMock)
-    async def test_first_instance_succeeds(
-        self, mock_capture: AsyncMock
-    ) -> None:
-        """Happy path: first instance returns a CaptureResult."""
+    async def test_no_verified_frontend_raises(self) -> None:
+        """Registered apex, gate-passer exists, but no probe-verified
+        instance yet → CaptureError so tier escalates to wayback cleanly
+        rather than storing a challenge page as content."""
+        from archiver.errors import CaptureError
+
         worker, _ = _make_worker()
         worker._proxy_status_repo.list_passing = AsyncMock(
             return_value=["socks5://1.2.3.4:1080"]
+        )
+        worker._frontend_status_repo.list_passing = AsyncMock(return_value=[])
+        import pytest
+        with pytest.raises(CaptureError, match="no content-verified"):
+            await worker._capture_via_privacy_frontend(
+                "https://medium.com/@vgr/foo"
+            )
+
+    @patch("archiver.worker.capture_page", new_callable=AsyncMock)
+    async def test_first_verified_instance_succeeds(
+        self, mock_capture: AsyncMock
+    ) -> None:
+        """Happy path: first verified instance returns a CaptureResult."""
+        worker, _ = _make_worker()
+        worker._proxy_status_repo.list_passing = AsyncMock(
+            return_value=["socks5://1.2.3.4:1080"]
+        )
+        worker._frontend_status_repo.list_passing = AsyncMock(
+            return_value=["https://scribe.rip"]
         )
         worker._browser_pool.get_browser = AsyncMock()
         mock_capture.return_value = _make_capture_result()
@@ -741,23 +768,27 @@ class TestCaptureViaPrivacyFrontend:
         )
         assert isinstance(result, CaptureResult)
         mock_capture.assert_awaited_once()
-        # URL passed to capture_page should be the scribe-rewritten form
         call_kwargs = mock_capture.call_args.kwargs
         assert call_kwargs["url"].startswith("https://scribe.rip/")
 
     @patch("archiver.worker.capture_page", new_callable=AsyncMock)
-    async def test_falls_through_to_second_instance(
+    async def test_falls_through_to_second_verified_instance(
         self, mock_capture: AsyncMock
     ) -> None:
-        """First instance raises → try next; win on second."""
+        """First verified instance raises → try next; win on second."""
         from archiver.errors import CaptureError
 
         worker, _ = _make_worker()
         worker._proxy_status_repo.list_passing = AsyncMock(
             return_value=["socks5://1.2.3.4:1080"]
         )
+        worker._frontend_status_repo.list_passing = AsyncMock(
+            return_value=[
+                "https://scribe.rip",
+                "https://libmedium.batsense.net",
+            ]
+        )
         worker._browser_pool.get_browser = AsyncMock()
-        # Medium registry has two instances — first raises, second ok.
         mock_capture.side_effect = [
             CaptureError("instance 1 down"),
             _make_capture_result(),
@@ -769,15 +800,18 @@ class TestCaptureViaPrivacyFrontend:
         assert mock_capture.await_count == 2  # noqa: PLR2004
 
     @patch("archiver.worker.capture_page", new_callable=AsyncMock)
-    async def test_all_instances_fail_raises(
+    async def test_all_verified_instances_fail_raises(
         self, mock_capture: AsyncMock
     ) -> None:
-        """Every instance raises → bubble CaptureError for tier escalation."""
+        """Every verified instance raises → escalation CaptureError."""
         from archiver.errors import CaptureError
 
         worker, _ = _make_worker()
         worker._proxy_status_repo.list_passing = AsyncMock(
             return_value=["socks5://1.2.3.4:1080"]
+        )
+        worker._frontend_status_repo.list_passing = AsyncMock(
+            return_value=["https://scribe.rip"]
         )
         worker._browser_pool.get_browser = AsyncMock()
         mock_capture.side_effect = CaptureError("dead")

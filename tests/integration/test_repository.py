@@ -16,6 +16,7 @@ from archiver.repository import (
     ArchiveRepository,
     CfClearanceRepository,
     DomainObservationsRepository,
+    FrontendStatusRepository,
     JobRepository,
     ProxyStatusRepository,
 )
@@ -40,6 +41,7 @@ async def pool() -> AsyncIterator[asyncpg.pool.Pool]:
         await conn.execute("DELETE FROM proxy_status")
         await conn.execute("DELETE FROM cf_clearance_cache")
         await conn.execute("DELETE FROM domain_observations")
+        await conn.execute("DELETE FROM frontend_status")
     await close_pool(p)
 
 
@@ -720,4 +722,98 @@ class TestDomainObservationsRepository:
         repo = DomainObservationsRepository()
         async with pool.acquire() as conn:
             assert await repo.get(conn, "never-seen.com") is None
+
+
+class TestFrontendStatusRepository:
+    async def test_record_passing_then_list(
+        self, pool: asyncpg.pool.Pool
+    ) -> None:
+        repo = FrontendStatusRepository()
+        async with pool.acquire() as conn:
+            await repo.record(
+                conn, "https://scribe.rip", "medium.com",
+                content_verified=True,
+            )
+            passing = await repo.list_passing(conn, "medium.com")
+            assert passing == ["https://scribe.rip"]
+
+    async def test_list_passing_excludes_failures(
+        self, pool: asyncpg.pool.Pool
+    ) -> None:
+        repo = FrontendStatusRepository()
+        async with pool.acquire() as conn:
+            await repo.record(
+                conn, "https://a", "reddit.com", content_verified=True,
+            )
+            await repo.record(
+                conn, "https://b", "reddit.com", content_verified=False,
+            )
+            passing = await repo.list_passing(conn, "reddit.com")
+            assert passing == ["https://a"]
+
+    async def test_list_passing_scoped_by_apex(
+        self, pool: asyncpg.pool.Pool
+    ) -> None:
+        repo = FrontendStatusRepository()
+        async with pool.acquire() as conn:
+            await repo.record(
+                conn, "https://scribe.rip", "medium.com",
+                content_verified=True,
+            )
+            await repo.record(
+                conn, "https://xcancel.com", "twitter.com",
+                content_verified=True,
+            )
+            m = await repo.list_passing(conn, "medium.com")
+            t = await repo.list_passing(conn, "twitter.com")
+            assert m == ["https://scribe.rip"]
+            assert t == ["https://xcancel.com"]
+
+    async def test_flip_from_passing_to_failing(
+        self, pool: asyncpg.pool.Pool
+    ) -> None:
+        """A pass followed by a fail flips verified off; failure counter bumps."""
+        repo = FrontendStatusRepository()
+        async with pool.acquire() as conn:
+            await repo.record(
+                conn, "https://inst", "reddit.com",
+                content_verified=True,
+            )
+            await repo.record(
+                conn, "https://inst", "reddit.com",
+                content_verified=False,
+            )
+            row = await repo.get(conn, "https://inst")
+            assert row is not None
+            assert row["content_verified"] is False
+            assert row["consecutive_failures"] == 1
+            assert await repo.list_passing(conn, "reddit.com") == []
+
+    async def test_failure_counter_resets_on_pass(
+        self, pool: asyncpg.pool.Pool
+    ) -> None:
+        repo = FrontendStatusRepository()
+        async with pool.acquire() as conn:
+            for _ in range(3):
+                await repo.record(
+                    conn, "https://inst", "medium.com",
+                    content_verified=False,
+                )
+            row = await repo.get(conn, "https://inst")
+            assert row is not None
+            assert row["consecutive_failures"] == 3  # noqa: PLR2004
+            await repo.record(
+                conn, "https://inst", "medium.com",
+                content_verified=True,
+            )
+            row2 = await repo.get(conn, "https://inst")
+            assert row2 is not None
+            assert row2["consecutive_failures"] == 0
+
+    async def test_get_missing_returns_none(
+        self, pool: asyncpg.pool.Pool
+    ) -> None:
+        repo = FrontendStatusRepository()
+        async with pool.acquire() as conn:
+            assert await repo.get(conn, "https://unseen") is None
 

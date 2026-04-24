@@ -148,6 +148,22 @@ CREATE TABLE IF NOT EXISTS proxy_status (
 CREATE INDEX IF NOT EXISTS idx_proxy_status_passing
     ON proxy_status(last_checked_at DESC) WHERE gate_passing = true;
 
+-- Per-instance privacy-frontend content-verification state.
+-- Populated by the worker's _frontend_probe_loop — only instances
+-- where a canonical test URL renders with the expected marker are
+-- marked passing. Reads at capture time filter on
+-- (target_apex, content_verified) to skip dead / gated frontends.
+CREATE TABLE IF NOT EXISTS frontend_status (
+    frontend_base TEXT PRIMARY KEY,
+    target_apex TEXT NOT NULL,
+    content_verified BOOLEAN NOT NULL DEFAULT false,
+    last_checked_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    consecutive_failures INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_frontend_status_verified
+    ON frontend_status(target_apex, last_checked_at DESC)
+    WHERE content_verified = true;
+
 -- Per-apex tier-outcome counters. Populated on every capture completion
 -- (win or loss) so future routing decisions can be empirical rather than
 -- relying on stated policy (robots.txt) or static priors. Keys on the

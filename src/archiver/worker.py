@@ -64,6 +64,7 @@ from archiver.proxy import (
 from archiver.repository import (
     ArchiveRepository,
     DomainObservationsRepository,
+    FrontendStatusRepository,
     JobRepository,
     PgConnection,
     ProxyStatusRepository,
@@ -124,6 +125,7 @@ class Worker:
         self._job_repo = JobRepository()
         self._obs_repo = DomainObservationsRepository()
         self._proxy_status_repo = ProxyStatusRepository()
+        self._frontend_status_repo = FrontendStatusRepository()
         self._cookie_cache = CfClearanceCache()
         self._semaphore = asyncio.Semaphore(
             settings.max_concurrent_captures
@@ -135,7 +137,7 @@ class Worker:
         self._proxy_rotator: ProxyRotator = ProxyRotator()
 
     @beartype
-    async def run(self) -> None:  # pragma: no cover
+    async def run(self) -> None:  # pragma: no cover  # noqa: PLR0915
         """Main worker loop."""
         self._pool = await create_pool(
             self._settings.db_url.get_secret_value(), min_size=2, max_size=5
@@ -174,6 +176,14 @@ class Worker:
         self._tasks.add(gate_task)
         gate_task.add_done_callback(self._tasks.discard)
         gate_task.add_done_callback(_log_task_exception)
+
+        # Background frontend-probing. Verifies Scribe/xcancel/Redlib
+        # instances serve real content, not Anubis challenge shells —
+        # capture-time routing only picks content-verified instances.
+        frontend_task = asyncio.create_task(self._frontend_probe_loop())
+        self._tasks.add(frontend_task)
+        frontend_task.add_done_callback(self._tasks.discard)
+        frontend_task.add_done_callback(_log_task_exception)
 
         # Reclaim stale jobs from dead workers
         async with self._pool.acquire() as conn:
@@ -797,9 +807,25 @@ class Worker:
             )
         proxy_config = ProxyConfig(server=at_proxy)
 
+        # Only try instances that the background probe loop has
+        # recently confirmed serve real content (not an Anubis or CF
+        # shell). Before the probe has run on a fresh environment this
+        # list is empty and the tier escalates cleanly to wayback —
+        # storing a challenge page as "content" is worse than escalating.
+        assert self._pool is not None  # noqa: S101
+        async with self._pool.acquire() as conn:
+            verified = await self._frontend_status_repo.list_passing(
+                conn, policy.target_apex,
+            )
+        if not verified:
+            raise CaptureError(
+                f"privacy frontend: no content-verified instance for "
+                f"{policy.target_apex}"
+            )
+
         browser = await self._browser_pool.get_browser(CaptureTier.CAMOUFOX)
         last_error: str | None = None
-        for instance in policy.instances:
+        for instance in verified:
             rewritten = rewrite_to_instance(url, instance)
             log.info(
                 "worker.privacy_frontend.attempting",
@@ -1019,3 +1045,62 @@ class Worker:
             tried=len(sample),
             passing=len(passing),
         )
+
+    async def _frontend_probe_loop(self) -> None:  # pragma: no cover
+        """Periodically verify that registered privacy-frontend instances
+        actually serve real content (not Anubis/CF challenge pages).
+
+        Longer warmup than _gate_probe_loop because this probe needs a
+        gate-passing SOCKS5 to be available first — frontends are
+        themselves bot-gated so the probe has to go through the same
+        SOCKS5 pool tier-5 uses.
+        """
+        from archiver.privacy_frontends import (
+            FRONTENDS,
+            probe_frontend_instance,
+        )
+
+        # 3-minute warmup. Allows gate_probe_loop (60s warmup) to have
+        # produced at least one batch of gate-passing proxies.
+        await asyncio.sleep(180)
+        while self._running:
+            at_proxy = await self._pick_archive_today_proxy()
+            if at_proxy is None:
+                log.debug("worker.frontend_probe.no_gate_passer")
+            else:
+                for policy in FRONTENDS:
+                    if not self._running:
+                        return
+                    for instance in policy.instances:
+                        if not self._running:
+                            return
+                        try:
+                            passing = await probe_frontend_instance(
+                                policy, instance, at_proxy,
+                            )
+                        except Exception as exc:  # pragma: no cover
+                            log.warning(
+                                "worker.frontend_probe.error",
+                                instance=instance,
+                                error=str(exc)[:120],
+                            )
+                            passing = False
+                        assert self._pool is not None  # noqa: S101
+                        async with self._pool.acquire() as conn:
+                            await self._frontend_status_repo.record(
+                                conn,
+                                instance,
+                                policy.target_apex,
+                                content_verified=passing,
+                            )
+                        log.info(
+                            "worker.frontend_probe.outcome",
+                            instance=instance,
+                            target=policy.target_apex,
+                            passing=passing,
+                        )
+            # Sleep 1 h between passes — instances don't flip state often.
+            for _ in range(3600):
+                if not self._running:
+                    return
+                await asyncio.sleep(1)
