@@ -9,6 +9,7 @@ import asyncio
 import itertools
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 import httpx
 import structlog
@@ -276,12 +277,39 @@ async def health_check_proxy(
     # Import here to avoid hard dependency when the module is imported
     # without an asyncio event loop (test helpers etc.).
     from archiver import user_agents as _ua
+    # Hard outer cap. httpx's own timeout fires for network read/write
+    # on an established connection, but an SOCKS5 proxy that accepts
+    # TCP and then hangs during protocol negotiation can sit idle past
+    # that budget — we've observed filter_healthy's semaphore filling
+    # with these and collapsing throughput to near zero. asyncio.wait_for
+    # guarantees a task-level ceiling.
+    try:
+        return await asyncio.wait_for(
+            _health_check_inner(proxy, probe_url, timeout, _ua),
+            timeout=timeout + 2,
+        )
+    except TimeoutError:
+        log.debug(
+            "proxy.health_fail",
+            server=proxy.server,
+            error_type="HardTimeout",
+        )
+        return False
+
+
+async def _health_check_inner(
+    proxy: ProxyConfig,
+    probe_url: str,
+    timeout: float,
+    ua_module: Any,
+) -> bool:
+    """Actual probe body — wrapped by health_check_proxy's hard-timeout."""
     try:
         async with httpx.AsyncClient(
             proxy=proxy.server,
             timeout=timeout,
             verify=False,  # noqa: S501
-            headers={"User-Agent": _ua.pick()},
+            headers={"User-Agent": ua_module.pick()},
         ) as client:
             resp = await client.get(probe_url)
             if resp.status_code == 200:  # noqa: PLR2004
