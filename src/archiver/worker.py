@@ -294,7 +294,7 @@ class Worker:
                 ).inc()
 
     @beartype
-    async def _process_job_inner(self, job: JobRecord) -> str:  # noqa: C901, PLR0911, PLR0912
+    async def _process_job_inner(self, job: JobRecord) -> str:  # noqa: C901, PLR0911, PLR0912, PLR0915
         """Inner job processing; returns outcome label for metrics."""
         assert self._pool is not None  # noqa: S101
         apex = ""  # bound for the except handlers; set properly once archive is fetched
@@ -354,6 +354,10 @@ class Worker:
                         result = await self._capture_via_archive_today_submit(
                             archive.url
                         )
+                    elif job.tier == CaptureTier.PRIVACY_FRONTEND:
+                        result = await self._capture_via_privacy_frontend(
+                            archive.url
+                        )
                     else:
                         browser = await self._browser_pool.get_browser(
                             job.tier
@@ -389,6 +393,8 @@ class Worker:
                         source = CaptureSource.ARCHIVE_TODAY
                     elif job.tier == CaptureTier.COMMONCRAWL:
                         source = CaptureSource.COMMONCRAWL
+                    elif job.tier == CaptureTier.PRIVACY_FRONTEND:
+                        source = CaptureSource.PRIVACY_FRONTEND
 
                     await self._archive_repo.update_status(
                         conn,
@@ -761,6 +767,73 @@ class Worker:
                 f"{snapshot_url}"
             )
         return self._capture_result_from_html(raw_html, snapshot_url)
+
+    async def _capture_via_privacy_frontend(
+        self, url: str
+    ) -> CaptureResult:
+        """Route `url` through a registered privacy frontend.
+
+        Raises CaptureError when the URL has no registered frontend
+        (→ immediate escalation to tier 5) or when every instance in
+        the policy's list fails. Each instance attempt goes through
+        Camoufox + a gate-passing SOCKS5 so Anubis/CF challenges on
+        the frontend itself can resolve.
+        """
+        from archiver.privacy_frontends import (
+            resolve_policy,
+            rewrite_to_instance,
+        )
+
+        policy = resolve_policy(url)
+        if policy is None:
+            raise CaptureError(
+                f"No privacy frontend registered for {url}"
+            )
+
+        at_proxy = await self._pick_archive_today_proxy()
+        if at_proxy is None:
+            raise CaptureError(
+                "privacy frontend: no gate-passing proxy available"
+            )
+        proxy_config = ProxyConfig(server=at_proxy)
+
+        browser = await self._browser_pool.get_browser(CaptureTier.CAMOUFOX)
+        last_error: str | None = None
+        for instance in policy.instances:
+            rewritten = rewrite_to_instance(url, instance)
+            log.info(
+                "worker.privacy_frontend.attempting",
+                original_url=url,
+                instance=instance,
+                rewritten=rewritten,
+            )
+            try:
+                result = await capture_page(
+                    url=rewritten,
+                    browser=browser,
+                    settings=self._settings,
+                    tier=CaptureTier.CAMOUFOX,
+                    proxy=proxy_config,
+                )
+                log.info(
+                    "worker.privacy_frontend.success",
+                    original_url=url,
+                    instance=instance,
+                )
+                return result
+            except (AntiBotDetectedError, CaptureError) as exc:
+                last_error = str(exc)
+                log.warning(
+                    "worker.privacy_frontend.instance_failed",
+                    instance=instance,
+                    error=last_error[:120],
+                )
+                continue
+
+        raise CaptureError(
+            f"All privacy frontend instances failed for {url}: "
+            f"{last_error}"
+        )
 
     def _capture_result_from_html(
         self, html: str, source_url: str

@@ -115,9 +115,15 @@ class TestNextTier:
             == CaptureTier.CAMOUFOX_PROXY
         )
 
-    def test_proxy_escalates_to_wayback(self) -> None:
+    def test_proxy_escalates_to_privacy_frontend(self) -> None:
         assert (
             next_tier(CaptureTier.CAMOUFOX_PROXY)
+            == CaptureTier.PRIVACY_FRONTEND
+        )
+
+    def test_privacy_frontend_escalates_to_wayback(self) -> None:
+        assert (
+            next_tier(CaptureTier.PRIVACY_FRONTEND)
             == CaptureTier.WAYBACK
         )
 
@@ -142,12 +148,12 @@ class TestNextTier:
     def test_archive_today_submit_returns_none(self) -> None:
         assert next_tier(CaptureTier.ARCHIVE_TODAY_SUBMIT) is None
 
-    def test_full_chain_has_seven_tiers(self) -> None:
+    def test_full_chain_has_eight_tiers(self) -> None:
         tiers: list[CaptureTier] = [CaptureTier.CHROMIUM]
         tier: CaptureTier | None = CaptureTier.CHROMIUM
         while (tier := next_tier(tier)) is not None:
             tiers.append(tier)
-        total_tiers = 7
+        total_tiers = 8
         assert len(tiers) == total_tiers
 
     def test_unknown_tier_returns_none(self) -> None:
@@ -224,10 +230,10 @@ class TestWorkerProcessJob:
 
         await worker._process_job(job)
 
-        # Antibot escalates to WAYBACK tier (not exhausted yet)
+        # Antibot escalates to PRIVACY_FRONTEND tier (not exhausted yet)
         worker._job_repo.enqueue.assert_awaited_once()
         enqueue_args = worker._job_repo.enqueue.call_args
-        assert enqueue_args[0][2] == CaptureTier.WAYBACK
+        assert enqueue_args[0][2] == CaptureTier.PRIVACY_FRONTEND
 
     @patch("archiver.worker.capture_page", new_callable=AsyncMock)
     async def test_capture_error_retries(
@@ -691,6 +697,95 @@ class TestCaptureViaArchiveTodaySubmit:
         with pytest.raises(CaptureError, match="submit failed"):
             await worker._capture_via_archive_today_submit(
                 "https://example.com/"
+            )
+
+
+class TestCaptureViaPrivacyFrontend:
+    async def test_no_registered_frontend_raises(self) -> None:
+        """Unregistered apex → immediate CaptureError → escalation."""
+        from archiver.errors import CaptureError
+
+        worker, _ = _make_worker()
+        import pytest
+        with pytest.raises(CaptureError, match="No privacy frontend"):
+            await worker._capture_via_privacy_frontend(
+                "https://example.com/article"
+            )
+
+    async def test_no_gate_passer_raises(self) -> None:
+        """Registered apex but empty proxy pool → CaptureError."""
+        from archiver.errors import CaptureError
+
+        worker, _ = _make_worker()
+        worker._proxy_status_repo.list_passing = AsyncMock(return_value=[])
+        import pytest
+        with pytest.raises(CaptureError, match="no gate-passing"):
+            await worker._capture_via_privacy_frontend(
+                "https://medium.com/@vgr/foo"
+            )
+
+    @patch("archiver.worker.capture_page", new_callable=AsyncMock)
+    async def test_first_instance_succeeds(
+        self, mock_capture: AsyncMock
+    ) -> None:
+        """Happy path: first instance returns a CaptureResult."""
+        worker, _ = _make_worker()
+        worker._proxy_status_repo.list_passing = AsyncMock(
+            return_value=["socks5://1.2.3.4:1080"]
+        )
+        worker._browser_pool.get_browser = AsyncMock()
+        mock_capture.return_value = _make_capture_result()
+
+        result = await worker._capture_via_privacy_frontend(
+            "https://medium.com/@vgr/the-gervais-principle"
+        )
+        assert isinstance(result, CaptureResult)
+        mock_capture.assert_awaited_once()
+        # URL passed to capture_page should be the scribe-rewritten form
+        call_kwargs = mock_capture.call_args.kwargs
+        assert call_kwargs["url"].startswith("https://scribe.rip/")
+
+    @patch("archiver.worker.capture_page", new_callable=AsyncMock)
+    async def test_falls_through_to_second_instance(
+        self, mock_capture: AsyncMock
+    ) -> None:
+        """First instance raises → try next; win on second."""
+        from archiver.errors import CaptureError
+
+        worker, _ = _make_worker()
+        worker._proxy_status_repo.list_passing = AsyncMock(
+            return_value=["socks5://1.2.3.4:1080"]
+        )
+        worker._browser_pool.get_browser = AsyncMock()
+        # Medium registry has two instances — first raises, second ok.
+        mock_capture.side_effect = [
+            CaptureError("instance 1 down"),
+            _make_capture_result(),
+        ]
+        result = await worker._capture_via_privacy_frontend(
+            "https://medium.com/@vgr/foo"
+        )
+        assert isinstance(result, CaptureResult)
+        assert mock_capture.await_count == 2  # noqa: PLR2004
+
+    @patch("archiver.worker.capture_page", new_callable=AsyncMock)
+    async def test_all_instances_fail_raises(
+        self, mock_capture: AsyncMock
+    ) -> None:
+        """Every instance raises → bubble CaptureError for tier escalation."""
+        from archiver.errors import CaptureError
+
+        worker, _ = _make_worker()
+        worker._proxy_status_repo.list_passing = AsyncMock(
+            return_value=["socks5://1.2.3.4:1080"]
+        )
+        worker._browser_pool.get_browser = AsyncMock()
+        mock_capture.side_effect = CaptureError("dead")
+
+        import pytest
+        with pytest.raises(CaptureError, match="All privacy frontend"):
+            await worker._capture_via_privacy_frontend(
+                "https://medium.com/@vgr/foo"
             )
 
 

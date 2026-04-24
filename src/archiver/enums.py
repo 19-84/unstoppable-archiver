@@ -32,6 +32,14 @@ class CaptureTier(StrEnum):
     CHROMIUM = "chromium"
     CAMOUFOX = "camoufox"
     CAMOUFOX_PROXY = "camoufox_proxy"
+    # Site-eligible fallback: rewrite URL to a privacy-frontend
+    # instance (Scribe for Medium, xcancel for Twitter, Redlib for
+    # Reddit, etc.) and capture through Camoufox + gate-passing
+    # SOCKS5. Freshness > completeness — a live frontend render beats
+    # a year-old Wayback snapshot for the sites we register. No-ops
+    # (escalates immediately) when the URL's apex has no registered
+    # frontend.
+    PRIVACY_FRONTEND = "privacy_frontend"
     WAYBACK = "wayback"
     ARCHIVE_TODAY = "archive_today"
     COMMONCRAWL = "commoncrawl"
@@ -49,6 +57,7 @@ class CaptureSource(StrEnum):
     WAYBACK = "wayback"
     ARCHIVE_TODAY = "archive_today"
     COMMONCRAWL = "commoncrawl"
+    PRIVACY_FRONTEND = "privacy_frontend"
 
 
 class NetworkType(StrEnum):
@@ -97,6 +106,7 @@ CLEARNET_TIER_ORDER: list[CaptureTier] = [
     CaptureTier.CHROMIUM,
     CaptureTier.CAMOUFOX,
     CaptureTier.CAMOUFOX_PROXY,
+    CaptureTier.PRIVACY_FRONTEND,
     CaptureTier.WAYBACK,
     CaptureTier.ARCHIVE_TODAY,
     CaptureTier.COMMONCRAWL,
