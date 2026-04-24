@@ -130,6 +130,7 @@ class Worker:
         self._running = True
         self._pool: asyncpg.Pool | None = None
         self._tasks: set[asyncio.Task[None]] = set()
+        self._capture_tasks: set[asyncio.Task[None]] = set()
         self._proxy_rotator: ProxyRotator = ProxyRotator()
 
     @beartype
@@ -254,8 +255,9 @@ class Worker:
         """Try to claim and process one job."""
         assert self._pool is not None  # noqa: S101
 
-        # Don't claim if at capacity — prevents unbounded task accumulation
-        if len(self._tasks) >= self._settings.max_concurrent_captures:
+        # Don't claim if at capacity — prevents unbounded task accumulation.
+        # Only count capture tasks, not background housekeeping tasks.
+        if len(self._capture_tasks) >= self._settings.max_concurrent_captures:
             return
 
         async with self._pool.acquire() as conn:
@@ -267,6 +269,8 @@ class Worker:
 
         task = asyncio.create_task(self._process_job(job))
         self._tasks.add(task)
+        self._capture_tasks.add(task)
+        task.add_done_callback(self._capture_tasks.discard)
         task.add_done_callback(self._tasks.discard)
         task.add_done_callback(_log_task_exception)
 
