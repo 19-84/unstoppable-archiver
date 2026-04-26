@@ -853,20 +853,26 @@ class Worker:
             # Per-URL not-found check. Probe verified the instance is
             # up; this catches the case where the instance can't serve
             # the specific URL we asked for and returns a 200 OK
-            # "missing" / "no such item" shell. Without this, scribe's
-            # "This article is missing" page gets stored as content.
-            if (
-                policy.not_found_marker
-                and policy.not_found_marker.encode() in result.snapshot_html
-            ):
+            # error shell. Without this, scribe's "This article is
+            # missing" or libmedium's "502 Bad Gateway" gets stored as
+            # content. Each policy enumerates every shell pattern its
+            # instances are known to emit.
+            hit_marker = next(
+                (
+                    m for m in policy.not_found_markers
+                    if m.encode() in result.snapshot_html
+                ),
+                None,
+            )
+            if hit_marker is not None:
                 last_error = (
                     f"instance returned not-found marker "
-                    f"({policy.not_found_marker!r})"
+                    f"({hit_marker!r})"
                 )
                 log.warning(
                     "worker.privacy_frontend.instance_not_found",
                     instance=instance,
-                    marker=policy.not_found_marker,
+                    marker=hit_marker,
                 )
                 continue
 

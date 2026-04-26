@@ -50,19 +50,23 @@ class FrontendPolicy:
     historical tweet, a classic article, a permanent subreddit) so
     probes don't break when upstream sites rotate their content.
 
-    `not_found_marker` (optional) catches the case where the probe
+    `not_found_markers` (optional) catches the case where the probe
     passes (instance is up, serves its homepage fine) but the
-    instance doesn't have a specific user-requested URL cached.
-    Scribe's "This article is missing" page is a ~120KB 200 OK that
-    sneaks past the probe; the negative marker explicitly recognizes
-    the per-URL not-found state. Empty string disables the check.
+    instance returns a non-content shell for the user's specific URL:
+    - scribe.rip serves "This article is missing" (200 OK, ~120KB)
+      when an article isn't cached upstream
+    - libmedium returns "502 Bad Gateway" (200 OK, ~300B) when its
+      upstream Medium fetcher hiccups
+    The marker tuple lets one policy enumerate every known shell so
+    each instance's failure mode is recognized. Empty tuple disables
+    the check entirely.
     """
 
-    target_apex: str             # the site we're fronting (e.g. "reddit.com")
-    instances: tuple[str, ...]   # base URLs to try in order (scheme://host)
-    probe_path: str              # path for the canonical content probe
-    probe_marker: str            # substring that must appear in real content
-    not_found_marker: str = ""   # substring that flags per-URL absence
+    target_apex: str                # site we're fronting (e.g. "reddit.com")
+    instances: tuple[str, ...]      # base URLs to try in order
+    probe_path: str                 # path for canonical content probe
+    probe_marker: str               # substring required in real content
+    not_found_markers: tuple[str, ...] = ()  # substrings flagging absence
 
 
 # Registry of (target_apex → policy). Order within `instances` is
@@ -89,10 +93,16 @@ FRONTENDS: tuple[FrontendPolicy, ...] = (
         ),
         probe_path="/",
         probe_marker="Medium",
-        # Scribe returns its "This article is missing" page as a
-        # 120KB 200 OK when an article isn't cached upstream — same
-        # negative phrase appears across all article-not-found cases.
-        not_found_marker="This article is missing",
+        # Each marker is specific enough that a legitimate Medium
+        # article wouldn't contain it. "Welcome" is the scribe
+        # homepage title (returned when the article slug 404s).
+        not_found_markers=(
+            "This article is missing",      # scribe 404 body
+            "<title>Welcome</title>",       # scribe 404 / homepage shell
+            "<title>502 Bad Gateway",       # libmedium upstream hiccup
+            "<title>503 Service Unavailable", # libmedium upstream hiccup
+            "<title>504 Gateway Timeout",   # libmedium upstream hiccup
+        ),
     ),
     # Twitter / X. Nitter's content endpoints effectively returned
     # empty bodies since guest-account removal; xcancel is the one

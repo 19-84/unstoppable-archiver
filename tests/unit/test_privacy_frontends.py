@@ -117,6 +117,7 @@ class TestRegistry:
             instances=("https://a",),
             probe_path="/",
             probe_marker="test",
+            not_found_markers=("missing",),
         )
         with pytest.raises(AttributeError):
             p.target_apex = "other.com"  # type: ignore[misc]
