@@ -841,12 +841,6 @@ class Worker:
                     tier=CaptureTier.CAMOUFOX,
                     proxy=proxy_config,
                 )
-                log.info(
-                    "worker.privacy_frontend.success",
-                    original_url=url,
-                    instance=instance,
-                )
-                return result
             except (AntiBotDetectedError, CaptureError) as exc:
                 last_error = str(exc)
                 log.warning(
@@ -855,6 +849,33 @@ class Worker:
                     error=last_error[:120],
                 )
                 continue
+
+            # Per-URL not-found check. Probe verified the instance is
+            # up; this catches the case where the instance can't serve
+            # the specific URL we asked for and returns a 200 OK
+            # "missing" / "no such item" shell. Without this, scribe's
+            # "This article is missing" page gets stored as content.
+            if (
+                policy.not_found_marker
+                and policy.not_found_marker.encode() in result.snapshot_html
+            ):
+                last_error = (
+                    f"instance returned not-found marker "
+                    f"({policy.not_found_marker!r})"
+                )
+                log.warning(
+                    "worker.privacy_frontend.instance_not_found",
+                    instance=instance,
+                    marker=policy.not_found_marker,
+                )
+                continue
+
+            log.info(
+                "worker.privacy_frontend.success",
+                original_url=url,
+                instance=instance,
+            )
+            return result
 
         raise CaptureError(
             f"All privacy frontend instances failed for {url}: "
@@ -978,14 +999,21 @@ class Worker:
         time, then wait an hour — enough to refresh the gate-passing
         set without turning into a sustained load on archive.ph.
 
-        Only SOCKS5 + consumer-ASN proxies are probed (the prior
-        empirical finding: datacenter ASNs pass ~0 %, HTTP proxies pass
-        ~0 %). Results land in proxy_status; tier-5 reads pick from
+        Probes SOCKS5 candidates from the in-memory rotator. We
+        previously preferred consumer-ASN entries here (per a prior
+        empirical finding that datacenter ASNs pass ~0 % at
+        archive.ph's CF gate) but fall back to unfiltered when the
+        consumer pool is empty — better some probing than none.
+        Results land in proxy_status; tier-5 reads pick from
         there via ProxyStatusRepository.list_passing.
         """
-        # One-hour warmup so the initial healthy-rotator load settles
-        # before we start competing with real traffic for CPU.
-        await asyncio.sleep(60)
+        # Event-driven warmup: wait until the rotator has been
+        # populated by filter_healthy. A static 60s timer races
+        # filter_healthy on large lists and can land before the
+        # rotator is ready, costing us a full hour-long sleep on the
+        # first iteration.
+        while self._running and not self._proxy_rotator.proxies:
+            await asyncio.sleep(5)
         while self._running:
             try:
                 await self._gate_probe_batch(batch_size=10)
@@ -1026,10 +1054,20 @@ class Worker:
 
         consumer = await filter_by_asn(candidates[: batch_size * 5])
         if not consumer:
-            log.debug("worker.gate_probe_no_consumer_after_asn")
-            return
-
-        sample = consumer[:batch_size]
+            # Fall back to ASN-unfiltered candidates. The ASN filter is
+            # an optimization (datacenter pass rate ~0%); when the
+            # surviving healthy pool is entirely datacenter — common
+            # because cloud-hosted SOCKS5s are the most-maintained ones
+            # in public lists — skipping the filter is strictly better
+            # than producing no probes at all. Most will still fail the
+            # gate, but a few may pass, and we self-correct over time.
+            log.info(
+                "worker.gate_probe_consumer_empty_using_unfiltered",
+                candidate_count=len(candidates),
+            )
+            sample = candidates[:batch_size]
+        else:
+            sample = consumer[:batch_size]
         log.info("worker.gate_probe_batch_start", count=len(sample))
         passing = await filter_gate_passing(sample, concurrency=3)
 
@@ -1046,7 +1084,7 @@ class Worker:
             passing=len(passing),
         )
 
-    async def _frontend_probe_loop(self) -> None:  # pragma: no cover
+    async def _frontend_probe_loop(self) -> None:  # pragma: no cover  # noqa: C901
         """Periodically verify that registered privacy-frontend instances
         actually serve real content (not Anubis/CF challenge pages).
 
@@ -1060,9 +1098,15 @@ class Worker:
             probe_frontend_instance,
         )
 
-        # 3-minute warmup. Allows gate_probe_loop (60s warmup) to have
-        # produced at least one batch of gate-passing proxies.
-        await asyncio.sleep(180)
+        # Event-driven warmup: wait until at least one gate-passing
+        # proxy exists, since the frontend probe needs one to reach
+        # the instance. Static delays raced gate_probe_loop and left
+        # the loop sleeping an hour on cold start.
+        while self._running:
+            at_proxy = await self._pick_archive_today_proxy()
+            if at_proxy is not None:
+                break
+            await asyncio.sleep(30)
         while self._running:
             at_proxy = await self._pick_archive_today_proxy()
             if at_proxy is None:

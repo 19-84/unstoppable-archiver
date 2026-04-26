@@ -49,12 +49,20 @@ class FrontendPolicy:
     Pick `probe_path` to point at stable, long-lived content (a
     historical tweet, a classic article, a permanent subreddit) so
     probes don't break when upstream sites rotate their content.
+
+    `not_found_marker` (optional) catches the case where the probe
+    passes (instance is up, serves its homepage fine) but the
+    instance doesn't have a specific user-requested URL cached.
+    Scribe's "This article is missing" page is a ~120KB 200 OK that
+    sneaks past the probe; the negative marker explicitly recognizes
+    the per-URL not-found state. Empty string disables the check.
     """
 
     target_apex: str             # the site we're fronting (e.g. "reddit.com")
     instances: tuple[str, ...]   # base URLs to try in order (scheme://host)
     probe_path: str              # path for the canonical content probe
     probe_marker: str            # substring that must appear in real content
+    not_found_marker: str = ""   # substring that flags per-URL absence
 
 
 # Registry of (target_apex → policy). Order within `instances` is
@@ -65,20 +73,26 @@ class FrontendPolicy:
 # Camoufox+SOCKS5.
 FRONTENDS: tuple[FrontendPolicy, ...] = (
     # Medium paywall bypass. Scribe is the reference implementation;
-    # LibMedium is a secondary hosted by batsense. Probe target is
-    # Venkatesh Rao's Gervais Principle — a 2009 article that's been
-    # stable for over 15 years, so the probe won't rot.
+    # LibMedium is a secondary hosted by batsense. We probe the
+    # frontend's own homepage rather than a specific article — both
+    # projects render articles on-demand from upstream Medium and
+    # don't necessarily have any given article cached, so an article
+    # probe was a flaky test of "is the instance up". Marker "Medium"
+    # (capital M) matches both scribe ("frontend to Medium") and
+    # libmedium ("LibMedium" branding); challenge/error shells don't
+    # contain it.
     FrontendPolicy(
         target_apex="medium.com",
         instances=(
             "https://scribe.rip",
             "https://libmedium.batsense.net",
         ),
-        probe_path=(
-            "/@vgr/the-gervais-principle-the-office-"
-            "according-to-the-office-44d29c441f76"
-        ),
-        probe_marker="The Gervais Principle",
+        probe_path="/",
+        probe_marker="Medium",
+        # Scribe returns its "This article is missing" page as a
+        # 120KB 200 OK when an article isn't cached upstream — same
+        # negative phrase appears across all article-not-found cases.
+        not_found_marker="This article is missing",
     ),
     # Twitter / X. Nitter's content endpoints effectively returned
     # empty bodies since guest-account removal; xcancel is the one

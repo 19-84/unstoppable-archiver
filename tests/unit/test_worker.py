@@ -800,6 +800,39 @@ class TestCaptureViaPrivacyFrontend:
         assert mock_capture.await_count == 2  # noqa: PLR2004
 
     @patch("archiver.worker.capture_page", new_callable=AsyncMock)
+    async def test_not_found_marker_skips_instance(
+        self, mock_capture: AsyncMock
+    ) -> None:
+        """Probe-verified instance returning a not-found shell is treated
+        as a per-URL miss — try the next instance, don't store the shell."""
+        worker, _ = _make_worker()
+        worker._proxy_status_repo.list_passing = AsyncMock(
+            return_value=["socks5://1.2.3.4:1080"]
+        )
+        worker._frontend_status_repo.list_passing = AsyncMock(
+            return_value=[
+                "https://scribe.rip",
+                "https://libmedium.batsense.net",
+            ]
+        )
+        worker._browser_pool.get_browser = AsyncMock()
+        # First instance returns the not-found shell — second has it.
+        good = _make_capture_result()
+        from dataclasses import replace
+        bad = replace(
+            good,
+            snapshot_html=b"<html><body>This article is missing</body></html>",
+        )
+        mock_capture.side_effect = [bad, good]
+
+        result = await worker._capture_via_privacy_frontend(
+            "https://medium.com/@vgr/foo"
+        )
+        # Got the second instance's result — first was rejected.
+        assert result is good
+        assert mock_capture.await_count == 2  # noqa: PLR2004
+
+    @patch("archiver.worker.capture_page", new_callable=AsyncMock)
     async def test_all_verified_instances_fail_raises(
         self, mock_capture: AsyncMock
     ) -> None:
