@@ -269,6 +269,7 @@ class TestReportWorkflow:
                 "SELECT id FROM reports WHERE archive_id = $1",
                 archive_id,
             )
+            assert row is not None
             report_id = row["id"]
         # Take down
         resp = await logged_in_client.post(
@@ -283,6 +284,7 @@ class TestReportWorkflow:
                 "SELECT removed_at FROM archives WHERE id = $1",
                 archive_id,
             )
+            assert row is not None
             assert row["removed_at"] is not None
 
     async def test_audit_log_records_takedown(
@@ -301,6 +303,7 @@ class TestReportWorkflow:
                 "SELECT id FROM reports WHERE archive_id = $1",
                 archive_id,
             )
+            assert row is not None
             report_id = row["id"]
         await logged_in_client.post(
             f"/admin/reports/{report_id}/resolve",
@@ -331,6 +334,7 @@ class TestReportWorkflow:
                 " WHERE archive_id = $1",
                 archive_id,
             )
+            assert row is not None
             ip_hash = row["reporter_ip_hash"] or ""
             # Should be a hex hash (32 chars), not an IP (contains dots)
             assert "." not in ip_hash
@@ -366,6 +370,7 @@ class TestAdminArchiveManagement:
                 "SELECT removed_at FROM archives WHERE id = $1",
                 archive_id,
             )
+            assert row is not None
             assert row["removed_at"] is None
 
     async def test_audit_log_viewer(
@@ -536,6 +541,7 @@ class TestAdminArchiveManagement:
                 "SELECT id FROM reports WHERE archive_id = $1",
                 archive_id,
             )
+            assert row is not None
             report_id = row["id"]
         await logged_in_client.post(
             f"/admin/reports/{report_id}/resolve",
@@ -548,4 +554,5 @@ class TestAdminArchiveManagement:
                 "SELECT removed_at FROM archives WHERE id = $1",
                 archive_id,
             )
+            assert row is not None
             assert row["removed_at"] is None
