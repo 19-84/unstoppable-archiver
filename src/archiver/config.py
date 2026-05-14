@@ -31,8 +31,14 @@ class Settings(BaseSettings):
     singlefile_bundle_path: Path = Path("src/archiver/vendor/single-file-bundle.js")
     singlefile_cli_path: str = "single-file"
 
-    # Capture
-    max_capture_timeout: int = 60
+    # Capture — hard ceiling on a single tier attempt. Bounds hangs
+    # (Camoufox stuck in an Anubis challenge, SOCKS5 dropped mid-page,
+    # SingleFile JS in an infinite loop) so the job escalates to the
+    # next tier instead of blocking the worker forever. Must comfortably
+    # exceed legitimate captures: real chromium runs on heavy pages
+    # (Reddit, Twitter, news sites) hit 60-180 s, plus SingleFile
+    # serialization + WARC write add another 30-60 s.
+    max_capture_timeout: int = 300
     thumbnail_width: int = 320
     thumbnail_height: int = 240
     chromium_headless: bool = True

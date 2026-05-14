@@ -304,7 +304,7 @@ class Worker:
                 ).inc()
 
     @beartype
-    async def _process_job_inner(self, job: JobRecord) -> str:  # noqa: C901, PLR0911, PLR0912, PLR0915
+    async def _process_job_inner(self, job: JobRecord) -> str:  # noqa: C901, PLR0911
         """Inner job processing; returns outcome label for metrics."""
         assert self._pool is not None  # noqa: S101
         apex = ""  # bound for the except handlers; set properly once archive is fetched
@@ -347,33 +347,39 @@ class Worker:
                         ArchiveStatus.CAPTURING,
                     )
 
-                    # Fallback tiers use public archives instead of direct capture
-                    if job.tier == CaptureTier.WAYBACK:
-                        result = await self._capture_via_wayback(
-                            archive.url
-                        )
-                    elif job.tier == CaptureTier.ARCHIVE_TODAY:
-                        result = await self._capture_via_archive_today(
-                            archive.url
-                        )
-                    elif job.tier == CaptureTier.COMMONCRAWL:
-                        result = await self._capture_via_commoncrawl(
-                            archive.url
-                        )
-                    elif job.tier == CaptureTier.ARCHIVE_TODAY_SUBMIT:
-                        result = await self._capture_via_archive_today_submit(
-                            archive.url
-                        )
-                    elif job.tier == CaptureTier.PRIVACY_FRONTEND:
-                        result = await self._capture_via_privacy_frontend(
-                            archive.url
-                        )
-                    else:
+                    # Fallback tiers use public archives instead of
+                    # direct capture. Every tier's actual capture call
+                    # is wrapped in wait_for(max_capture_timeout) so a
+                    # hung Camoufox / dead SOCKS5 / runaway SingleFile
+                    # surfaces as TimeoutError (caught below, marked as
+                    # this tier's failure, escalated to the next tier)
+                    # instead of wedging the worker.
+                    async def _dispatch() -> CaptureResult:  # noqa: PLR0911
+                        if job.tier == CaptureTier.WAYBACK:
+                            return await self._capture_via_wayback(
+                                archive.url,
+                            )
+                        if job.tier == CaptureTier.ARCHIVE_TODAY:
+                            return await self._capture_via_archive_today(
+                                archive.url,
+                            )
+                        if job.tier == CaptureTier.COMMONCRAWL:
+                            return await self._capture_via_commoncrawl(
+                                archive.url,
+                            )
+                        if job.tier == CaptureTier.ARCHIVE_TODAY_SUBMIT:
+                            return await self._capture_via_archive_today_submit(
+                                archive.url,
+                            )
+                        if job.tier == CaptureTier.PRIVACY_FRONTEND:
+                            return await self._capture_via_privacy_frontend(
+                                archive.url,
+                            )
                         browser = await self._browser_pool.get_browser(
-                            job.tier
+                            job.tier,
                         )
-                        # CAMOUFOX_PROXY tier pulls a rotating proxy from
-                        # the pool; other tiers go direct (None).
+                        # CAMOUFOX_PROXY tier pulls a rotating proxy
+                        # from the pool; other tiers go direct (None).
                         tier_proxy: ProxyConfig | None = None
                         if job.tier == CaptureTier.CAMOUFOX_PROXY:
                             tier_proxy = self._proxy_rotator.next()
@@ -383,9 +389,14 @@ class Worker:
                                     "_available_going_direct",
                                     job_id=job.id,
                                 )
-                        result = await self._capture_page_with_proxy_retry(
-                            job, archive.url, browser, tier_proxy
+                        return await self._capture_page_with_proxy_retry(
+                            job, archive.url, browser, tier_proxy,
                         )
+
+                    result = await asyncio.wait_for(
+                        _dispatch(),
+                        timeout=self._settings.max_capture_timeout,
+                    )
 
                     artifact_dir = await save_artifacts(
                         result,
