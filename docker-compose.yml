@@ -17,6 +17,12 @@ services:
       timeout: 3s
       retries: 5
     restart: unless-stopped
+    # Resource caps via compose-native keys. `deploy.resources` only
+    # applies under Docker Swarm; mem_limit/cpus apply to plain
+    # `docker compose up` which is what dev + self-hosted prod use.
+    mem_limit: 1g
+    memswap_limit: 1g       # disable swap — OOM-kill is preferable to thrashing
+    cpus: 2.0
 
   app:
     build:
@@ -36,10 +42,9 @@ services:
       postgres:
         condition: service_healthy
     restart: unless-stopped
-    deploy:
-      resources:
-        limits:
-          memory: 1G
+    mem_limit: 1g
+    memswap_limit: 1g
+    cpus: 1.5
 
   worker:
     build:
@@ -75,10 +80,18 @@ services:
       postgres:
         condition: service_healthy
     restart: unless-stopped
-    deploy:
-      resources:
-        limits:
-          memory: 3G
+    # Worker runs Camoufox (Firefox-based stealth browser ~1-1.5 GB
+    # per session) at max_concurrent_captures=2, so peak is ~3 GB
+    # for browsers alone, plus ~300 MB for the python process and
+    # ~500 MB headroom for SingleFile serialization buffers. 5 GB
+    # caps at ~1.4× peak. memswap_limit==mem_limit disables swap so
+    # a runaway capture OOM-kills cleanly instead of dragging the
+    # host into thrashing for hours (the 2 h hang we recovered from
+    # earlier was a process hang, not an OOM, but unlimited swap
+    # would have masked it longer).
+    mem_limit: 5g
+    memswap_limit: 5g
+    cpus: 4.0
 
   tor:
     image: leplusorg/tor:latest
