@@ -26,7 +26,7 @@ import structlog
 log = structlog.get_logger()
 
 
-async def import_warc_file(warc_path: Path) -> int:  # noqa: C901, PLR0912, PLR0915
+async def import_warc_file(warc_path: Path) -> int:  # noqa: PLR0915
     """Import one WARC file. Returns the number of archives created."""
     from warcio.archiveiterator import ArchiveIterator  # type: ignore[import-untyped]
 
@@ -57,7 +57,11 @@ async def import_warc_file(warc_path: Path) -> int:  # noqa: C901, PLR0912, PLR0
                     continue
                 try:
                     body = record.content_stream().read()
-                except Exception:  # noqa: BLE001
+                except Exception as exc:
+                    log.warning(
+                        "warc.import.record_read_failed",
+                        url=url, error=str(exc)[:120],
+                    )
                     continue
                 # Try to extract <title>
                 title = _extract_title(body)
@@ -145,7 +149,7 @@ def _extract_title(html: bytes) -> str:
         if end < 0:
             return ""
         return text[start:end].strip()[:500]
-    except Exception:  # noqa: BLE001
+    except Exception:
         return ""
 
 
