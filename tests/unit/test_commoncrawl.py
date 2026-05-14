@@ -355,21 +355,3 @@ class TestFetchRecordNoResponse:
             await commoncrawl.fetch_record_html(snap)
 
 
-class TestMetadata:
-    def test_metadata_roundtrips(self) -> None:
-        expected_offset = 12345
-        expected_length = 1024
-        snap = commoncrawl.CCSnapshot(
-            url="https://example.com/",
-            timestamp="20260101120000",
-            crawl_id="CC-MAIN-2026-12",
-            filename="crawl-data/CC-MAIN-2026-12/foo.warc.gz",
-            offset=expected_offset, length=expected_length,
-            status=200, mime="text/html",
-        )
-        meta = commoncrawl.metadata_for_archive(snap)
-        assert meta["source"] == "commoncrawl"
-        assert meta["crawl_id"] == "CC-MAIN-2026-12"
-        assert meta["timestamp"] == "20260101120000"
-        assert meta["warc_offset"] == expected_offset
-        assert meta["warc_length"] == expected_length

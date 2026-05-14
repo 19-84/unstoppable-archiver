@@ -127,17 +127,6 @@ def build_consent_init_script() -> str:
     )
 
 
-@beartype
-def get_cmp_selectors() -> tuple[str, ...]:
-    """Expose the curated CMP selector list for the capture cleanup step.
-
-    The capture pipeline also runs a DOM-scrub using these selectors
-    right before SingleFile captures, so CMP iframes are physically
-    removed (not just visually hidden) from the snapshot.
-    """
-    return _CMP_SELECTORS
-
-
 # JavaScript template. Uses `{{` and `}}` as literal braces because
 # .format() unescapes them. Placeholders: css_blob, rules_blob, exceptions_blob.
 _INJECTOR_TEMPLATE = r"""

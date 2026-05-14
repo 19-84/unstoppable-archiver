@@ -19,7 +19,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from archiver.blocklist import load_blocklist
 from archiver.config import Settings
 from archiver.db import close_pool, create_pool, init_db
-from archiver.errors import AppError, DuplicateCaptureError, NotFoundError
+from archiver.errors import DuplicateCaptureError
 from archiver.logging import setup_logging
 from archiver.routes.admin import router as admin_router
 from archiver.routes.archives import router as archives_router
@@ -47,17 +47,6 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:  # pragma: no cover
     yield
     await close_pool(pool)
     log.info("app.stopped")
-
-
-_ERROR_STATUS_MAP: dict[str, int] = {
-    "NOT_FOUND": 404,
-    "DUPLICATE_CAPTURE": 409,
-    "CAPTURE_ERROR": 502,
-    "ANTI_BOT_DETECTED": 502,
-    "STORAGE_ERROR": 500,
-    "PROXY_UNAVAILABLE": 503,
-    "UNKNOWN": 500,
-}
 
 
 @beartype
@@ -99,16 +88,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(admin_router)
     app.include_router(pages_router)
 
-    # Exception handlers
-    @app.exception_handler(NotFoundError)
-    async def _not_found_handler(
-        request: Request, exc: NotFoundError
-    ) -> JSONResponse:
-        return JSONResponse(
-            status_code=404,
-            content={"error": exc.code, "message": exc.message},
-        )
-
+    # Exception handlers. Only the duplicate-capture path raises a
+    # custom AppError that reaches the API surface — capture / storage
+    # / proxy errors live inside the worker and never propagate here,
+    # and route 404s use HTTPException directly. The other handlers
+    # this file used to register (NotFoundError, AppError catch-all)
+    # were dead and removed; add them back when a route actually needs
+    # one.
     @app.exception_handler(DuplicateCaptureError)
     async def _duplicate_handler(
         request: Request, exc: DuplicateCaptureError
@@ -120,16 +106,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "message": exc.message,
                 "existing_id": exc.existing_id,
             },
-        )
-
-    @app.exception_handler(AppError)
-    async def _app_error_handler(
-        request: Request, exc: AppError
-    ) -> JSONResponse:
-        status = _ERROR_STATUS_MAP.get(exc.code, 500)
-        return JSONResponse(
-            status_code=status,
-            content={"error": exc.code, "message": exc.message},
         )
 
     return app

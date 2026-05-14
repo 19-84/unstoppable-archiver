@@ -298,19 +298,3 @@ async def fetch_record_html(snapshot: CCSnapshot) -> bytes:
     raise RuntimeError("No response record found in WARC chunk")
 
 
-@beartype
-def metadata_for_archive(snapshot: CCSnapshot) -> dict[str, Any]:
-    """Return a small JSON-safe dict describing the CC source.
-
-    Stored alongside the archive so we can cite Common Crawl in the UI
-    and preserve the crawl timestamp + coordinates for later fetch.
-    """
-    return {
-        "source": "commoncrawl",
-        "crawl_id": snapshot.crawl_id,
-        "timestamp": snapshot.timestamp,
-        "original_url": snapshot.url,
-        "warc_filename": snapshot.filename,
-        "warc_offset": snapshot.offset,
-        "warc_length": snapshot.length,
-    }

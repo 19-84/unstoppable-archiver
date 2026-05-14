@@ -31,14 +31,6 @@ class TestLoadAssets:
         assert isinstance(payload["rules"], dict)
 
 
-class TestCmpSelectors:
-    def test_exposes_tuple_of_selectors(self) -> None:
-        sels = consent.get_cmp_selectors()
-        assert isinstance(sels, tuple)
-        assert len(sels) > 0
-        assert all(isinstance(s, str) for s in sels)
-
-
 class TestBuildScript:
     def test_contains_css_blob(self) -> None:
         _reset_caches()

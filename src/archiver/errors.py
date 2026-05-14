@@ -14,13 +14,6 @@ class AppError(Exception):
         super().__init__(message)
 
 
-class NotFoundError(AppError):
-    """Requested resource does not exist."""
-
-    def __init__(self, message: str = "Resource not found") -> None:
-        super().__init__(message, code="NOT_FOUND")
-
-
 class CaptureError(AppError):
     """Error during page capture."""
 
@@ -36,13 +29,6 @@ class AntiBotDetectedError(CaptureError):
         self.code = "ANTI_BOT_DETECTED"
 
 
-class StorageError(AppError):
-    """Error reading or writing artifacts."""
-
-    def __init__(self, message: str = "Storage operation failed") -> None:
-        super().__init__(message, code="STORAGE_ERROR")
-
-
 class DuplicateCaptureError(AppError):
     """URL was recently captured and re-capture interval has not elapsed."""
 
@@ -51,9 +37,3 @@ class DuplicateCaptureError(AppError):
         self.existing_id = existing_id
 
 
-class ProxyUnavailableError(CaptureError):
-    """Required proxy (Tor/I2P/custom) is not available."""
-
-    def __init__(self, message: str = "Proxy not available") -> None:
-        super().__init__(message)
-        self.code = "PROXY_UNAVAILABLE"

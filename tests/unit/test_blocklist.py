@@ -150,3 +150,23 @@ class TestLoadBlocklist:
         settings = Settings(blocklist_urls="https://example.com/list")
         bl = await load_blocklist(settings)
         assert bl.blocked == set()  # failed silently, empty set
+
+
+    async def test_file_oserror_logged_not_raised(
+        self, tmp_path: object,
+    ) -> None:
+        """A file that exists but is unreadable (permissions, broken
+        symlink, etc.) must NOT crash load_blocklist — log + continue."""
+        # Point at a real, readable file so file_path.exists() is True,
+        # but mock read_text to raise OSError mid-load.
+        from pathlib import Path
+        from unittest.mock import patch
+        f = Path(tmp_path) / "list.txt"  # type: ignore[arg-type]
+        f.write_text("example.com\n")
+        settings = Settings(blocklist_file=f)
+        with patch.object(
+            Path, "read_text",
+            side_effect=PermissionError("denied"),
+        ):
+            bl = await load_blocklist(settings)
+        assert bl.blocked == set()  # error swallowed → empty result

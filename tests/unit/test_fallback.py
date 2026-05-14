@@ -11,18 +11,13 @@ import respx
 from playwright.async_api import Page
 
 from archiver.fallback import (
-    _ARCHIVE_TODAY_STRIP_SELECTORS,
-    _ARCHIVE_TODAY_URL_PREFIX,
-    _WAYBACK_STRIP_SELECTORS,
-    _WAYBACK_URL_PREFIX,
     ARCHIVE_TODAY_MIRRORS,
+    ARCHIVE_TODAY_STRIP_SELECTORS,
+    WAYBACK_STRIP_SELECTORS,
     _extract_angle_url,
     _extract_attr,
     _is_archive_today_snapshot_url,
     _wayback_url_variants,
-    capture_from_archive_today,
-    capture_from_wayback,
-    check_archive_today_availability,
     check_wayback_availability,
     extract_title_from_html,
     fetch_archive_today_snapshot_html,
@@ -59,31 +54,19 @@ def _mock_page() -> MagicMock:
 
 
 class TestFallbackConstants:
-    def test_wayback_url_prefix(self) -> None:
-        url = "https://example.com/page"
-        full = _WAYBACK_URL_PREFIX + url
-        assert full.startswith("https://web.archive.org/web/2/")
-        assert full.endswith(url)
-
-    def test_archive_today_url_prefix(self) -> None:
-        url = "https://example.com/page"
-        full = _ARCHIVE_TODAY_URL_PREFIX + url
-        assert full.startswith("https://archive.today/newest/")
-        assert full.endswith(url)
-
     def test_wayback_strip_selectors_not_empty(self) -> None:
-        assert len(_WAYBACK_STRIP_SELECTORS) > 0
+        assert len(WAYBACK_STRIP_SELECTORS) > 0
 
     def test_archive_today_strip_selectors_not_empty(
         self,
     ) -> None:
-        assert len(_ARCHIVE_TODAY_STRIP_SELECTORS) > 0
+        assert len(ARCHIVE_TODAY_STRIP_SELECTORS) > 0
 
     def test_wayback_strips_toolbar(self) -> None:
-        assert "#wm-ib-bar" in _WAYBACK_STRIP_SELECTORS
+        assert "#wm-ib-bar" in WAYBACK_STRIP_SELECTORS
 
     def test_archive_today_strips_header(self) -> None:
-        assert "#HEADER" in _ARCHIVE_TODAY_STRIP_SELECTORS
+        assert "#HEADER" in ARCHIVE_TODAY_STRIP_SELECTORS
 
 
 class TestWaybackAvailability:
@@ -158,42 +141,6 @@ def _mock_all_mirrors(response: httpx.Response) -> None:
         respx.get(f"https://{host}/timemap/https://example.com").mock(
             return_value=response
         )
-
-
-class TestArchiveTodayAvailability:
-    @respx.mock
-    async def test_available(self) -> None:
-        _mock_all_mirrors(httpx.Response(
-            200,
-            text=(
-                '<https://example.com>; rel="original",\n'
-                '<https://archive.today/2024/https://example.com>;'
-                ' rel="memento"; datetime="Wed, 01 Jan 2024 00:00:00 GMT"\n'
-            ),
-        ))
-        result = await check_archive_today_availability("https://example.com")
-        assert result is True
-
-    @respx.mock
-    async def test_not_available_empty_timemap(self) -> None:
-        _mock_all_mirrors(httpx.Response(200, text=""))
-        result = await check_archive_today_availability("https://example.com")
-        assert result is False
-
-    @respx.mock
-    async def test_not_available_404(self) -> None:
-        _mock_all_mirrors(httpx.Response(404))
-        result = await check_archive_today_availability("https://example.com")
-        assert result is False
-
-    @respx.mock
-    async def test_request_error_returns_false(self) -> None:
-        for host in ARCHIVE_TODAY_MIRRORS:
-            respx.get(f"https://{host}/timemap/https://example.com").mock(
-                side_effect=httpx.ConnectError("boom")
-            )
-        result = await check_archive_today_availability("https://example.com")
-        assert result is False
 
 
 class TestMirrorRotation:
@@ -403,47 +350,6 @@ class TestHtmlHelpers:
         assert "Hi" in text
 
 
-class TestCaptureFromWayback:
-    async def test_not_found_returns_false(self) -> None:
-        page = AsyncMock()
-        page.goto = AsyncMock(
-            return_value=MagicMock(status=404)
-        )
-        result = await capture_from_wayback(
-            "https://example.com", page
-        )
-        assert result is False
-
-    async def test_not_archived_marker_returns_false(self) -> None:
-        page = AsyncMock()
-        page.goto = AsyncMock(
-            return_value=MagicMock(status=200)
-        )
-        page.title = AsyncMock(return_value="")
-        page.evaluate = AsyncMock(
-            return_value="Wayback Machine has not archived that URL"
-        )
-        result = await capture_from_wayback(
-            "https://example.com", page
-        )
-        assert result is False
-
-    async def test_success_strips_toolbar(self) -> None:
-        page = AsyncMock()
-        page.goto = AsyncMock(
-            return_value=MagicMock(status=200)
-        )
-        page.title = AsyncMock(return_value="Example")
-        page.evaluate = AsyncMock(return_value="Real content")
-
-        result = await capture_from_wayback(
-            "https://example.com", page
-        )
-        assert result is True
-        # body check + 6 strip selectors = 7 evaluate calls
-        assert page.evaluate.call_count >= 7  # noqa: PLR2004
-
-
 class TestWaybackUrlVariants:
     def test_adds_trailing_slash_variant(self) -> None:
         variants = _wayback_url_variants("https://example.com/page")
@@ -609,37 +515,3 @@ class TestSaveToArchiveToday:
         assert result is None
 
 
-class TestCaptureFromArchiveToday:
-    async def test_not_found_returns_false(self) -> None:
-        page = AsyncMock()
-        page.goto = AsyncMock(
-            return_value=MagicMock(status=404)
-        )
-        result = await capture_from_archive_today(
-            "https://example.com", page
-        )
-        assert result is False
-
-    async def test_redirect_to_homepage_returns_false(self) -> None:
-        page = AsyncMock()
-        page.goto = AsyncMock(
-            return_value=MagicMock(status=200)
-        )
-        page.url = "https://archive.today/"
-        result = await capture_from_archive_today(
-            "https://example.com", page
-        )
-        assert result is False
-
-    async def test_success_strips_toolbar(self) -> None:
-        page = AsyncMock()
-        page.goto = AsyncMock(
-            return_value=MagicMock(status=200)
-        )
-        page.url = "https://archive.today/2024/https://example.com"
-        page.evaluate = AsyncMock()
-
-        result = await capture_from_archive_today(
-            "https://example.com", page
-        )
-        assert result is True

@@ -407,3 +407,16 @@ class TestArtifactEndpoints:
         resp = await client.delete(f"/api/archives/{archive_id}")
         assert resp.status_code == 204  # noqa: PLR2004
         assert not artifact_path.exists()
+
+
+class TestCreateAppDefaults:
+    """Cover create_app's settings=None branch."""
+
+    def test_create_app_with_default_settings(self) -> None:
+        """Calling create_app() with no settings should construct a
+        default Settings() and return a usable FastAPI app."""
+        from archiver.app import create_app
+        app = create_app()
+        # FastAPI instance with the project's title
+        assert app.title == "Unstoppable Archive"
+
