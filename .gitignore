@@ -53,3 +53,9 @@ test-results/
 .playwright-mcp/
 
 # uv.lock is committed for reproducible builds
+
+# Local Claude Code state (per-machine, not project)
+.claude/
+
+# Ad-hoc debug screenshots — repo root is not for assets
+/*.png
