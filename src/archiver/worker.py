@@ -47,6 +47,9 @@ from archiver.fallback import (
     strip_html_tags,
 )
 from archiver.metrics import (
+    artifacts_dir_bytes_free,
+    artifacts_dir_bytes_total,
+    artifacts_dir_bytes_used,
     capture_duration_seconds,
     captures_total,
     jobs_running,
@@ -188,6 +191,14 @@ class Worker:
         self._tasks.add(frontend_task)
         frontend_task.add_done_callback(self._tasks.discard)
         frontend_task.add_done_callback(_log_task_exception)
+
+        # Background disk-usage sampler. Archives never expire, so the
+        # artifact volume grows monotonically — the gauge feeds the
+        # Prometheus rule that pages the operator at >80 % used.
+        disk_task = asyncio.create_task(self._disk_usage_loop())
+        self._tasks.add(disk_task)
+        disk_task.add_done_callback(self._tasks.discard)
+        disk_task.add_done_callback(_log_task_exception)
 
         # Reclaim stale jobs from dead workers
         async with self._pool.acquire() as conn:
@@ -968,6 +979,46 @@ class Worker:
                 await _ua.refresh()
             except Exception as exc:
                 log.warning("worker.ua_refresh_failed", error=str(exc))
+
+    async def _disk_usage_loop(self) -> None:  # pragma: no cover
+        """Sample artifact-volume usage every 60 s and update gauges.
+
+        Archives are kept forever by design, so disk grows monotonically
+        and the operator needs warning before the volume fills. The
+        gauges (artifacts_dir_bytes_total / _used / _free) feed the
+        Prometheus rule at docs/observability.md; sample cadence is
+        deliberately slow because `shutil.disk_usage` is a statvfs call,
+        not expensive, but emitting more often than every minute just
+        churns the scrape with no actual signal.
+        """
+        import shutil
+
+        path = self._settings.artifacts_dir
+        # Make sure the dir exists on first iteration — statvfs against
+        # a missing path raises FileNotFoundError, and the worker can
+        # legitimately start before any artifact is written.
+        try:
+            path.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            log.warning(
+                "worker.disk_usage.mkdir_failed",
+                path=str(path), error=str(exc),
+            )
+        while self._running:
+            try:
+                usage = shutil.disk_usage(path)
+                artifacts_dir_bytes_total.set(usage.total)
+                artifacts_dir_bytes_used.set(usage.used)
+                artifacts_dir_bytes_free.set(usage.free)
+            except OSError as exc:
+                log.warning(
+                    "worker.disk_usage.sample_failed",
+                    path=str(path), error=str(exc),
+                )
+            for _ in range(60):
+                if not self._running:
+                    return
+                await asyncio.sleep(1)
 
     async def _init_proxy_rotator(self) -> None:  # pragma: no cover
         """Load proxies from config + URL lists, optionally health-check.

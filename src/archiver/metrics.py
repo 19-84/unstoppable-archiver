@@ -62,6 +62,24 @@ reports_total = Counter(
     ["reason"],
 )
 
+# Storage — archives are immortal by design, so disk grows monotonically.
+# Operator needs a heads-up before the volume fills; the recommended
+# Prometheus rule fires at >80 % used (see docs/observability.md).
+artifacts_dir_bytes_total = Gauge(
+    "archiver_artifacts_dir_bytes_total",
+    "Total size of the artifact-storage filesystem in bytes",
+)
+
+artifacts_dir_bytes_used = Gauge(
+    "archiver_artifacts_dir_bytes_used",
+    "Used bytes on the artifact-storage filesystem",
+)
+
+artifacts_dir_bytes_free = Gauge(
+    "archiver_artifacts_dir_bytes_free",
+    "Free bytes on the artifact-storage filesystem",
+)
+
 
 def prometheus_text() -> tuple[bytes, str]:
     """Return (metrics_text, content_type) for the /metrics endpoint."""
