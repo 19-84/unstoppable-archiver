@@ -25,15 +25,20 @@ URLs only.
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import re
 from dataclasses import dataclass
 from urllib.parse import urlparse, urlunparse
 
 import structlog
 from beartype import beartype
+from icontract import require
 
 from archiver.url import apex_of
 
 log = structlog.get_logger()
+
+_MAX_PORT = 65535
 
 
 @dataclass(frozen=True)
@@ -60,13 +65,24 @@ class FrontendPolicy:
     The marker tuple lets one policy enumerate every known shell so
     each instance's failure mode is recognized. Empty tuple disables
     the check entirely.
+
+    `registry_url` + `registry_kind` (optional) point at the canonical
+    upstream list of instances for this frontend family (e.g. the
+    redlib-org/redlib-instances repo, or the d420.de status tracker).
+    fetch_registry_instances() is called once per probe pass and its
+    results are unioned with the hardcoded `instances` tuple, so new
+    upstream mirrors get discovered + probed without a code change.
+    `instances` stays as the durable fallback — registry fetch
+    failures (offline, parse error) degrade silently to it.
     """
 
     target_apex: str                # site we're fronting (e.g. "reddit.com")
-    instances: tuple[str, ...]      # base URLs to try in order
+    instances: tuple[str, ...]      # base URLs to try in order (fallback)
     probe_path: str                 # path for canonical content probe
     probe_marker: str               # substring required in real content
     not_found_markers: tuple[str, ...] = ()  # substrings flagging absence
+    registry_url: str | None = None   # upstream-curated instance list URL
+    registry_kind: str | None = None  # parser key: 'redlib-json' or 'd420-html'
 
 
 # Registry of (target_apex → policy). Order within `instances` is
@@ -104,40 +120,230 @@ FRONTENDS: tuple[FrontendPolicy, ...] = (
             "<title>504 Gateway Timeout",   # libmedium upstream hiccup
         ),
     ),
-    # Twitter / X. Nitter's content endpoints effectively returned
-    # empty bodies since guest-account removal; xcancel is the one
-    # working descendant as of 2026-Q2. Probe target is Jack's first
-    # tweet (2006) — permanent.
+    # Twitter / X. After Nitter's guest-account removal most upstream
+    # instances served empty bodies; xcancel was the first descendant
+    # to maintain content. The roster below mirrors the public uptime
+    # tracker at status.d420.de — ten instances confirmed reachable as
+    # of 2026-05-14, ordered by recent uptime (xcancel 97% first).
+    # All ten are challenge-walled (Anubis or CF) from server IPs, so
+    # the worker must reach them through Camoufox + the gate-passing
+    # SOCKS5 pool. The content-positive probe ("just setting up my
+    # twttr" on Jack's permanent 2006 tweet) discards instances that
+    # only serve challenge shells or have lost upstream scraping.
     FrontendPolicy(
         target_apex="twitter.com",
-        instances=("https://xcancel.com",),
+        instances=(
+            "https://xcancel.com",                 # d420 97% uptime
+            "https://nitter.space",                # 96%
+            "https://nuku.trabun.org",             # 95%
+            "https://lightbrd.com",                # 95%
+            "https://nitter.net",                  # 94% (origin)
+            "https://nitter.privacyredirect.com",  # 91%
+            "https://nitter.kareem.one",           # 89%
+            "https://nitter.poast.org",            # 86%
+            "https://nitter.catsarch.com",         # 68%
+            "https://nitter.tiekoetter.com",       # 44% (kept; gate validates)
+        ),
         probe_path="/jack/status/20",
         probe_marker="just setting up my twttr",
+        registry_url="https://status.d420.de/",
+        registry_kind="d420-html",
     ),
     FrontendPolicy(
         target_apex="x.com",
-        instances=("https://xcancel.com",),
+        instances=(
+            "https://xcancel.com",
+            "https://nitter.space",
+            "https://nuku.trabun.org",
+            "https://lightbrd.com",
+            "https://nitter.net",
+            "https://nitter.privacyredirect.com",
+            "https://nitter.kareem.one",
+            "https://nitter.poast.org",
+            "https://nitter.catsarch.com",
+            "https://nitter.tiekoetter.com",
+        ),
         probe_path="/jack/status/20",
         probe_marker="just setting up my twttr",
+        registry_url="https://status.d420.de/",
+        registry_kind="d420-html",
     ),
-    # Reddit. Redlib (fork of Libreddit) maintains an instance list
-    # separately; clearnet instances we've confirmed TCP-reachable.
-    # The top two don't CF-403 our server IP — they use Anubis which
-    # Camoufox clears. The third is kept as a tertiary despite being
-    # sometimes CF-walled (the gate-passing SOCKS5 clears CF too).
-    # Probe target is r/announcements — Reddit's official channel,
-    # never renamed, always public.
+    # Reddit. Roster mirrors the official redlib-org/redlib-instances
+    # repo (instances.json) as of 2026-05-13 — seven clearnet mirrors;
+    # the eighth is .onion (different code path, not included). Some
+    # carry the cloudflare:true flag meaning the gate-passing SOCKS5
+    # has to clear CF in addition to whatever the instance itself
+    # serves; Camoufox handles both. Probe target is r/announcements
+    # — Reddit's official channel, never renamed, always public.
     FrontendPolicy(
         target_apex="reddit.com",
         instances=(
-            "https://redlib.privacyredirect.com",
-            "https://redlib.privadency.com",
-            "https://redlib.perennialte.ch",
+            "https://redlib.catsarch.com",        # US
+            "https://redlib.perennialte.ch",      # AU, CF
+            "https://redlib.r4fo.com",            # DE, CF
+            "https://red.artemislena.eu",         # DE
+            "https://redlib.cow.rip",             # IN, CF
+            "https://redlib.nadeko.net",          # CL
+            "https://redlib.privadency.com",      # DE
         ),
         probe_path="/r/announcements/",
         probe_marker="r/announcements",
+        registry_url=(
+            "https://raw.githubusercontent.com/redlib-org/"
+            "redlib-instances/main/instances.json"
+        ),
+        registry_kind="redlib-json",
     ),
 )
+
+
+@beartype
+async def _fetch_redlib_json(url: str, timeout: float) -> tuple[str, ...]:
+    """Pull the canonical clearnet redlib instance list.
+
+    Schema (redlib-org/redlib-instances instances.json):
+        {"updated": "YYYY-MM-DD",
+         "instances": [{"url": "https://...", "country": "..", ...},
+                       {"onion": "http://...onion", ...}]}
+
+    Drops .onion entries (Tor-only — different code path) and
+    anything missing a https URL.
+    """
+    import httpx
+
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            resp = await client.get(url)
+            resp.raise_for_status()
+            data = resp.json()
+    except Exception as exc:  # any failure -> empty fallback
+        log.warning(
+            "privacy_frontend.registry_fetch_failed",
+            url=url,
+            kind="redlib-json",
+            error_type=type(exc).__name__,
+            error=str(exc)[:120],
+        )
+        return ()
+
+    out: list[str] = []
+    for entry in data.get("instances", []):
+        u = entry.get("url")
+        if isinstance(u, str) and u.startswith("https://"):
+            out.append(u.rstrip("/"))
+    return tuple(out)
+
+
+_D420_ROW_RE = re.compile(
+    r'<a rel="nofollow external" href="(https://[^"/]+)"',
+)
+
+
+@beartype
+async def _fetch_d420_html(url: str, timeout: float) -> tuple[str, ...]:
+    """Pull active Nitter instances from status.d420.de.
+
+    The page renders one <a rel="nofollow external" href="https://..."
+    per instance in its main table. We extract every external link,
+    drop the github/wikipedia ones, and de-dupe — same heuristic that
+    cross-checked against the curated farside.link list cleanly.
+    """
+    import html as _html
+
+    import httpx
+
+    try:
+        async with httpx.AsyncClient(
+            timeout=timeout,
+            # d420 is bot-walled to non-browser UAs — pin a desktop UA
+            headers={
+                "User-Agent": (
+                    "Mozilla/5.0 (X11; Linux x86_64; rv:130.0) "
+                    "Gecko/20100101 Firefox/130.0"
+                ),
+            },
+            follow_redirects=True,
+        ) as client:
+            resp = await client.get(url)
+            resp.raise_for_status()
+            text = _html.unescape(resp.text)
+    except Exception as exc:
+        log.warning(
+            "privacy_frontend.registry_fetch_failed",
+            url=url,
+            kind="d420-html",
+            error_type=type(exc).__name__,
+            error=str(exc)[:120],
+        )
+        return ()
+
+    seen: set[str] = set()
+    out: list[str] = []
+    for match in _D420_ROW_RE.finditer(text):
+        host = match.group(1).rstrip("/")
+        # Drop the meta-links that share rel="nofollow external" but
+        # aren't instances (github, wikipedia, time.is, git.*)
+        bare = host.replace("https://", "")
+        if (
+            "github.com" in bare
+            or "wikipedia.org" in bare
+            or "time.is" in bare
+            or bare.startswith("git.")
+        ):
+            continue
+        if host not in seen:
+            seen.add(host)
+            out.append(host)
+    return tuple(out)
+
+
+@beartype
+async def fetch_registry_instances(
+    policy: FrontendPolicy, timeout: float = 10.0,
+) -> tuple[str, ...]:
+    """Pull the current upstream-curated instance list for `policy`.
+
+    Returns an empty tuple if the policy has no registry configured,
+    or if the fetch / parse fails. Caller is expected to union the
+    result with `policy.instances` (the durable fallback) so registry
+    outages don't leave the worker with nothing to probe.
+
+    Called once per probe pass (hourly by default) — well below any
+    registry's rate limits.
+    """
+    if not policy.registry_url or not policy.registry_kind:
+        return ()
+    if policy.registry_kind == "redlib-json":
+        return await _fetch_redlib_json(policy.registry_url, timeout)
+    if policy.registry_kind == "d420-html":
+        return await _fetch_d420_html(policy.registry_url, timeout)
+    log.warning(
+        "privacy_frontend.registry_kind_unknown",
+        kind=policy.registry_kind,
+        url=policy.registry_url,
+    )
+    return ()
+
+
+@beartype
+async def discover_instances(
+    policy: FrontendPolicy, timeout: float = 10.0,
+) -> tuple[str, ...]:
+    """Union the static fallback with the live upstream registry.
+
+    Order: static `instances` first (preference order preserved),
+    then any registry-discovered entries not already present. Output
+    is de-duped — the same instance can appear in both lists
+    (frequently does) and we only want to probe each once.
+    """
+    upstream = await fetch_registry_instances(policy, timeout=timeout)
+    seen: set[str] = set()
+    out: list[str] = []
+    for inst in policy.instances + upstream:
+        if inst not in seen:
+            seen.add(inst)
+            out.append(inst)
+    return tuple(out)
 
 
 @beartype
@@ -185,6 +391,59 @@ def rewrite_to_instance(url: str, instance_base: str) -> str:
     )
 
 
+_HEAD_RE = re.compile(r"<head\b[^>]*>.*?</head>", re.I | re.S)
+
+
+@beartype
+def _strip_head(html: str) -> str:
+    """Return the HTML with its <head>...</head> block removed.
+
+    The probe's marker check must run against rendered body content,
+    not server-side metadata. Nitter (and most fediverse frontends)
+    pre-render Open Graph cards into <meta> tags so social-card
+    unfurlers can preview challenge-walled pages — Anubis preserves
+    the original <head> on its challenge wrapper, so a naive
+    'marker in page.content()' silently passes the probe while the
+    user is still staring at "Making sure you're not a bot".
+    Stripping <head> forces the marker check to evaluate the actual
+    visible content, which a still-challenged page does not have.
+    """
+    return _HEAD_RE.sub("", html, count=1)
+
+
+@beartype
+@require(lambda port: 1 <= port <= _MAX_PORT)
+@require(lambda host: bool(host) and "/" not in host)
+async def is_alive_tcp(host: str, port: int = 443, timeout: float = 4.0) -> bool:
+    """Cheap reachability check: can we open a TLS connection to host:port?
+
+    Fast pre-filter for the expensive Camoufox probe — a dead host
+    (DNS NXDOMAIN, refused, unreachable) fails here in <1 s; the
+    Camoufox probe would otherwise spin up a full browser for ~30 s
+    before timing out on the same host. Does NOT validate that the
+    server speaks HTTP or returns content — that's the antibot
+    probe's job. A 403/503/200-challenge response all qualify as
+    "alive"; only true network-layer failures fail.
+    """
+    try:
+        fut = asyncio.open_connection(
+            host, port, ssl=True, server_hostname=host,
+        )
+        _, writer = await asyncio.wait_for(fut, timeout=timeout)
+        writer.close()
+        with contextlib.suppress(Exception):
+            await writer.wait_closed()
+        return True
+    except (TimeoutError, OSError) as exc:
+        log.debug(
+            "privacy_frontend.alive_check_failed",
+            host=host,
+            port=port,
+            error_type=type(exc).__name__,
+        )
+        return False
+
+
 @beartype
 async def probe_frontend_instance(
     policy: FrontendPolicy,
@@ -196,8 +455,10 @@ async def probe_frontend_instance(
 
     Navigates through Camoufox + the given SOCKS5 proxy to the
     policy's canonical probe URL and waits up to `timeout` seconds
-    for the `probe_marker` to appear in the page body. Challenge
-    pages and "Welcome" shells lack the marker so they fail cleanly.
+    for the `probe_marker` to appear in the page body **after**
+    stripping <head>. Challenge pages and "Welcome" shells lack
+    the marker in the visible body so they fail cleanly even when
+    Nitter pre-renders OG metadata in <meta> tags.
 
     Camoufox handles CF/Anubis JS resolution automatically given
     enough time; we poll rather than relying on `wait_for_function`
@@ -230,7 +491,7 @@ async def probe_frontend_instance(
                 # Poll for the content marker. Give challenge resolvers
                 # up to ~30 s total by checking every 3 s.
                 for _ in range(10):
-                    body = await page.content()
+                    body = _strip_head(await page.content())
                     if policy.probe_marker in body:
                         log.debug(
                             "privacy_frontend.probe_passed",

@@ -1090,7 +1090,7 @@ class Worker:
             passing=len(passing),
         )
 
-    async def _frontend_probe_loop(self) -> None:  # pragma: no cover  # noqa: C901
+    async def _frontend_probe_loop(self) -> None:  # pragma: no cover  # noqa: C901, PLR0912
         """Periodically verify that registered privacy-frontend instances
         actually serve real content (not Anubis/CF challenge pages).
 
@@ -1099,8 +1099,12 @@ class Worker:
         themselves bot-gated so the probe has to go through the same
         SOCKS5 pool tier-5 uses.
         """
+        from urllib.parse import urlparse
+
         from archiver.privacy_frontends import (
             FRONTENDS,
+            discover_instances,
+            is_alive_tcp,
             probe_frontend_instance,
         )
 
@@ -1121,20 +1125,42 @@ class Worker:
                 for policy in FRONTENDS:
                     if not self._running:
                         return
-                    for instance in policy.instances:
+                    # Pull fresh upstream-registry list (once per pass)
+                    # and union with the hardcoded fallback. Registry
+                    # outage → empty result → fall through to static.
+                    instances = await discover_instances(policy)
+                    log.info(
+                        "worker.frontend_probe.policy_started",
+                        target=policy.target_apex,
+                        instance_count=len(instances),
+                        static_count=len(policy.instances),
+                    )
+                    for instance in instances:
                         if not self._running:
                             return
-                        try:
-                            passing = await probe_frontend_instance(
-                                policy, instance, at_proxy,
-                            )
-                        except Exception as exc:  # pragma: no cover
-                            log.warning(
-                                "worker.frontend_probe.error",
+                        # Cheap TCP+TLS pre-filter — drop dead hosts in
+                        # ~1 s instead of spinning Camoufox for ~30 s.
+                        host = urlparse(instance).hostname or ""
+                        alive = await is_alive_tcp(host) if host else False
+                        if not alive:
+                            log.info(
+                                "worker.frontend_probe.unreachable",
                                 instance=instance,
-                                error=str(exc)[:120],
+                                target=policy.target_apex,
                             )
                             passing = False
+                        else:
+                            try:
+                                passing = await probe_frontend_instance(
+                                    policy, instance, at_proxy,
+                                )
+                            except Exception as exc:  # pragma: no cover
+                                log.warning(
+                                    "worker.frontend_probe.error",
+                                    instance=instance,
+                                    error=str(exc)[:120],
+                                )
+                                passing = False
                         assert self._pool is not None  # noqa: S101
                         async with self._pool.acquire() as conn:
                             await self._frontend_status_repo.record(

@@ -9,6 +9,10 @@ import pytest
 from archiver.privacy_frontends import (
     FRONTENDS,
     FrontendPolicy,
+    _strip_head,
+    discover_instances,
+    fetch_registry_instances,
+    is_alive_tcp,
     resolve_policy,
     rewrite_to_instance,
 )
@@ -127,3 +131,262 @@ class TestRegistry:
         for policy in FRONTENDS:
             assert policy.probe_path.startswith("/"), policy
             assert policy.probe_marker, policy
+
+
+class TestStripHead:
+    def test_removes_head_block(self) -> None:
+        html = (
+            "<html><head><meta property='og:description' content='foo'>"
+            "<title>x</title></head><body>visible</body></html>"
+        )
+        out = _strip_head(html)
+        assert "<head" not in out
+        assert "og:description" not in out
+        assert "visible" in out
+
+    def test_anubis_og_marker_does_not_leak(self) -> None:
+        """The bug we're guarding against: Anubis wraps the original
+        Nitter <head> (with og:description containing the tweet text)
+        around its own challenge body. Naive marker-in-body passes
+        false-positive; post-strip, the marker must be gone."""
+        marker = "just setting up my twttr"
+        anubis_page = (
+            f"<html><head>"
+            f"<meta property='og:description' content='{marker}'>"
+            f"<title>Making sure you're not a bot!</title>"
+            f"</head><body><h1>Making sure you're not a bot!</h1>"
+            f"</body></html>"
+        )
+        stripped = _strip_head(anubis_page)
+        assert marker not in stripped
+
+    def test_real_content_survives_strip(self) -> None:
+        marker = "just setting up my twttr"
+        real_page = (
+            "<html><head><title>jack</title></head>"
+            f"<body><div class='tweet-text'>{marker}</div></body></html>"
+        )
+        assert marker in _strip_head(real_page)
+
+    def test_no_head_is_passthrough(self) -> None:
+        html = "<html><body>bare</body></html>"
+        assert _strip_head(html) == html
+
+    def test_case_insensitive_head(self) -> None:
+        html = "<HTML><HEAD><TITLE>x</TITLE></HEAD><BODY>y</BODY></HTML>"
+        out = _strip_head(html)
+        assert "TITLE" not in out
+        assert "y" in out
+
+
+class TestIsAliveTcp:
+    @pytest.mark.asyncio
+    async def test_unresolvable_host_returns_false(self) -> None:
+        # .invalid is reserved (RFC 6761) — guaranteed NXDOMAIN
+        assert await is_alive_tcp(
+            "no-such-host.invalid", timeout=2.0,
+        ) is False
+
+    @pytest.mark.asyncio
+    async def test_closed_port_returns_false(self) -> None:
+        # 127.0.0.1:1 is reserved & nothing listens; fast refusal
+        assert await is_alive_tcp("127.0.0.1", port=1, timeout=2.0) is False
+
+    @pytest.mark.asyncio
+    async def test_rejects_invalid_port(self) -> None:
+        from icontract import ViolationError
+
+        with pytest.raises(ViolationError):
+            await is_alive_tcp("example.com", port=0)
+        with pytest.raises(ViolationError):
+            await is_alive_tcp("example.com", port=70000)
+
+    @pytest.mark.asyncio
+    async def test_rejects_empty_host(self) -> None:
+        from icontract import ViolationError
+
+        with pytest.raises(ViolationError):
+            await is_alive_tcp("", port=443)
+
+    @pytest.mark.asyncio
+    async def test_rejects_path_in_host(self) -> None:
+        """Catches a common bug: passing a URL instead of a hostname."""
+        from icontract import ViolationError
+
+        with pytest.raises(ViolationError):
+            await is_alive_tcp("example.com/foo", port=443)
+
+
+class TestRegistryHasExpandedRoster:
+    def test_twitter_has_multiple_instances(self) -> None:
+        """Expanded Nitter roster (status.d420.de) should give us a
+        proper fallback chain, not a single point of failure."""
+        min_fallback_instances = 5
+        t = resolve_policy("https://twitter.com/jack/status/20")
+        assert t is not None
+        assert len(t.instances) >= min_fallback_instances, (
+            "twitter.com policy should list multiple Nitter mirrors"
+        )
+
+    def test_twitter_and_x_share_roster(self) -> None:
+        """twitter.com and x.com both target the same Nitter family —
+        same probe target so we don't get drift between the two."""
+        t = resolve_policy("https://twitter.com/jack/status/20")
+        x = resolve_policy("https://x.com/jack/status/20")
+        assert t is not None and x is not None
+        assert t.instances == x.instances
+        assert t.probe_path == x.probe_path
+        assert t.probe_marker == x.probe_marker
+
+
+class TestRegistryDiscovery:
+    """Cover the upstream-registry instance discovery layer."""
+
+    @pytest.mark.asyncio
+    async def test_no_registry_returns_empty(self) -> None:
+        """A policy without registry_url contributes no extra instances."""
+        p = FrontendPolicy(
+            target_apex="example.com",
+            instances=("https://a",),
+            probe_path="/",
+            probe_marker="x",
+        )
+        assert await fetch_registry_instances(p) == ()
+
+    @pytest.mark.asyncio
+    async def test_discover_falls_back_to_static_on_registry_failure(
+        self, respx_mock,  # pytest fixture
+    ) -> None:
+        """A registry fetch error should NOT break discovery — we still
+        get the hardcoded fallback list."""
+        import httpx
+
+        respx_mock.get("https://registry.invalid/list").mock(
+            return_value=httpx.Response(500),
+        )
+        p = FrontendPolicy(
+            target_apex="example.com",
+            instances=("https://a", "https://b"),
+            probe_path="/",
+            probe_marker="x",
+            registry_url="https://registry.invalid/list",
+            registry_kind="redlib-json",
+        )
+        result = await discover_instances(p)
+        assert result == ("https://a", "https://b")
+
+    @pytest.mark.asyncio
+    async def test_redlib_json_parser_drops_onion_and_keeps_https(
+        self, respx_mock,
+    ) -> None:
+        """redlib-json schema: drop onion-only entries, keep https ones,
+        strip trailing slashes."""
+        import httpx
+
+        body = {
+            "updated": "2026-05-13",
+            "instances": [
+                {"url": "https://a.example/", "country": "DE"},
+                {"url": "https://b.example", "country": "US"},
+                # onion-only — must be skipped
+                {"onion": "http://abc.onion", "country": "DE"},
+                # http (non-https) — must be skipped for safety
+                {"url": "http://insecure.example", "country": "US"},
+            ],
+        }
+        respx_mock.get("https://test/redlib.json").mock(
+            return_value=httpx.Response(200, json=body),
+        )
+        p = FrontendPolicy(
+            target_apex="reddit.com",
+            instances=(),
+            probe_path="/",
+            probe_marker="x",
+            registry_url="https://test/redlib.json",
+            registry_kind="redlib-json",
+        )
+        result = await fetch_registry_instances(p)
+        assert result == ("https://a.example", "https://b.example")
+
+    @pytest.mark.asyncio
+    async def test_d420_html_parser_extracts_instances(
+        self, respx_mock,
+    ) -> None:
+        """d420 HTML pattern: one <a rel="nofollow external"
+        href="https://..."> per instance, mixed with github metadata
+        links that share the same rel and must be filtered out."""
+        import httpx
+
+        html = """
+            <html><body>
+            <a rel="nofollow external" href="https://nitter.foo">x</a>
+            <a rel="nofollow external" href="https://github.com/zedeus/nitter/commit/abc">link</a>
+            <a rel="nofollow external" href="https://nitter.bar">y</a>
+            <a rel="nofollow external" href="https://en.wikipedia.org/wiki/X">wiki</a>
+            <a rel="nofollow external" href="https://nitter.foo">dup</a>
+            </body></html>
+        """
+        respx_mock.get("https://test/d420").mock(
+            return_value=httpx.Response(200, text=html),
+        )
+        p = FrontendPolicy(
+            target_apex="twitter.com",
+            instances=(),
+            probe_path="/",
+            probe_marker="x",
+            registry_url="https://test/d420",
+            registry_kind="d420-html",
+        )
+        result = await fetch_registry_instances(p)
+        # github + wikipedia filtered, duplicate collapsed
+        assert result == ("https://nitter.foo", "https://nitter.bar")
+
+    @pytest.mark.asyncio
+    async def test_discover_dedupes_and_preserves_order(
+        self, respx_mock,
+    ) -> None:
+        """Static instances come first (preference order); registry
+        additions append. Duplicates in either list collapse."""
+        import httpx
+
+        respx_mock.get("https://test/r.json").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "instances": [
+                        # First two duplicate the static list
+                        {"url": "https://b.example"},
+                        {"url": "https://a.example"},
+                        # New one
+                        {"url": "https://c.example"},
+                    ],
+                },
+            ),
+        )
+        p = FrontendPolicy(
+            target_apex="example.com",
+            instances=("https://a.example", "https://b.example"),
+            probe_path="/",
+            probe_marker="x",
+            registry_url="https://test/r.json",
+            registry_kind="redlib-json",
+        )
+        result = await discover_instances(p)
+        assert result == (
+            "https://a.example",
+            "https://b.example",
+            "https://c.example",
+        )
+
+    @pytest.mark.asyncio
+    async def test_unknown_registry_kind_returns_empty(self) -> None:
+        """Defensive: bad config never crashes the probe loop."""
+        p = FrontendPolicy(
+            target_apex="example.com",
+            instances=("https://a",),
+            probe_path="/",
+            probe_marker="x",
+            registry_url="https://test/x",
+            registry_kind="totally-fake-kind",
+        )
+        assert await fetch_registry_instances(p) == ()
