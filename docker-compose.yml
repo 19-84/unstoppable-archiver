@@ -135,6 +135,61 @@ services:
     memswap_limit: 512m
     cpus: 1.0
 
+  # Observability stack. Opt-in via the `monitoring` profile so dev
+  # shells don't carry it. Prometheus scrapes worker:9090, applies
+  # the alert rules in deploy/prometheus/archiver.rules.yml; Grafana
+  # auto-provisions the Prometheus datasource and a single
+  # pre-built dashboard. Replace the bundled stack with your own
+  # Prometheus / Grafana / VM by skipping the profile and pointing
+  # your existing scrape at this host.
+  prometheus:
+    image: prom/prometheus:latest
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      # 30d retention is enough for incident review; alert-history
+      # lives in Alertmanager when the operator adds it. Bump if you
+      # need longer baselines.
+      - --storage.tsdb.retention.time=30d
+      - --web.enable-lifecycle
+    volumes:
+      - ./deploy/prometheus:/etc/prometheus:ro
+      - prom_data:/prometheus
+    ports:
+      - "127.0.0.1:9091:9090"   # 9091 host-side to avoid clashing
+                                 # with worker:9090
+    restart: unless-stopped
+    profiles:
+      - monitoring
+    mem_limit: 512m
+    memswap_limit: 512m
+    cpus: 1.0
+
+  grafana:
+    image: grafana/grafana:latest
+    environment:
+      # Override the admin password if you're going to expose Grafana.
+      # Default is "admin" / "admin"; Grafana itself forces a change
+      # on first login.
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      # Anonymous reads disabled by default — admin auth required.
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./deploy/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./deploy/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+    profiles:
+      - monitoring
+    mem_limit: 512m
+    memswap_limit: 512m
+    cpus: 1.0
+
   tor:
     image: leplusorg/tor:latest
     restart: unless-stopped
@@ -152,3 +207,5 @@ volumes:
   artifacts:
   backups:
   camoufox_cache:
+  prom_data:
+  grafana_data:

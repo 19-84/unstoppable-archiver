@@ -1,0 +1,9 @@
+# Tells Grafana to load any *.json file from /var/lib/grafana/dashboards
+# on startup. The bundled archiver.json gets picked up automatically.
+apiVersion: 1
+providers:
+  - name: archiver
+    folder: Archiver
+    type: file
+    options:
+      path: /var/lib/grafana/dashboards

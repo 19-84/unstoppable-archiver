@@ -1,0 +1,72 @@
+# Alert rules for the archiver. The disk-usage gauges
+# (artifacts_dir_bytes_*) come from src/archiver/metrics.py and are
+# sampled every 60 s by the worker's _disk_usage_loop. See
+# docs/observability.md for rationale.
+
+groups:
+  - name: archiver-storage
+    rules:
+      - alert: ArchiverArtifactVolumeFilling
+        expr: |
+          (archiver_artifacts_dir_bytes_used
+           / archiver_artifacts_dir_bytes_total) > 0.80
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Artifact volume {{ $value | humanizePercentage }} full"
+          description: |
+            The archive artifact volume is past 80 % capacity. Archives
+            are immortal by design; this only goes one direction.
+            Provision more storage or move older artifacts to a cold
+            tier before the worker starts failing writes.
+            Current: {{ $value | humanizePercentage }} used.
+
+      - alert: ArchiverArtifactVolumeCritical
+        expr: |
+          (archiver_artifacts_dir_bytes_used
+           / archiver_artifacts_dir_bytes_total) > 0.95
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Artifact volume {{ $value | humanizePercentage }} full — imminent"
+          description: |
+            Less than 5 % free on the artifact volume. New captures
+            will start failing within hours at typical write rates.
+            Add storage NOW or pause submission.
+
+  - name: archiver-health
+    rules:
+      - alert: ArchiverWorkerDown
+        expr: up{job="archiver-worker"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Worker scrape target down for 2+ min"
+          description: |
+            Prometheus can't reach the worker's :9090 metrics endpoint.
+            Either the worker process is dead or the network between
+            Prom and the worker is broken. New captures aren't being
+            processed; queue is backing up.
+
+      - alert: ArchiverCaptureFailureRateHigh
+        # 5xx-equivalent: high failed:complete ratio over the last 15 m
+        expr: |
+          (
+            sum(rate(archiver_captures_total{outcome="failed"}[15m]))
+            /
+            sum(rate(archiver_captures_total[15m]))
+          ) > 0.5
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Capture failure rate {{ $value | humanizePercentage }} over 15 m"
+          description: |
+            More than half of capture attempts are failing across all
+            tiers. Likely root causes: SOCKS5 pool empty, broad anti-
+            bot wave, or a deploy regression. Check
+            worker.gate_probe_batch_done in logs and the SOCKS5 pool
+            depth panel.

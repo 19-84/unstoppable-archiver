@@ -1,0 +1,31 @@
+# Bundled Prometheus config for the `monitoring` compose profile.
+# Scrapes the worker's metrics endpoint and applies the alert rules in
+# archiver.rules.yml. Operators with an existing Prometheus can either:
+#   (a) skip this profile and add scrape_config + rule_files entries to
+#       their own prometheus.yml pointing at this host's worker:9090, or
+#   (b) run the bundled stack and federate from their own Prom.
+global:
+  scrape_interval: 15s
+  evaluation_interval: 30s
+  external_labels:
+    # Add `instance: <hostname>` via env override in compose so a
+    # multi-host deployment can tell scrapes apart in Grafana.
+    monitor: archiver
+
+rule_files:
+  - /etc/prometheus/archiver.rules.yml
+
+scrape_configs:
+  - job_name: archiver-worker
+    # Worker exposes Prometheus on :9090 over the compose network. The
+    # public deployment doesn't expose this to the host (worker binds
+    # :9090 to 127.0.0.1 there); inside the compose network it's just
+    # worker:9090.
+    static_configs:
+      - targets: ["worker:9090"]
+
+  - job_name: prometheus
+    # Self-scrape so we can graph the monitoring stack's own health
+    # — backup alerting works only if Prom itself stays up.
+    static_configs:
+      - targets: ["localhost:9090"]

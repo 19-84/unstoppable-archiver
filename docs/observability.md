@@ -72,3 +72,30 @@ Don't alert on archive count growth, individual capture failures
 designed to be noisy at the per-capture level — the escalation chain
 absorbs transient failures, and alerting on each one would burn out
 on-call.
+
+## Bundled stack: `--profile monitoring`
+
+`make run` + the `monitoring` profile starts Prometheus + Grafana
+with everything wired up:
+
+```
+docker compose --profile monitoring up -d prometheus grafana
+```
+
+- **Prometheus** on `http://127.0.0.1:9091` (host-bound to loopback;
+  same scrape config + alert rules described above are pre-loaded
+  from `deploy/prometheus/`).
+- **Grafana** on `http://127.0.0.1:3000`, default `admin/admin`
+  (override with `$GRAFANA_ADMIN_PASSWORD`). Prometheus datasource
+  is auto-provisioned; the `Archiver` dashboard in the `Archiver`
+  folder is auto-loaded.
+
+The dashboard has 10 panels: capture counts (success / failed),
+disk-volume gauge with 80/95 % thresholds, queue depth, capture
+rate by tier, latency p50/p95 by tier, outcome mix as a percentage,
+artifact volume bytes over time, abuse signals (blocklist /
+rate-limit / reports), admin login attempts.
+
+To swap in your own Prom/Grafana, skip the profile and point your
+existing scrape at this host's worker — see `deploy/prometheus/
+prometheus.yml` for the scrape stanza you'd copy.
