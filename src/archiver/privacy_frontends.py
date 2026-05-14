@@ -41,6 +41,17 @@ log = structlog.get_logger()
 _MAX_PORT = 65535
 
 
+# icontract @require with a lambda erases parameter types from pyright's
+# view, producing reportUnknownLambdaType. Naming the predicates gives
+# pyright a typed signature while keeping the runtime contract.
+def _valid_port(port: int) -> bool:
+    return 1 <= port <= _MAX_PORT
+
+
+def _valid_host(host: str) -> bool:
+    return bool(host) and "/" not in host
+
+
 @dataclass(frozen=True)
 class FrontendPolicy:
     """Routing policy for one target apex.
@@ -412,8 +423,8 @@ def _strip_head(html: str) -> str:
 
 
 @beartype
-@require(lambda port: 1 <= port <= _MAX_PORT)
-@require(lambda host: bool(host) and "/" not in host)
+@require(_valid_port)
+@require(_valid_host)
 async def is_alive_tcp(host: str, port: int = 443, timeout: float = 4.0) -> bool:
     """Cheap reachability check: can we open a TLS connection to host:port?
 
@@ -471,13 +482,19 @@ async def probe_frontend_instance(
     )
 
     probe_url = instance_base.rstrip("/") + policy.probe_path
+    from typing import Any as _Any
+
     try:
         async with AsyncCamoufox(
             headless="virtual",
             humanize=True,
             geoip=False,
             proxy={"server": proxy_server},
-        ) as browser:
+        ) as browser_:
+            # Camoufox lacks type stubs and its context-manager target
+            # is misclassified by pyright; cast locally to Any to keep
+            # the typecheck honest on the rest of the file.
+            browser: _Any = browser_
             context = await browser.new_context(
                 viewport={"width": 1280, "height": 900},
             )

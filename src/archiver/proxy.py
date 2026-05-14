@@ -520,6 +520,8 @@ async def probe_archive_gate(
     a gate failure. Production captures can re-enable geoip on the
     subset of probe-passing proxies where realistic locale matters.
     """
+    from typing import Any as _Any
+
     from camoufox.async_api import AsyncCamoufox  # type: ignore[import-untyped]
 
     try:
@@ -528,7 +530,10 @@ async def probe_archive_gate(
             humanize=True,
             geoip=geoip,
             proxy={"server": proxy.server},
-        ) as browser:
+        ) as browser_:
+            # Camoufox lacks type stubs; cast locally so member access
+            # doesn't cascade as Unknown through pyright.
+            browser: _Any = browser_
             context = await browser.new_context(
                 viewport={"width": 1280, "height": 900}
             )

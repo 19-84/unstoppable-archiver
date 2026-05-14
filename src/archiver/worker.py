@@ -85,7 +85,7 @@ _PLACEHOLDER_PNG = (
 )
 
 
-def _log_task_exception(task: asyncio.Task[None]) -> None:  # pragma: no cover
+def _log_task_exception(task: asyncio.Task[Any]) -> None:  # pragma: no cover
     """Log any unhandled exception from a background task."""
     if task.cancelled():
         return
@@ -132,8 +132,12 @@ class Worker:
         )
         self._running = True
         self._pool: asyncpg.Pool | None = None
-        self._tasks: set[asyncio.Task[None]] = set()
-        self._capture_tasks: set[asyncio.Task[None]] = set()
+        # Background tasks tracked here include ones with non-None return
+        # types (user_agents.refresh returns int, etc.) — keep the set
+        # type heterogeneous so we don't have to thread `Task[Any]`
+        # through every call site.
+        self._tasks: set[asyncio.Task[Any]] = set()
+        self._capture_tasks: set[asyncio.Task[Any]] = set()
         self._proxy_rotator: ProxyRotator = ProxyRotator()
 
     @beartype
@@ -755,7 +759,12 @@ class Worker:
             humanize=True,
             geoip=False,  # see probe_archive_gate for rationale
             proxy={"server": at_proxy},
-        ) as browser:
+        ) as browser_:
+            # Camoufox ships no type stubs and its async context returns
+            # an object pyright misreads as BrowserContext; the runtime
+            # type behaves like Playwright Browser. Cast to Any locally
+            # so member access doesn't cascade Unknown into our own code.
+            browser: Any = browser_
             context = await browser.new_context(
                 viewport={"width": 1280, "height": 900},
             )
