@@ -32,7 +32,7 @@ class CfClearanceCache:
     """In-memory TTL cache for cf_clearance cookies, keyed by domain."""
 
     ttl_seconds: int = _DEFAULT_TTL
-    _cache: dict[str, CachedCookie] = field(default_factory=dict)
+    _cache: dict[str, CachedCookie] = field(default_factory=dict[str, CachedCookie])
 
     @beartype
     def get(self, domain: str) -> CachedCookie | None:

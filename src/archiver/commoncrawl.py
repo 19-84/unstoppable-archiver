@@ -287,7 +287,9 @@ async def fetch_record_html(snapshot: CCSnapshot) -> bytes:
             f"CC data.commoncrawl.org returned {resp.status_code}"
         )
     buf = BytesIO(resp.content)
-    it = ArchiveIterator(buf)
+    # warcio ships no type stubs — its records expose rec_type and
+    # content_stream() but pyright sees them as Unknown.
+    it: Any = ArchiveIterator(buf)
     for rec in it:
         if rec.rec_type != "response":
             continue

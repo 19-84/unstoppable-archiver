@@ -524,7 +524,10 @@ async def capture_page(  # noqa: C901, PLR0912, PLR0913, PLR0915
                     f"All snapshot strategies failed; last error: {pc_exc}"
                 ) from pc_exc
 
-        if not isinstance(sf_result, dict) or "content" not in sf_result:
+        # The annotation says dict, but page.evaluate returns Any at
+        # runtime — keep the dict-shape check as a defensive guard
+        # against SingleFile returning a string error message.
+        if not isinstance(sf_result, dict) or "content" not in sf_result:  # pyright: ignore[reportUnnecessaryIsInstance]
             raise CaptureError(
                 "SingleFile returned unexpected result: "
                 + repr(type(sf_result))
@@ -767,12 +770,14 @@ async def _cache_cf_clearance(
     try:
         cookies = await context.cookies()
         for c in cookies:
-            if c.get("name") == "cf_clearance":
+            name = c.get("name")
+            value = c.get("value")
+            if name == "cf_clearance" and value is not None:
                 domain = c.get("domain", urlparse(url).hostname or "")
                 cache.put(
                     domain=domain,
-                    name=c["name"],
-                    value=c["value"],
+                    name=name,
+                    value=value,
                     path=c.get("path", "/"),
                 )
     except Exception:

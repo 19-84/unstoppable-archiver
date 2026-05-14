@@ -410,12 +410,13 @@ async def lookup_asn(
         resp = await client.get(_ASN_LOOKUP_URL.format(ip=ip))
         if resp.status_code != 200:  # noqa: PLR2004
             return {}
-        data = resp.json()
+        data: dict[str, Any] = resp.json()
         if not data.get("success"):
             return {}
+        connection: dict[str, Any] = data.get("connection") or {}
         info = {
-            "org": (data.get("connection", {}) or {}).get("org", "") or "",
-            "isp": (data.get("connection", {}) or {}).get("isp", "") or "",
+            "org": connection.get("org", "") or "",
+            "isp": connection.get("isp", "") or "",
             "country": data.get("country_code", "") or "",
         }
         _asn_lookup_cache[ip] = info

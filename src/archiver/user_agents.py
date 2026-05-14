@@ -27,6 +27,7 @@ import json
 import random
 import time
 from pathlib import Path
+from typing import cast
 
 import httpx
 import structlog
@@ -165,4 +166,7 @@ def _is_valid_pool(data: object) -> bool:
     """Sanity check: pool must be a non-empty list of non-trivial strings."""
     if not isinstance(data, list) or not data:
         return False
-    return all(isinstance(s, str) and len(s) >= 40 for s in data)  # noqa: PLR2004
+    # cast the narrowed list to list[object] so the comprehension's
+    # iter variable has a concrete type for isinstance checks
+    items = cast(list[object], data)
+    return all(isinstance(s, str) and len(s) >= 40 for s in items)  # noqa: PLR2004

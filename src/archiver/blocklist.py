@@ -25,8 +25,8 @@ class DomainBlocklist:
     blocklist entries using longest-match-wins semantics.
     """
 
-    blocked: set[str] = field(default_factory=set)
-    allowed: set[str] = field(default_factory=set)
+    blocked: set[str] = field(default_factory=set[str])
+    allowed: set[str] = field(default_factory=set[str])
     last_loaded: datetime | None = None
 
     @beartype
