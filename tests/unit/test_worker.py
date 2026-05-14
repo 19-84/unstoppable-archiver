@@ -719,17 +719,30 @@ class TestCaptureViaPrivacyFrontend:
                 "https://example.com/article"
             )
 
-    async def test_no_gate_passer_raises(self) -> None:
-        """Registered apex but empty proxy pool → CaptureError."""
-        from archiver.errors import CaptureError
-
+    @patch("archiver.worker.capture_page", new_callable=AsyncMock)
+    async def test_no_gate_passer_falls_through_to_direct(
+        self, mock_capture: AsyncMock,
+    ) -> None:
+        """Empty SOCKS5 pool no longer fatal — most frontends are
+        Anubis-walled and Camoufox solves those direct. The capture
+        call goes through with proxy=None; CF-walled instances still
+        fail at navigation and the loop moves on."""
         worker, _ = _make_worker()
         worker._proxy_status_repo.list_passing = AsyncMock(return_value=[])
-        import pytest
-        with pytest.raises(CaptureError, match="no gate-passing"):
-            await worker._capture_via_privacy_frontend(
-                "https://medium.com/@vgr/foo"
-            )
+        worker._frontend_status_repo.list_passing = AsyncMock(
+            return_value=["https://scribe.rip"],
+        )
+        worker._browser_pool.get_browser = AsyncMock(return_value=AsyncMock())
+        mock_capture.return_value = _make_capture_result()
+        result = await worker._capture_via_privacy_frontend(
+            "https://medium.com/@vgr/foo",
+        )
+        assert result is not None
+        # Critical: capture_page must have been called WITHOUT a proxy
+        # so the direct-Camoufox path actually runs.
+        assert mock_capture.await_count == 1
+        _, kwargs = mock_capture.await_args
+        assert kwargs.get("proxy") is None
 
     async def test_no_verified_frontend_raises(self) -> None:
         """Registered apex, gate-passer exists, but no probe-verified

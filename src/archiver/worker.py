@@ -811,12 +811,22 @@ class Worker:
                 f"No privacy frontend registered for {url}"
             )
 
+        # SOCKS5 is preferred but optional: many frontend instances are
+        # Anubis-walled (JS PoW that Camoufox clears regardless of source
+        # IP), and only the CF-protected subset actually needs a
+        # residential-looking exit. When the gate-passing pool is empty
+        # we fall through to direct Camoufox — Anubis-walled instances
+        # still work, CF-walled ones fail and the per-instance loop
+        # moves on to the next candidate.
         at_proxy = await self._pick_archive_today_proxy()
-        if at_proxy is None:
-            raise CaptureError(
-                "privacy frontend: no gate-passing proxy available"
+        proxy_config: ProxyConfig | None = None
+        if at_proxy is not None:
+            proxy_config = ProxyConfig(server=at_proxy)
+        else:
+            log.warning(
+                "worker.privacy_frontend.no_proxy_falling_back_direct",
+                target=policy.target_apex,
             )
-        proxy_config = ProxyConfig(server=at_proxy)
 
         # Only try instances that the background probe loop has
         # recently confirmed serve real content (not an Anubis or CF
