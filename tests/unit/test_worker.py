@@ -904,7 +904,7 @@ class TestGateProbeBatch:
     """Cover the SOCKS5 gate-probe path that refills proxy_status."""
 
     @staticmethod
-    def _socks_proxy(server: str) -> "ProxyConfig":  # noqa: UP037
+    def _socks_proxy(server: str):
         from archiver.proxy import ProxyConfig
         return ProxyConfig(server=server)
 
@@ -971,8 +971,9 @@ class TestGateProbeBatch:
 
         await worker._gate_probe_batch(batch_size=10)
 
+        expected_recorded = 3
         # All three got recorded — gate_passing True for one, False for two.
-        assert worker._proxy_status_repo.record.await_count == 3
+        assert worker._proxy_status_repo.record.await_count == expected_recorded
         record_calls = worker._proxy_status_repo.record.await_args_list
         # gate_passing kw is True for exactly one record call.
         passing_count = sum(
@@ -1002,8 +1003,12 @@ class TestGateProbeBatch:
 
         await worker._gate_probe_batch(batch_size=5)
 
+        expected_consumer_recorded = 2
         # Only consumer proxies should have been gate-probed and recorded.
-        assert worker._proxy_status_repo.record.await_count == 2
+        assert (
+            worker._proxy_status_repo.record.await_count
+            == expected_consumer_recorded
+        )
         recorded_servers = {
             c.args[1] for c in worker._proxy_status_repo.record.await_args_list
         }
