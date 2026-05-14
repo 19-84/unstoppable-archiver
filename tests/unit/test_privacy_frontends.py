@@ -4,6 +4,8 @@
 
 from __future__ import annotations
 
+from unittest.mock import patch
+
 import pytest
 
 from archiver.privacy_frontends import (
@@ -215,6 +217,50 @@ class TestIsAliveTcp:
 
         with pytest.raises(ViolationError):
             await is_alive_tcp("example.com/foo", port=443)
+
+    @pytest.mark.asyncio
+    async def test_success_path_returns_true(self) -> None:
+        """Mocked open_connection succeeds → writer.close + return True."""
+        from unittest.mock import AsyncMock as _AsyncMock
+        from unittest.mock import MagicMock as _MagicMock
+
+        writer = _MagicMock()
+        writer.close = _MagicMock()
+        writer.wait_closed = _AsyncMock()
+        reader = _MagicMock()
+
+        async def fake_open_connection(*_a: object, **_kw: object) -> tuple[object, object]:
+            return reader, writer
+
+        with patch("asyncio.open_connection", side_effect=fake_open_connection):
+            assert await is_alive_tcp("example.com", port=443) is True
+        writer.close.assert_called_once()
+
+
+class TestD420FetchFailures:
+    """Cover d420-html parser's network-failure exception path."""
+
+    @pytest.mark.asyncio
+    async def test_returns_empty_on_5xx(
+        self, respx_mock,
+    ) -> None:
+        """Upstream 5xx → log warning + return ()."""
+        import httpx
+
+        respx_mock.get("https://test/d420").mock(
+            return_value=httpx.Response(503),
+        )
+        p = FrontendPolicy(
+            target_apex="twitter.com",
+            instances=(),
+            probe_path="/",
+            probe_marker="x",
+            registry_url="https://test/d420",
+            registry_kind="d420-html",
+        )
+        assert await fetch_registry_instances(p) == ()
+
+
 
 
 class TestRegistryHasExpandedRoster:

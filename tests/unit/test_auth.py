@@ -4,6 +4,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from archiver.auth import hash_password, verify_password
 
 
@@ -101,3 +103,21 @@ class TestRequireAdmin:
 
         result = await require_admin(request, settings)  # type: ignore[arg-type]
         assert result == "admin"
+
+
+class TestRequireAdminRedirect:
+    async def test_admin_disabled_raises_404(self) -> None:
+        """admin_enabled is computed from admin_password_hash — empty
+        hash (Settings default) means admin is disabled, and HTML
+        routes must 404 rather than expose a login page."""
+        from fastapi import HTTPException
+
+        from archiver.auth import require_admin_redirect
+        from archiver.config import Settings
+
+        settings = Settings()  # default password_hash="" → admin_enabled False
+        assert settings.admin_enabled is False
+        request = _make_request_with_session(settings, {})
+        with pytest.raises(HTTPException) as exc_info:
+            await require_admin_redirect(request, settings)  # type: ignore[arg-type]
+        assert exc_info.value.status_code == 404  # noqa: PLR2004

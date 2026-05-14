@@ -201,3 +201,43 @@ class TestCaptureJs:
         assert "async" in SINGLEFILE_CAPTURE_JS
         assert "singlefile.getPageData" in SINGLEFILE_CAPTURE_JS
         assert "content" in SINGLEFILE_CAPTURE_JS
+
+
+class TestDiscoverChromiumForCli:
+    """Cover _discover_chromium_for_cli's actual filesystem scan."""
+
+    def test_returns_first_existing_match(self, tmp_path: Path) -> None:
+        """Scans candidates in order, returns the first path that exists.
+
+        Uses real filesystem under tmp_path so we exercise the glob +
+        Path(...).exists() interaction the function actually does.
+        """
+        from archiver.singlefile import _discover_chromium_for_cli
+
+        cand_a = tmp_path / "a" / "chrome"
+        cand_b = tmp_path / "b" / "chrome"
+        cand_a.parent.mkdir(parents=True)
+        cand_b.parent.mkdir(parents=True)
+        cand_a.write_text("")
+        cand_b.write_text("")
+
+        _discover_chromium_for_cli.cache_clear()
+        with patch(
+            "archiver.singlefile._CHROMIUM_CANDIDATES",
+            new=(str(tmp_path / "*" / "chrome"),),
+        ):
+            result = _discover_chromium_for_cli()
+
+        # sorted reverse → "b" comes before "a"; first existing wins.
+        assert result == str(cand_b)
+
+    def test_returns_none_when_no_matches(self, tmp_path: Path) -> None:
+        """No glob matches → None (caller surfaces the explicit error)."""
+        from archiver.singlefile import _discover_chromium_for_cli
+
+        _discover_chromium_for_cli.cache_clear()
+        with patch(
+            "archiver.singlefile._CHROMIUM_CANDIDATES",
+            new=(str(tmp_path / "nope" / "*" / "chrome"),),
+        ):
+            assert _discover_chromium_for_cli() is None

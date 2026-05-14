@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import asyncpg
+import pytest
 
 from archiver.config import Settings
 from archiver.enums import (
@@ -897,3 +898,172 @@ class TestWorkerOnNotify:
         worker = Worker(Settings())
         mock_conn = MagicMock(spec=asyncpg.Connection)
         worker._on_notify(mock_conn, 0, "new_job", "job-1")
+
+
+class TestGateProbeBatch:
+    """Cover the SOCKS5 gate-probe path that refills proxy_status."""
+
+    @staticmethod
+    def _socks_proxy(server: str) -> "ProxyConfig":  # noqa: UP037
+        from archiver.proxy import ProxyConfig
+        return ProxyConfig(server=server)
+
+    async def test_empty_rotator_returns_early(self) -> None:
+        worker, _ = _make_worker()
+        # _proxy_rotator.proxies defaults to () for a fresh ProxyRotator.
+        await worker._gate_probe_batch(batch_size=5)
+        # Nothing got recorded.
+        worker._proxy_status_repo.record.assert_not_awaited()
+
+    @patch("archiver.worker.filter_socks5")
+    async def test_no_socks_returns_early(
+        self, mock_filter_socks5: MagicMock,
+    ) -> None:
+        worker, _ = _make_worker()
+        worker._proxy_rotator.proxies = (self._socks_proxy("http://1.2.3.4:8080"),)
+        mock_filter_socks5.return_value = []
+        await worker._gate_probe_batch(batch_size=5)
+        worker._proxy_status_repo.record.assert_not_awaited()
+
+    @patch("archiver.worker.filter_gate_passing", new_callable=AsyncMock)
+    @patch("archiver.worker.filter_by_asn", new_callable=AsyncMock)
+    @patch("archiver.worker.filter_socks5")
+    async def test_already_passing_candidates_skipped(
+        self,
+        mock_filter_socks5: MagicMock,
+        mock_filter_by_asn: AsyncMock,
+        mock_filter_gate: AsyncMock,
+    ) -> None:
+        """If every healthy SOCKS5 is already on the passing list, no probe."""
+        proxy = self._socks_proxy("socks5://1.2.3.4:1080")
+        worker, _ = _make_worker()
+        worker._proxy_rotator.proxies = (proxy,)
+        mock_filter_socks5.return_value = [proxy]
+        # Existing passing list contains this proxy.
+        worker._proxy_status_repo.list_passing = AsyncMock(
+            return_value=[proxy.server],
+        )
+
+        await worker._gate_probe_batch(batch_size=5)
+
+        # ASN filter and gate probe should never have been called.
+        mock_filter_by_asn.assert_not_awaited()
+        mock_filter_gate.assert_not_awaited()
+        worker._proxy_status_repo.record.assert_not_awaited()
+
+    @patch("archiver.worker.filter_gate_passing", new_callable=AsyncMock)
+    @patch("archiver.worker.filter_by_asn", new_callable=AsyncMock)
+    @patch("archiver.worker.filter_socks5")
+    async def test_unfiltered_fallback_when_consumer_empty(
+        self,
+        mock_filter_socks5: MagicMock,
+        mock_filter_by_asn: AsyncMock,
+        mock_filter_gate: AsyncMock,
+    ) -> None:
+        """ASN filter empty → fall back to unfiltered candidates."""
+        proxies = [self._socks_proxy(f"socks5://1.2.3.{i}:1080") for i in range(3)]
+        worker, _ = _make_worker()
+        worker._proxy_rotator.proxies = tuple(proxies)
+        mock_filter_socks5.return_value = proxies
+        mock_filter_by_asn.return_value = []   # no consumer-ASN passers
+        # One of the three passed the gate.
+        mock_filter_gate.return_value = [proxies[1]]
+
+        await worker._gate_probe_batch(batch_size=10)
+
+        # All three got recorded — gate_passing True for one, False for two.
+        assert worker._proxy_status_repo.record.await_count == 3
+        record_calls = worker._proxy_status_repo.record.await_args_list
+        # gate_passing kw is True for exactly one record call.
+        passing_count = sum(
+            1 for c in record_calls if c.kwargs.get("gate_passing") is True
+        )
+        assert passing_count == 1
+
+    @patch("archiver.worker.filter_gate_passing", new_callable=AsyncMock)
+    @patch("archiver.worker.filter_by_asn", new_callable=AsyncMock)
+    @patch("archiver.worker.filter_socks5")
+    async def test_consumer_subset_used_when_present(
+        self,
+        mock_filter_socks5: MagicMock,
+        mock_filter_by_asn: AsyncMock,
+        mock_filter_gate: AsyncMock,
+    ) -> None:
+        """Consumer-ASN subset preferred over datacenter sample."""
+        all_proxies = [
+            self._socks_proxy(f"socks5://1.2.3.{i}:1080") for i in range(5)
+        ]
+        consumer_subset = all_proxies[:2]  # first two flagged consumer
+        worker, _ = _make_worker()
+        worker._proxy_rotator.proxies = tuple(all_proxies)
+        mock_filter_socks5.return_value = all_proxies
+        mock_filter_by_asn.return_value = consumer_subset
+        mock_filter_gate.return_value = consumer_subset[:1]
+
+        await worker._gate_probe_batch(batch_size=5)
+
+        # Only consumer proxies should have been gate-probed and recorded.
+        assert worker._proxy_status_repo.record.await_count == 2
+        recorded_servers = {
+            c.args[1] for c in worker._proxy_status_repo.record.await_args_list
+        }
+        assert recorded_servers == {p.server for p in consumer_subset}
+
+
+class TestProcessJobDispatch:
+    """Cover the _dispatch() dispatcher inside _process_job_inner, which the
+    unit-level _capture_via_X tests bypass by calling the methods directly."""
+
+    @patch("archiver.worker.save_artifacts", new_callable=AsyncMock,
+           return_value="ar/20260514")
+    async def test_privacy_frontend_tier_dispatch_sets_source(
+        self, _mock_save: AsyncMock,
+    ) -> None:
+        """job.tier=PRIVACY_FRONTEND routes to _capture_via_privacy_frontend
+        and the COMPLETE row gets source=PRIVACY_FRONTEND."""
+        worker, _ = _make_worker()
+        job = _make_job(tier=CaptureTier.PRIVACY_FRONTEND)
+        worker._archive_repo.get_by_id = AsyncMock(
+            return_value=_make_archive()
+        )
+        worker._capture_via_privacy_frontend = AsyncMock(
+            return_value=_make_capture_result(),
+        )
+        await worker._process_job(job)
+
+        # update_status called with source=PRIVACY_FRONTEND
+        call_kwargs = worker._archive_repo.update_status.await_args.kwargs
+        assert call_kwargs.get("source") == CaptureSource.PRIVACY_FRONTEND
+
+
+class TestCaptureViaWaybackErrors:
+    """Cover wayback's not-found and SPN-fail branches."""
+
+    @patch("archiver.worker.save_to_wayback", new_callable=AsyncMock)
+    @patch("archiver.worker.check_wayback_availability", new_callable=AsyncMock)
+    async def test_spn_returns_none_raises(
+        self,
+        mock_check: AsyncMock,
+        mock_save: AsyncMock,
+    ) -> None:
+        """URL missing from Wayback + SPN submission failed → CaptureError."""
+        from archiver.errors import CaptureError
+
+        worker, _ = _make_worker()
+        mock_check.return_value = None       # not in Wayback
+        mock_save.return_value = None        # SPN failed
+        worker._browser_pool.get_browser = AsyncMock(return_value=AsyncMock())
+
+        with pytest.raises(CaptureError, match="not in Wayback"):
+            await worker._capture_via_wayback("https://example.com")
+
+
+class TestCaptureViaArchiveTodaySubmitErrors:
+    async def test_no_proxy_raises_capture_error(self) -> None:
+        """Empty SOCKS5 pool → CaptureError before Camoufox launch."""
+        worker, _ = _make_worker()
+        # _proxy_status_repo.list_passing returns [] by default in _make_worker.
+        with pytest.raises(CaptureError, match="no gate-passing proxy"):
+            await worker._capture_via_archive_today_submit(
+                "https://example.com",
+            )
