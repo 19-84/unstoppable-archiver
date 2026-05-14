@@ -74,7 +74,12 @@ class TestCaptureViaCli:
         proc.returncode = 0
         mock_exec.return_value = proc
 
-        result = await capture_via_cli("https://example.com")
+        # browser_path bypasses _discover_chromium_for_cli — that probes
+        # the host filesystem for an installed Chromium and fails in
+        # CI / sandboxed test envs that only have the Playwright bundle.
+        result = await capture_via_cli(
+            "https://example.com", browser_path="/fake/chromium",
+        )
         assert result == "<html>captured</html>"
 
     @patch("archiver.singlefile.asyncio.create_subprocess_exec")
@@ -87,7 +92,9 @@ class TestCaptureViaCli:
         mock_exec.return_value = proc
 
         with pytest.raises(CaptureError, match="single-file-cli exit 1"):
-            await capture_via_cli("https://example.com")
+            await capture_via_cli(
+                "https://example.com", browser_path="/fake/chromium",
+            )
 
     @patch("archiver.singlefile.asyncio.create_subprocess_exec")
     async def test_timeout_kills_process(self, mock_exec: MagicMock) -> None:
@@ -97,7 +104,11 @@ class TestCaptureViaCli:
         mock_exec.return_value = proc
 
         with pytest.raises(CaptureError, match="timed out"):
-            await capture_via_cli("https://example.com", timeout=1)
+            await capture_via_cli(
+                "https://example.com",
+                browser_path="/fake/chromium",
+                timeout=1,
+            )
         proc.kill.assert_called_once()
 
     @patch("archiver.singlefile.asyncio.create_subprocess_exec")

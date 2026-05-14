@@ -111,6 +111,23 @@ pythonVersion = "3.12"
 typeCheckingMode = "strict"
 include = ["src", "tests"]
 exclude = ["**/__pycache__", ".venv", "build"]
+# Point pyright at the uv-managed venv so it can resolve asyncpg,
+# structlog, beartype, ulid, asyncpg-stubs, etc. Without these keys
+# pyright didn't find site-packages and reported every third-party
+# import as missing — which cascaded into thousands of Unknown-type
+# errors downstream. The deps were already installed; pyright just
+# didn't know where to look.
+venvPath = "."
+venv = ".venv"
+# Per-path overrides: tests routinely poke _private attrs of the unit
+# under test (mocking _job_repo, asserting on _process_job_inner, etc).
+# That's the established test pattern in this codebase, not a code
+# smell to fix in src/. Disabling reportPrivateUsage globally would
+# hide real misuse in src/; the executionEnvironments override scopes
+# it to the test tree only.
+executionEnvironments = [
+    { root = "tests", reportPrivateUsage = "none" },
+]
 strictListInference = true
 strictDictionaryInference = true
 strictSetInference = true
