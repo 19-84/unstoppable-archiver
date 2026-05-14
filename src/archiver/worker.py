@@ -1019,40 +1019,103 @@ class Worker:
         return random.choice(passing)  # noqa: S311 — not security-sensitive
 
     async def _gate_probe_loop(self) -> None:  # pragma: no cover
-        """Periodically gate-probe a bounded sample against archive.ph.
+        """Periodically gate-probe SOCKS5 candidates against archive.ph.
 
-        Kept separate from the startup health check because each probe
-        launches a fresh Camoufox (~6-15 s). We batch 10 probes at a
-        time, then wait an hour — enough to refresh the gate-passing
-        set without turning into a sustained load on archive.ph.
+        Each iteration does two things:
 
-        Probes SOCKS5 candidates from the in-memory rotator. We
-        previously preferred consumer-ASN entries here (per a prior
-        empirical finding that datacenter ASNs pass ~0 % at
-        archive.ph's CF gate) but fall back to unfiltered when the
-        consumer pool is empty — better some probing than none.
-        Results land in proxy_status; tier-5 reads pick from
-        there via ProxyStatusRepository.list_passing.
+        1. **Re-verify** the oldest still-passing entries. The 24 h
+           freshness window means a row marked `gate_passing=true` 23 h
+           ago still counts as passing today — even if the proxy died
+           hours ago. Re-probing oldest-first flips those to
+           `passing=false` before the capture path tries to use them.
+
+        2. **Probe new candidates** from the rotator. ASN-filtered for
+           consumer first, unfiltered fallback when the consumer pool
+           is empty (cloud-hosted SOCKS5 dominate public lists).
+
+        Cadence is adaptive on the current pool depth:
+        - <5 fresh passers      → 10 min sleep, batch size 20 (urgent)
+        - <15 fresh passers     → 30 min sleep, batch size 15 (building)
+        - 15+ fresh passers     → 60 min sleep, batch size 10 (healthy)
+
+        Each Camoufox probe costs ~6-15 s; concurrency 3 keeps load on
+        archive.ph well below their tolerance even at the urgent rate.
         """
         # Event-driven warmup: wait until the rotator has been
-        # populated by filter_healthy. A static 60s timer races
-        # filter_healthy on large lists and can land before the
-        # rotator is ready, costing us a full hour-long sleep on the
-        # first iteration.
+        # populated by filter_healthy. A static timer races
+        # filter_healthy on large lists.
         while self._running and not self._proxy_rotator.proxies:
             await asyncio.sleep(5)
         while self._running:
             try:
-                await self._gate_probe_batch(batch_size=10)
+                await self._gate_probe_iter()
             except Exception as exc:
                 log.warning(
-                    "worker.gate_probe_batch_failed", error=str(exc)
+                    "worker.gate_probe_iter_failed", error=str(exc)
                 )
-            # Sleep in short increments so shutdown is responsive.
-            for _ in range(3600):
+            # Pool-depth-adaptive sleep.
+            assert self._pool is not None  # noqa: S101
+            async with self._pool.acquire() as conn:
+                pool_size = len(
+                    await self._proxy_status_repo.list_passing(conn)
+                )
+            if pool_size < 5:                       # noqa: PLR2004
+                sleep_s = 600   # 10 min
+            elif pool_size < 15:                    # noqa: PLR2004
+                sleep_s = 1800  # 30 min
+            else:
+                sleep_s = 3600  # 1 h
+            log.info(
+                "worker.gate_probe_sleeping",
+                pool_size=pool_size, sleep_s=sleep_s,
+            )
+            for _ in range(sleep_s):
                 if not self._running:
                     return
                 await asyncio.sleep(1)
+
+    async def _gate_probe_iter(self) -> None:  # pragma: no cover
+        """One pass: re-verify oldest passers, then probe new candidates."""
+        assert self._pool is not None  # noqa: S101
+
+        # Determine current pool depth → batch size for new candidates.
+        async with self._pool.acquire() as conn:
+            pool_size = len(
+                await self._proxy_status_repo.list_passing(conn)
+            )
+        if pool_size < 5:                           # noqa: PLR2004
+            new_batch = 20
+        elif pool_size < 15:                        # noqa: PLR2004
+            new_batch = 15
+        else:
+            new_batch = 10
+
+        # Step 1: re-verify up to 5 of the oldest passers. Catches
+        # entries that died inside the 24 h freshness window before
+        # they get served to capture-path consumers.
+        async with self._pool.acquire() as conn:
+            stale = await self._proxy_status_repo.list_passing_oldest(
+                conn, limit=5,
+            )
+        if stale:
+            stale_configs = [ProxyConfig(server=s) for s in stale]
+            log.info("worker.gate_reverify_start", count=len(stale))
+            passing = await filter_gate_passing(
+                stale_configs, concurrency=3,
+            )
+            async with self._pool.acquire() as conn:
+                for proxy in stale_configs:
+                    await self._proxy_status_repo.record(
+                        conn, proxy.server,
+                        gate_passing=proxy in passing,
+                    )
+            log.info(
+                "worker.gate_reverify_done",
+                tried=len(stale_configs), still_passing=len(passing),
+            )
+
+        # Step 2: probe new candidates.
+        await self._gate_probe_batch(batch_size=new_batch)
 
     async def _gate_probe_batch(self, batch_size: int) -> None:
         """Gate-probe up to `batch_size` fresh candidates."""

@@ -821,6 +821,31 @@ class ProxyStatusRepository:
         return [r["proxy_server"] for r in rows]
 
     @beartype
+    async def list_passing_oldest(
+        self, conn: PgConnection, limit: int, max_age_hours: int = 24,
+    ) -> list[str]:
+        """Return the `limit` oldest still-passing proxies (about to age out).
+
+        Used by the gate-probe loop to re-verify candidates that were
+        passing N hours ago — many proxies die silently between probes,
+        and without re-verification the pool fills with stale `passing`
+        rows that no longer answer at capture time. Re-probing oldest
+        first catches death just before the 24 h freshness window
+        expires.
+        """
+        rows = await conn.fetch(
+            """
+            SELECT proxy_server FROM proxy_status
+            WHERE gate_passing = true
+              AND last_checked_at > now() - make_interval(hours => $1)
+            ORDER BY last_checked_at ASC
+            LIMIT $2
+            """,
+            max_age_hours, limit,
+        )
+        return [r["proxy_server"] for r in rows]
+
+    @beartype
     async def evict_dead(
         self, conn: PgConnection, failure_threshold: int = 3
     ) -> int:
