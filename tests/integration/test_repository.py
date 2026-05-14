@@ -783,7 +783,7 @@ class TestFrontendStatusRepository:
                 conn, "https://inst", "reddit.com",
                 content_verified=False,
             )
-            row = await repo.get(conn, "https://inst")
+            row = await repo.get(conn, "https://inst", "reddit.com")
             assert row is not None
             assert row["content_verified"] is False
             assert row["consecutive_failures"] == 1
@@ -799,21 +799,42 @@ class TestFrontendStatusRepository:
                     conn, "https://inst", "medium.com",
                     content_verified=False,
                 )
-            row = await repo.get(conn, "https://inst")
+            row = await repo.get(conn, "https://inst", "medium.com")
             assert row is not None
             assert row["consecutive_failures"] == 3  # noqa: PLR2004
             await repo.record(
                 conn, "https://inst", "medium.com",
                 content_verified=True,
             )
-            row2 = await repo.get(conn, "https://inst")
+            row2 = await repo.get(conn, "https://inst", "medium.com")
             assert row2 is not None
             assert row2["consecutive_failures"] == 0
+
+    async def test_same_instance_two_apexes_independent(
+        self, pool: asyncpg.pool.Pool
+    ) -> None:
+        """xcancel.com fronts twitter.com AND x.com — separate rows."""
+        repo = FrontendStatusRepository()
+        async with pool.acquire() as conn:
+            await repo.record(
+                conn, "https://xcancel.com", "twitter.com",
+                content_verified=True,
+            )
+            await repo.record(
+                conn, "https://xcancel.com", "x.com",
+                content_verified=False,
+            )
+            t = await repo.get(conn, "https://xcancel.com", "twitter.com")
+            x = await repo.get(conn, "https://xcancel.com", "x.com")
+            assert t is not None and t["content_verified"] is True
+            assert x is not None and x["content_verified"] is False
 
     async def test_get_missing_returns_none(
         self, pool: asyncpg.pool.Pool
     ) -> None:
         repo = FrontendStatusRepository()
         async with pool.acquire() as conn:
-            assert await repo.get(conn, "https://unseen") is None
+            assert (
+                await repo.get(conn, "https://unseen", "medium.com") is None
+            )
 

@@ -915,7 +915,7 @@ class FrontendStatusRepository:
         *,
         content_verified: bool,
     ) -> None:
-        """Upsert a probe outcome."""
+        """Upsert a probe outcome for the (instance, apex) pair."""
         await conn.execute(
             """
             INSERT INTO frontend_status
@@ -923,8 +923,7 @@ class FrontendStatusRepository:
                  consecutive_failures, last_checked_at)
             VALUES ($1, $2, $3,
                     CASE WHEN $3 THEN 0 ELSE 1 END, now())
-            ON CONFLICT (frontend_base) DO UPDATE SET
-                target_apex = $2,
+            ON CONFLICT (frontend_base, target_apex) DO UPDATE SET
                 content_verified = $3,
                 consecutive_failures = CASE
                     WHEN $3 THEN 0
@@ -965,13 +964,15 @@ class FrontendStatusRepository:
         self,
         conn: PgConnection,
         frontend_base: str,
+        target_apex: str,
     ) -> dict[str, Any] | None:
-        """Return the status row or None if unseen."""
+        """Return the status row for (instance, apex) or None if unseen."""
         row = await conn.fetchrow(
             "SELECT frontend_base, target_apex, content_verified,"
             " last_checked_at, consecutive_failures"
-            " FROM frontend_status WHERE frontend_base = $1",
-            frontend_base,
+            " FROM frontend_status"
+            " WHERE frontend_base = $1 AND target_apex = $2",
+            frontend_base, target_apex,
         )
         if row is None:
             return None

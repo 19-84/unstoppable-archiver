@@ -153,13 +153,39 @@ CREATE INDEX IF NOT EXISTS idx_proxy_status_passing
 -- where a canonical test URL renders with the expected marker are
 -- marked passing. Reads at capture time filter on
 -- (target_apex, content_verified) to skip dead / gated frontends.
+--
+-- Composite PK (frontend_base, target_apex): a single instance can
+-- front multiple apexes (xcancel.com serves both twitter.com and
+-- x.com). Each (instance, apex) tuple is probed and recorded
+-- independently — even though the probe outcome is usually the same,
+-- we shouldn't conflate them at the DB level.
 CREATE TABLE IF NOT EXISTS frontend_status (
-    frontend_base TEXT PRIMARY KEY,
+    frontend_base TEXT NOT NULL,
     target_apex TEXT NOT NULL,
     content_verified BOOLEAN NOT NULL DEFAULT false,
     last_checked_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    consecutive_failures INTEGER NOT NULL DEFAULT 0
+    consecutive_failures INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (frontend_base, target_apex)
 );
+-- Migrate dev DBs that picked up the original frontend_base-only PK.
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.table_constraints
+        WHERE table_name = 'frontend_status'
+          AND constraint_type = 'PRIMARY KEY'
+          AND constraint_name = 'frontend_status_pkey'
+    ) AND NOT EXISTS (
+        SELECT 1 FROM information_schema.key_column_usage
+        WHERE table_name = 'frontend_status'
+          AND constraint_name = 'frontend_status_pkey'
+          AND column_name = 'target_apex'
+    ) THEN
+        ALTER TABLE frontend_status DROP CONSTRAINT frontend_status_pkey;
+        ALTER TABLE frontend_status
+            ADD PRIMARY KEY (frontend_base, target_apex);
+    END IF;
+END$$;
 CREATE INDEX IF NOT EXISTS idx_frontend_status_verified
     ON frontend_status(target_apex, last_checked_at DESC)
     WHERE content_verified = true;
