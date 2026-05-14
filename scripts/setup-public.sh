@@ -33,6 +33,16 @@ SESSION_SECRET=$(openssl rand -hex 32)
 echo "Generating DB password..."
 DB_PASSWORD=$(openssl rand -hex 24)
 
+# Public domain + ACME contact email — required for the bundled Caddy
+# service to provision Let's Encrypt TLS. DNS for $PUBLIC_DOMAIN must
+# resolve to this host before starting the stack or the ACME HTTP-01
+# challenge fails and Caddy retries with backoff.
+echo
+read -rp "Public domain (e.g. archive.example.com): " PUBLIC_DOMAIN
+[[ -n "$PUBLIC_DOMAIN" ]] || { echo "error: domain required" >&2; exit 1; }
+read -rp "ACME contact email (for cert expiry alerts): " ACME_EMAIL
+[[ "$ACME_EMAIL" =~ @ ]] || { echo "error: invalid email" >&2; exit 1; }
+
 # Optional blocklist
 echo
 read -rp "Enable StevenBlack porn blocklist? [Y/n] " bl
@@ -48,6 +58,8 @@ cat > .env <<EOF
 ARCHIVER_DB_PASSWORD=$DB_PASSWORD
 ARCHIVER_ADMIN_PASSWORD_HASH=$ADMIN_HASH
 ARCHIVER_SESSION_SECRET=$SESSION_SECRET
+ARCHIVER_PUBLIC_DOMAIN=$PUBLIC_DOMAIN
+ARCHIVER_ACME_EMAIL=$ACME_EMAIL
 ARCHIVER_BLOCKLIST_URLS=$BLOCKLIST_URL
 ARCHIVER_BLOCKLIST_DOMAINS=
 ARCHIVER_ALLOWLIST_DOMAINS=
@@ -61,9 +73,10 @@ echo "=== Setup complete ==="
 echo "Wrote .env (mode 600)"
 echo
 echo "Next steps:"
-echo "  1. Review .env — add any additional blocklist URLs or allowlist overrides"
-echo "  2. Set up HTTPS reverse proxy (see deploy/Caddyfile.example)"
+echo "  1. Point DNS A/AAAA for $PUBLIC_DOMAIN at this host"
+echo "  2. Make sure ports 80/443 are reachable (firewall, NAT, etc.)"
 echo "  3. Start the stack:"
 echo "       make run-public"
-echo "  4. Visit https://your-domain/admin/ and log in"
-echo "  5. Check /admin/ dashboard to confirm blocklist loaded"
+echo "  4. Caddy will request a Let's Encrypt cert on first request"
+echo "     (watch logs:  docker compose logs caddy -f)"
+echo "  5. Visit https://$PUBLIC_DOMAIN/admin/ and log in"

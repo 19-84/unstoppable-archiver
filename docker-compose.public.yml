@@ -5,8 +5,12 @@
 # Or via Makefile:
 #   make run-public
 #
-# IMPORTANT: run behind a reverse proxy that terminates TLS (see deploy/Caddyfile).
-# App binds to 127.0.0.1:8000; your proxy forwards the public HTTPS port.
+# Bundles a Caddy reverse proxy that terminates TLS via Let's Encrypt
+# ACME on ports 80/443. Set ARCHIVER_PUBLIC_DOMAIN (DNS must resolve
+# to this host first) + ARCHIVER_ACME_EMAIL in .env.
+#
+# To run behind your own external proxy instead, override the `caddy`
+# service to ports: !override [] and bind the app to 127.0.0.1:8000.
 services:
   postgres:
     # DB not exposed to host — inter-container only
@@ -16,9 +20,9 @@ services:
     restart: always
 
   app:
-    # Bind to localhost — reverse proxy exposes 443 to the public
-    ports:
-      - "127.0.0.1:8000:8000"
+    # Public mode: app is not host-bound. Caddy proxies inter-container
+    # at app:8000 over the compose network.
+    ports: !override []
     environment:
       ARCHIVER_MODE: public
       ARCHIVER_LOG_FORMAT: json
@@ -55,3 +59,31 @@ services:
       ARCHIVER_LOG_LEVEL: INFO
       ARCHIVER_DB_URL: postgresql://archiver:${ARCHIVER_DB_PASSWORD}@postgres:5432/archiver
     restart: always
+
+  caddy:
+    image: caddy:2-alpine
+    ports:
+      - "80:80"     # ACME HTTP-01 + HTTP->HTTPS redirect
+      - "443:443"   # public HTTPS
+      - "443:443/udp"  # HTTP/3
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data       # ACME-issued certs survive restarts
+      - caddy_config:/config   # autosaved JSON config
+    environment:
+      # DNS for this domain MUST point here before stack starts; ACME
+      # HTTP-01 needs port 80 to resolve back to this host or the cert
+      # request fails and Caddy retries with exponential backoff.
+      ARCHIVER_PUBLIC_DOMAIN: ${ARCHIVER_PUBLIC_DOMAIN}
+      ARCHIVER_ACME_EMAIL: ${ARCHIVER_ACME_EMAIL}
+    depends_on:
+      app:
+        condition: service_healthy
+    restart: always
+    mem_limit: 256m
+    memswap_limit: 256m
+    cpus: 1.0
+
+volumes:
+  caddy_data:
+  caddy_config:

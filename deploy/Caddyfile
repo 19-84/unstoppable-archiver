@@ -1,0 +1,58 @@
+# Caddyfile for the bundled `caddy` compose service (public deployment).
+#
+# This file is the template the container loads. To customise:
+#   1. Copy to `Caddyfile.local`, edit, and reference that via
+#      CADDY_CONFIG_FILE in your .env, OR
+#   2. Edit this file directly and rebuild (it's bind-mounted read-only
+#      so a `docker compose restart caddy` picks up changes).
+#
+# The site domain is taken from the env var $ARCHIVER_PUBLIC_DOMAIN
+# (set in .env). Caddy auto-provisions Let's Encrypt TLS for it on
+# the first request to port 443. Set $ARCHIVER_PUBLIC_DOMAIN to a
+# domain whose DNS A/AAAA points at this host BEFORE starting the
+# stack — ACME's HTTP-01 challenge needs port 80 to resolve back here.
+
+{$ARCHIVER_PUBLIC_DOMAIN} {
+	# ACME contact email (rate-limit / expiry alerts go here)
+	tls {$ARCHIVER_ACME_EMAIL}
+
+	# Hardening headers
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		Permissions-Policy "interest-cohort=()"
+		# Snapshot routes set their own per-response CSP (sandbox);
+		# this baseline applies to everything else.
+		Content-Security-Policy "frame-ancestors 'self'"
+		-Server
+	}
+
+	# SingleFile HTML can be large on heavy pages but rarely tops 50 MB.
+	# Cap at 100 MB; submissions exceeding this almost always indicate
+	# an abuse pattern, not a legitimate archive request.
+	request_body {
+		max_size 100MB
+	}
+
+	reverse_proxy app:8000 {
+		# Caddy auto-forwards X-Forwarded-For / Proto / Host by default;
+		# explicit header_up lines for those would just be redundant
+		# (caddy fmt warns on them). The app's
+		# ARCHIVER_TRUSTED_PROXIES=true setting picks the header up so
+		# rate-limit + reporter_ip_hash see the real submitter IP.
+
+		# Health check from Caddy to app; saves an outage from showing
+		# 502 for a few seconds during app restarts.
+		health_uri /api/health
+		health_interval 10s
+		health_timeout 3s
+	}
+
+	# Block common scanner paths at the edge so they never reach the
+	# app and don't pollute its logs.
+	@scanners {
+		path /wp-admin* /wp-login* /phpmyadmin* /.env /.git* /.aws*
+	}
+	respond @scanners 404
+}
