@@ -30,6 +30,12 @@ dependencies = [
     "bcrypt>=4.2",
     "itsdangerous>=2.2",
     "prometheus-client>=0.23",
+    # zstd compression of snapshot.html — plain HTML compresses ~5x.
+    # Archives stay forever so disk grows monotonically; compressing
+    # the largest per-archive file makes that growth ~5x cheaper.
+    # Pure-Rust wheel, no system deps; level 19 (slow compress, fast
+    # decompress, max ratio) is the chosen knob.
+    "zstandard>=0.23",
 ]
 
 [project.optional-dependencies]

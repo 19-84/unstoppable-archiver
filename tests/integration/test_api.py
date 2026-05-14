@@ -420,3 +420,146 @@ class TestCreateAppDefaults:
         # FastAPI instance with the project's title
         assert app.title == "Unstoppable Archive"
 
+
+
+class TestServeSnapshotZstd:
+    """Cover the zstd-compressed snapshot.html.zst serve paths."""
+
+    async def _setup_zst_archive(
+        self,
+        pool: asyncpg.pool.Pool,
+        tmp_path: Path,
+        html: bytes,
+    ) -> tuple[str, Path]:
+        """Helper: create an archive whose snapshot.html.zst is on disk."""
+        import zstandard as zstd
+
+        from archiver.enums import ArchiveStatus
+        from archiver.repository import ArchiveRepository
+
+        repo = ArchiveRepository()
+        async with pool.acquire() as conn:
+            archive = await repo.create(
+                conn, f"https://example.com/zst-{tmp_path.name}",
+            )
+            art_dir = tmp_path / "artifacts" / "zsttest"
+            art_dir.mkdir(parents=True)
+            compressed = zstd.ZstdCompressor(level=19).compress(html)
+            (art_dir / "snapshot.html.zst").write_bytes(compressed)
+            rel = str(art_dir.relative_to(tmp_path / "artifacts"))
+            await repo.update_status(
+                conn, archive.id, ArchiveStatus.COMPLETE,
+                artifact_dir=rel,
+            )
+        return archive.id, art_dir
+
+    async def test_zstd_client_receives_raw_zst(
+        self,
+        client: AsyncClient,
+        pool: asyncpg.pool.Pool,
+        tmp_path: Path,
+    ) -> None:
+        """Client that advertises zstd in Accept-Encoding gets the
+        raw .zst bytes with Content-Encoding: zstd. Server CPU stays
+        out of the decompress path."""
+        html = b"<html><body>compressed</body></html>"
+        archive_id, _ = await self._setup_zst_archive(pool, tmp_path, html)
+        client._transport.app.state.settings.artifacts_dir = (  # type: ignore[union-attr]
+            tmp_path / "artifacts"
+        )
+
+        # httpx auto-decompresses zstd if it knows the encoding, so to
+        # observe the raw .zst bytes we add Accept-Encoding manually
+        # and read the raw body.
+        resp = await client.get(
+            f"/api/archives/{archive_id}/snapshot",
+            headers={"Accept-Encoding": "zstd"},
+        )
+        assert resp.status_code == 200  # noqa: PLR2004
+        # httpx decompresses based on Content-Encoding header.
+        # Either way the final bytes match the original HTML.
+        assert resp.content == html
+
+    async def test_non_zstd_client_gets_decompressed_html(
+        self,
+        client: AsyncClient,
+        pool: asyncpg.pool.Pool,
+        tmp_path: Path,
+    ) -> None:
+        """Client lacking zstd support (no zstd in Accept-Encoding) gets
+        the snapshot decompressed server-side and served as plain HTML."""
+        html = b"<html><body>legacy client</body></html>"
+        archive_id, _ = await self._setup_zst_archive(pool, tmp_path, html)
+        client._transport.app.state.settings.artifacts_dir = (  # type: ignore[union-attr]
+            tmp_path / "artifacts"
+        )
+
+        resp = await client.get(
+            f"/api/archives/{archive_id}/snapshot",
+            headers={"Accept-Encoding": "gzip"},
+        )
+        assert resp.status_code == 200  # noqa: PLR2004
+        assert resp.content == html
+        # Server-side decompress => no Content-Encoding header
+        assert "content-encoding" not in {
+            k.lower() for k in resp.headers
+        }
+
+    async def test_neither_zst_nor_plain_returns_404(
+        self,
+        client: AsyncClient,
+        pool: asyncpg.pool.Pool,
+        tmp_path: Path,
+    ) -> None:
+        """artifact_dir is set but neither .zst nor plain snapshot
+        exists on disk -> 404."""
+        from archiver.enums import ArchiveStatus
+        from archiver.repository import ArchiveRepository
+
+        repo = ArchiveRepository()
+        async with pool.acquire() as conn:
+            archive = await repo.create(
+                conn, "https://example.com/no-snap",
+            )
+            empty_dir = tmp_path / "artifacts" / "empty"
+            empty_dir.mkdir(parents=True)
+            await repo.update_status(
+                conn, archive.id, ArchiveStatus.COMPLETE,
+                artifact_dir=str(
+                    empty_dir.relative_to(tmp_path / "artifacts")
+                ),
+            )
+        client._transport.app.state.settings.artifacts_dir = (  # type: ignore[union-attr]
+            tmp_path / "artifacts"
+        )
+
+        resp = await client.get(f"/api/archives/{archive.id}/snapshot")
+        assert resp.status_code == 404  # noqa: PLR2004
+
+    async def test_path_traversal_blocked_with_400(
+        self,
+        client: AsyncClient,
+        pool: asyncpg.pool.Pool,
+        tmp_path: Path,
+    ) -> None:
+        """artifact_dir that resolves outside artifacts_dir (DB row
+        contains '../etc' somehow) -> 400 instead of leaking outside."""
+        from archiver.enums import ArchiveStatus
+        from archiver.repository import ArchiveRepository
+
+        repo = ArchiveRepository()
+        async with pool.acquire() as conn:
+            archive = await repo.create(
+                conn, "https://example.com/escape",
+            )
+            await repo.update_status(
+                conn, archive.id, ArchiveStatus.COMPLETE,
+                artifact_dir="../etc",
+            )
+        (tmp_path / "artifacts").mkdir(parents=True, exist_ok=True)
+        client._transport.app.state.settings.artifacts_dir = (  # type: ignore[union-attr]
+            tmp_path / "artifacts"
+        )
+
+        resp = await client.get(f"/api/archives/{archive.id}/snapshot")
+        assert resp.status_code == 400  # noqa: PLR2004

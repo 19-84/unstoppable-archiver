@@ -578,6 +578,7 @@ class TestSaveArtifacts:
     async def test_creates_directory_and_files(
         self, tmp_path: Path
     ) -> None:
+        import zstandard as zstd
         result = CaptureResult(
             snapshot_html=b"<html>test</html>",
             screenshot_png=_make_tiny_png(),
@@ -595,10 +596,41 @@ class TestSaveArtifacts:
         )
 
         out_dir = tmp_path / rel_dir
-        assert (out_dir / "snapshot.html").exists()
+        # snapshot.html is zstd-compressed at write time; the legacy
+        # plain file should NOT be present and the .zst must round-trip
+        # back to the exact original bytes.
+        assert (out_dir / "snapshot.html.zst").exists()
+        assert not (out_dir / "snapshot.html").exists()
         assert (out_dir / "screenshot.png").exists()
         assert (out_dir / "thumbnail.png").exists()
-        assert (out_dir / "snapshot.html").read_bytes() == b"<html>test</html>"
+        decompressed = zstd.ZstdDecompressor().decompress(
+            (out_dir / "snapshot.html.zst").read_bytes()
+        )
+        assert decompressed == b"<html>test</html>"
+
+    async def test_compression_ratio_better_than_2x(
+        self, tmp_path: Path
+    ) -> None:
+        """Plain HTML should compress at least 2x -- guards against a
+        future regression accidentally writing uncompressed bytes."""
+        repetitive_html = (b"<div>hello world</div>" * 1000)
+        result = CaptureResult(
+            snapshot_html=repetitive_html,
+            screenshot_png=_make_tiny_png(),
+            thumbnail_png=_make_tiny_png(),
+            text_content="",
+            title="Test",
+            warc_path=None,
+            warc_size=0,
+            content_hash="abc",
+            screenshot_hash="def",
+        )
+        rel_dir = await save_artifacts(result, "h", tmp_path)
+        compressed = (tmp_path / rel_dir / "snapshot.html.zst").stat().st_size
+        assert compressed * 2 < len(repetitive_html), (
+            f"expected >=2x compression, got "
+            f"{len(repetitive_html)} -> {compressed}"
+        )
 
     async def test_moves_warc_file(
         self, tmp_path: Path

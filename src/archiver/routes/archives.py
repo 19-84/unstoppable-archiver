@@ -9,7 +9,7 @@ from typing import Annotated
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 
 from archiver.blocklist import DomainBlocklist
 from archiver.deps import get_blocklist, get_client_ip_hash, get_db, require_api_key
@@ -161,26 +161,83 @@ def _get_artifact_path(
     return path
 
 
+_SNAPSHOT_HEADERS = {
+    "Content-Security-Policy": (
+        "sandbox; default-src 'none'; style-src 'unsafe-inline';"
+        " img-src data: blob:"
+    ),
+    "X-Content-Type-Options": "nosniff",
+}
+
+
 @router.get("/{archive_id}/snapshot")
 async def get_snapshot(
     archive_id: str,
     conn: Annotated[PgConnection, Depends(get_db)],
     request: Request,
-) -> FileResponse:
-    """Serve the archived HTML snapshot."""
+) -> Response:
+    """Serve the archived HTML snapshot.
+
+    New archives are written as `snapshot.html.zst` (zstd level 19,
+    ~5x smaller on plain HTML). The serve path picks:
+
+    1. If `snapshot.html.zst` exists AND the client advertised zstd in
+       `Accept-Encoding`: stream the raw .zst bytes with
+       `Content-Encoding: zstd` — modern browsers (Chrome/Edge ≥125,
+       Firefox ≥126) decode natively, no server CPU.
+    2. If `snapshot.html.zst` exists but the client didn't ask for zstd
+       (curl, old Safari, etc.): decompress server-side and serve plain.
+    3. Otherwise fall back to a legacy uncompressed `snapshot.html`
+       (pre-compression captures).
+    """
     archive = await _archive_repo.get_by_id(conn, archive_id)
     if archive is None:
         raise HTTPException(status_code=404, detail="Archive not found")
-    path = _get_artifact_path(
-        archive, "snapshot.html", request.app.state.settings.artifacts_dir
-    )
-    return FileResponse(
-        path,
-        media_type="text/html",
-        headers={
-            "Content-Security-Policy": "sandbox; default-src 'none'; style-src 'unsafe-inline'; img-src data: blob:",
-            "X-Content-Type-Options": "nosniff",
-        },
+    if not archive.artifact_dir:
+        raise HTTPException(
+            status_code=404, detail="Archive has no artifacts",
+        )
+
+    artifacts_dir: Path = request.app.state.settings.artifacts_dir
+    base = artifacts_dir.resolve()
+    archive_dir = (base / archive.artifact_dir).resolve()
+    if not archive_dir.is_relative_to(base):
+        raise HTTPException(status_code=400, detail="Invalid artifact path")
+
+    zst_path = archive_dir / "snapshot.html.zst"
+    plain_path = archive_dir / "snapshot.html"
+    accept_encoding = request.headers.get("accept-encoding", "")
+    client_supports_zstd = "zstd" in accept_encoding.lower()
+
+    if zst_path.exists():
+        if client_supports_zstd:
+            return FileResponse(
+                zst_path,
+                media_type="text/html",
+                headers={
+                    **_SNAPSHOT_HEADERS,
+                    "Content-Encoding": "zstd",
+                },
+            )
+        # Server-side decompress fallback for old clients
+        import zstandard as _zstd
+        decompressor = _zstd.ZstdDecompressor()
+        plain_bytes = decompressor.decompress(zst_path.read_bytes())
+        return Response(
+            content=plain_bytes,
+            media_type="text/html",
+            headers=_SNAPSHOT_HEADERS,
+        )
+
+    if plain_path.exists():
+        return FileResponse(
+            plain_path,
+            media_type="text/html",
+            headers=_SNAPSHOT_HEADERS,
+        )
+
+    raise HTTPException(
+        status_code=404, detail="Artifact snapshot.html not found",
     )
 
 
