@@ -1072,3 +1072,47 @@ class TestCaptureViaArchiveTodaySubmitErrors:
             await worker._capture_via_archive_today_submit(
                 "https://example.com",
             )
+
+
+class TestCapturePageWithProxyRetry:
+    """Cover the proxy-mark-failed branch in _capture_page_with_proxy_retry."""
+
+    @patch("archiver.worker.capture_page", new_callable=AsyncMock)
+    async def test_failure_with_proxy_marks_failed(
+        self, mock_capture: AsyncMock,
+    ) -> None:
+        """When capture raises and a proxy was passed in, the rotator
+        records the failure so subsequent jobs don't re-try the same
+        dead proxy. The exception still propagates."""
+        from archiver.proxy import ProxyConfig
+        worker, _ = _make_worker()
+        job = _make_job(tier=CaptureTier.CAMOUFOX_PROXY)
+        proxy = ProxyConfig(server="socks5://1.2.3.4:1080")
+        worker._proxy_rotator = MagicMock()
+        worker._proxy_rotator.mark_failed = MagicMock()
+        mock_capture.side_effect = RuntimeError("upstream blew up")
+
+        browser = AsyncMock()
+        with pytest.raises(RuntimeError, match="upstream blew up"):
+            await worker._capture_page_with_proxy_retry(
+                job, "https://example.com", browser, proxy,
+            )
+        worker._proxy_rotator.mark_failed.assert_called_once_with(proxy)
+
+    @patch("archiver.worker.capture_page", new_callable=AsyncMock)
+    async def test_failure_without_proxy_does_not_mark(
+        self, mock_capture: AsyncMock,
+    ) -> None:
+        """No proxy passed → mark_failed must NOT be called."""
+        worker, _ = _make_worker()
+        job = _make_job(tier=CaptureTier.CAMOUFOX)
+        worker._proxy_rotator = MagicMock()
+        worker._proxy_rotator.mark_failed = MagicMock()
+        mock_capture.side_effect = RuntimeError("nope")
+
+        browser = AsyncMock()
+        with pytest.raises(RuntimeError):
+            await worker._capture_page_with_proxy_retry(
+                job, "https://example.com", browser, None,
+            )
+        worker._proxy_rotator.mark_failed.assert_not_called()
