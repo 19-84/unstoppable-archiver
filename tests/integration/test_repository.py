@@ -23,9 +23,39 @@ from archiver.repository import (
 from archiver.url import url_hash
 
 DB_URL = os.environ.get(
-    "ARCHIVER_DB_URL",
-    "postgresql://archiver:archiver@localhost:15432/archiver",
+    "ARCHIVER_TEST_DB_URL",
+    "postgresql://archiver:archiver@localhost:15432/archiver_test",
 )
+
+# Hard safety guard: the pool fixture's teardown calls DELETE FROM on
+# jobs / archives / proxy_status / frontend_status / etc. — i.e. it
+# unconditionally wipes the database it's pointed at. If someone runs
+# the suite against the dev or prod DB by accident (env var carries
+# over, default points the wrong way) every archive and gate-passing
+# proxy is gone, irrecoverable. So we refuse to run the module at all
+# unless the DB name self-identifies as ephemeral.
+#
+# A real test DB must be named with one of these suffixes; CI and
+# local "make test-integration" should provision a freshly-named
+# database (e.g. `archiver_test`) and point ARCHIVER_TEST_DB_URL at it.
+_TEST_DB_SUFFIXES = ("_test", "_ci", "_tmp")
+
+
+def _is_safe_test_db(url: str) -> bool:
+    # asyncpg URLs end with "/dbname[?params]"
+    path = url.split("?", 1)[0].rsplit("/", 1)[-1]
+    return any(path.endswith(s) for s in _TEST_DB_SUFFIXES)
+
+
+if not _is_safe_test_db(DB_URL):
+    pytest.skip(
+        f"refusing to run integration tests against {DB_URL!r}: "
+        f"the fixture wipes the DB on teardown, so the database "
+        f"name must end in one of {_TEST_DB_SUFFIXES} to opt in. "
+        f"Set ARCHIVER_TEST_DB_URL to a test database (e.g. "
+        f"postgresql://.../archiver_test).",
+        allow_module_level=True,
+    )
 
 pytestmark = pytest.mark.integration
 

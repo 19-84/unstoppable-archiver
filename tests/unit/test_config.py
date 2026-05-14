@@ -18,7 +18,7 @@ class TestSettings:
         s = Settings()
         assert s.log_level == "INFO"
         assert s.log_format == "json"
-        assert s.max_capture_timeout == 60  # noqa: PLR2004
+        assert s.max_capture_timeout == 300  # noqa: PLR2004
         assert s.max_concurrent_captures == 2  # noqa: PLR2004
         assert s.chromium_headless is True
         assert s.artifacts_dir == Path("data/archives")
