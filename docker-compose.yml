@@ -93,6 +93,48 @@ services:
     memswap_limit: 5g
     cpus: 4.0
 
+  # Scheduled backups. Opt-in via the `backup` compose profile so it
+  # only runs in real deployments — dev shells that just want the app
+  # don't need it. Fires once per BACKUP_INTERVAL_SECONDS (default
+  # 86400 = daily). pg_dump runs inside the container as the
+  # postgres user, so credentials never leave the docker network.
+  # Verify drills (verify_backup.sh) should be scheduled separately
+  # — typically host cron once a week — because they need a postgres
+  # superuser URL to create/drop scratch databases.
+  backup:
+    # Use the postgres image directly — it ships pg_dump/psql, plus
+    # the alpine base has sh + tar + gzip + find + sha256sum out of
+    # the box. Keeps the app image lean (no postgres-client there)
+    # and the backup container ~50 MB instead of the multi-GB app.
+    image: postgres:17-alpine
+    command: >
+      sh -c "while true; do
+               /app/scripts/backup.sh || echo 'backup failed';
+               sleep $${BACKUP_INTERVAL_SECONDS:-86400};
+             done"
+    volumes:
+      - artifacts:/data
+      - backups:/data/backups
+      # Mount scripts/ read-only so we don't need to rebuild the image
+      # every time backup.sh changes. The container's only role is to
+      # execute these scripts on a schedule.
+      - ./scripts:/app/scripts:ro
+    environment:
+      ARCHIVER_DB_URL: postgresql://archiver:archiver@postgres:5432/archiver
+      ARCHIVER_ARTIFACTS_DIR: /data/archives
+      BACKUP_DIR: /data/backups
+      BACKUP_RETENTION_DAYS: "30"
+      BACKUP_INTERVAL_SECONDS: "86400"   # daily
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    profiles:
+      - backup
+    mem_limit: 512m
+    memswap_limit: 512m
+    cpus: 1.0
+
   tor:
     image: leplusorg/tor:latest
     restart: unless-stopped
@@ -108,4 +150,5 @@ services:
 volumes:
   pgdata:
   artifacts:
+  backups:
   camoufox_cache:
