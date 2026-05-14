@@ -44,6 +44,14 @@ class Settings(BaseSettings):
     chromium_headless: bool = True
     camoufox_headless: bool | str = "virtual"
 
+    # Threshold for evicting dead SOCKS5 entries from proxy_status.
+    # The gate-probe loop re-verifies oldest passers each iteration;
+    # once a proxy fails the gate this many times in a row it gets
+    # deleted entirely so the table doesn't grow forever. (Note:
+    # proxies != archives — archives are immortal by design, only
+    # the throwaway operational state expires.)
+    proxy_eviction_failure_threshold: int = 5
+
     # Worker
     worker_id: str = Field(default="worker-1")
     worker_poll_interval: float = 5.0

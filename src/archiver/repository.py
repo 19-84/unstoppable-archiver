@@ -420,6 +420,7 @@ class ArchiveRepository:
         )
         return result == "UPDATE 1"
 
+
     @beartype
     async def restore(
         self, conn: PgConnection, archive_id: str

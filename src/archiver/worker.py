@@ -1126,6 +1126,21 @@ class Worker:
         # Step 2: probe new candidates.
         await self._gate_probe_batch(batch_size=new_batch)
 
+        # Step 3: evict proxies that have failed the gate N times in a
+        # row. Keeps proxy_status from accumulating forever — public
+        # SOCKS5 lists churn aggressively and stale failing rows just
+        # become noise. (Archives are never deleted; only this kind of
+        # throwaway operational state expires.)
+        async with self._pool.acquire() as conn:
+            evicted = await self._proxy_status_repo.evict_dead(
+                conn,
+                failure_threshold=(
+                    self._settings.proxy_eviction_failure_threshold
+                ),
+            )
+        if evicted > 0:
+            log.info("worker.proxy_evicted", count=evicted)
+
     async def _gate_probe_batch(self, batch_size: int) -> None:
         """Gate-probe up to `batch_size` fresh candidates."""
         if not self._proxy_rotator.proxies:
