@@ -274,6 +274,49 @@ class TestSubmitForm:
         assert resp.status_code == 303  # noqa: PLR2004
         assert "/archive/" in resp.headers["location"]
 
+    async def test_submit_form_dedups_to_existing_archive(
+        self,
+        client: AsyncClient,
+        pool: asyncpg.pool.Pool,
+    ) -> None:
+        """HTML form path must redirect to the existing capture instead
+        of creating a duplicate pending archive. /api/archives returns
+        409, but the HTML surface is friendlier — redirect them straight
+        to the archive they already have."""
+        url = "https://example.com/form-dedup-test"
+        # First submission creates the row
+        first = await client.post(
+            "/submit",
+            data={"url": url},
+            follow_redirects=False,
+        )
+        first_id = first.headers["location"].rsplit("/", 1)[-1]
+
+        # Promote to complete so check_recent_capture sees it
+        async with pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE archives SET status='complete', completed_at=now()"
+                " WHERE id=$1",
+                first_id,
+            )
+
+        # Second submission hits the dedup branch
+        second = await client.post(
+            "/submit",
+            data={"url": url},
+            follow_redirects=False,
+        )
+        assert second.status_code == 303  # noqa: PLR2004
+        # Must redirect to the EXISTING archive, not a new one
+        assert second.headers["location"].endswith(f"/archive/{first_id}")
+
+        # Confirm no second row was created
+        async with pool.acquire() as conn:
+            count = await conn.fetchval(
+                "SELECT COUNT(*) FROM archives WHERE url=$1", url,
+            )
+            assert count == 1
+
     async def test_submit_search_redirects(
         self, client: AsyncClient
     ) -> None:

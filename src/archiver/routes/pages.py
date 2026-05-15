@@ -180,6 +180,22 @@ async def submit_form(
     if safety_error:
         return _submit_error(safety_error)
 
+    # Dedup: send the user to the existing capture if they submitted a
+    # URL we captured within the recapture interval. /api/archives
+    # returns 409 + existing_id for this case; the HTML form path
+    # previously just created a fresh pending archive, wasting worker
+    # time and confusing users who'd just hit submit twice. The HTML
+    # surface is friendlier — redirect them straight at the existing
+    # archive instead of an error page.
+    uhash = url_hash(url)
+    recent = await _archive_repo.check_recent_capture(
+        conn, uhash, settings.recapture_interval_seconds,
+    )
+    if recent is not None:
+        return RedirectResponse(
+            url=f"/archive/{recent.id}", status_code=303,
+        )
+
     archive = await _archive_repo.create(
         conn, url, submitter_ip_hash=get_client_ip_hash(request)
     )
