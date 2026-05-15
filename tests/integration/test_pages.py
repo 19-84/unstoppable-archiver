@@ -146,6 +146,44 @@ class TestSitemap:
         resp = await client.get("/sitemap.xml")
         assert "01TESTSITERM000000000000" not in resp.text
 
+    async def test_excludes_non_complete_archives(
+        self,
+        client: AsyncClient,
+        pool: asyncpg.pool.Pool,
+    ) -> None:
+        """Pending / capturing / failed archives must not appear in
+        the sitemap. Search engines indexing their URLs would see an
+        empty 'still capturing' page and waste crawl budget on
+        snapshots that may never finalize. End-to-end probe of the
+        live server caught nine 'capturing'-state rows leaking into
+        the sitemap; this test pins the filter so a regression in
+        the WHERE clause is caught immediately."""
+        async with pool.acquire() as conn:
+            await conn.execute(
+                """
+                INSERT INTO archives (id, url, url_hash, status, source,
+                    tier, created_at)
+                VALUES
+                  ($1, $2, $3, 'pending', 'direct', 'chromium', now()),
+                  ($4, $5, $6, 'capturing', 'direct', 'chromium', now()),
+                  ($7, $8, $9, 'failed', 'direct', 'chromium', now())
+                """,
+                "01TESTSMPND0000000000000",
+                "https://example.com/sm-pend",
+                "smpend-hash-32chars-abcdefghij",
+                "01TESTSMCAP0000000000000",
+                "https://example.com/sm-cap",
+                "smcap-hash-32chars-abcdefghijk",
+                "01TESTSMFAIL000000000000",
+                "https://example.com/sm-fail",
+                "smfail-hash-32chars-abcdefghi1",
+            )
+
+        body = (await client.get("/sitemap.xml")).text
+        assert "01TESTSMPND0000000000000" not in body
+        assert "01TESTSMCAP0000000000000" not in body
+        assert "01TESTSMFAIL000000000000" not in body
+
     async def test_robots_references_sitemap(
         self,
         client: AsyncClient,

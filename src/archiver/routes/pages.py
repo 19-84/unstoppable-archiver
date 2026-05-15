@@ -104,9 +104,17 @@ async def sitemap_xml(
     if settings.mode != "self-hosted":
         raise HTTPException(status_code=404, detail="Not available")
 
+    # Restrict to completed captures only. Pending / capturing /
+    # failed rows have no snapshot to index — feeding their URLs to a
+    # search engine wastes crawl budget on pages that render an empty
+    # 'still capturing' state, and on the next recrawl the snapshot
+    # may still not exist. The frontend keeps showing pending rows in
+    # the recent list and /archives browse so users can poll status,
+    # but the sitemap is for external indexing and should only point
+    # at terminal-state snapshots.
     rows = await conn.fetch(
         "SELECT id, completed_at, created_at FROM archives"
-        " WHERE removed_at IS NULL"
+        " WHERE removed_at IS NULL AND status = 'complete'"
         " ORDER BY coalesce(completed_at, created_at) DESC"
         " LIMIT $1",
         _SITEMAP_MAX_URLS,
