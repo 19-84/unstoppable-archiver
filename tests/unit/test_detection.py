@@ -100,6 +100,22 @@ class TestCheckAntiBot:
         assert signal.is_blocked is True
         assert "login wall" in (signal.reason or "")
 
+    def test_twitter_login_wall_localized_swedish_detected(self) -> None:
+        """X/Twitter localizes the logged-out wall by Accept-Language.
+        Observed live: a stealth-browser tier captured the wall in
+        Swedish while Chromium got English — the English-only marker
+        missed it and the capture wrongly 'succeeded'. The Swedish
+        variant body below is the actual innerText from that capture."""
+        wall_sv = (
+            "Missa inte vad som händer\n"
+            "Folk på X får reda på allt först.\n"
+            "Logga in\nRegistrera dig\n"
+            "Did someone say … cookies?"
+        )
+        signal = check_anti_bot(200, "jack on X", wall_sv)
+        assert signal.is_blocked is True
+        assert "login wall" in (signal.reason or "")
+
     def test_login_wall_marker_is_specific_no_false_positive(self) -> None:
         """The wall marker must be distinctive enough that an ordinary
         page with a 'Log in' link or generic sign-up copy is NOT

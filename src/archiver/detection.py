@@ -56,8 +56,18 @@ PLATFORM_BLOCK_MARKERS: frozenset[str] = frozenset({
 # the platforms' logged-out walls. The privacy-frontend mirrors
 # (nitter etc.) don't carry this copy, so an escalated capture won't
 # re-trip the marker.
+#
+# X/Twitter localizes the wall by the browser's Accept-Language —
+# observed live: a stealth-browser tier captured the wall in Swedish
+# while a Chromium tier got English. Each marker is therefore the
+# "People on X are the first to know" sentence in one observed
+# locale. BLOCK_TITLE_PATTERNS below takes the same multilingual
+# approach for Cloudflare titles. Locales are added as captures
+# surface them — guessing translations risks a non-matching string
+# that gives false confidence.
 LOGIN_WALL_MARKERS: frozenset[str] = frozenset({
-    "people on x are the first to know",  # X/Twitter logged-out wall
+    "people on x are the first to know",       # X/Twitter wall (en)
+    "folk på x får reda på allt först",         # X/Twitter wall (sv)
 })
 
 GENERIC_BLOCK_MARKERS: frozenset[str] = frozenset({
