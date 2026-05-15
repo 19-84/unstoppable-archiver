@@ -628,6 +628,68 @@ class TestAdminPagesSmoke:
         assert resp.status_code == 200  # noqa: PLR2004
         assert archive_id in resp.text
 
+    async def test_admin_views_show_source_icons_for_every_tier(
+        self,
+        logged_in_client: AsyncClient,
+        pool: asyncpg.pool.Pool,
+    ) -> None:
+        """Admin moderation views must visually distinguish capture
+        sources so the operator can tell at a glance whether each
+        archive came from a fallback path (wayback / archive.today /
+        privacy_frontend / commoncrawl) or a direct browser capture.
+        Earlier these views showed URL + status + date with no source
+        cue at all — moderators had to click through to the detail
+        page to see provenance."""
+        async with pool.acquire() as conn:
+            await conn.execute(
+                """
+                INSERT INTO archives (id, url, url_hash, status, source,
+                    tier, created_at, completed_at, title, artifact_dir,
+                    snapshot_size)
+                VALUES
+                  ($1, $6, $11, 'complete', 'direct', 'chromium',
+                   now(), now(), 'D', 'admsrc/A', 100),
+                  ($2, $7, $12, 'complete', 'wayback', 'wayback',
+                   now(), now(), 'W', 'admsrc/B', 100),
+                  ($3, $8, $13, 'complete', 'archive_today',
+                   'archive_today', now(), now(), 'AT',
+                   'admsrc/C', 100),
+                  ($4, $9, $14, 'complete', 'privacy_frontend',
+                   'privacy_frontend', now(), now(), 'PF',
+                   'admsrc/D', 100),
+                  ($5, $10, $15, 'complete', 'commoncrawl',
+                   'commoncrawl', now(), now(), 'CC',
+                   'admsrc/E', 100)
+                """,
+                "01TESTADMSRC100000000000",
+                "01TESTADMSRC200000000000",
+                "01TESTADMSRC300000000000",
+                "01TESTADMSRC400000000000",
+                "01TESTADMSRC500000000000",
+                "https://example.com/admsrc-1",
+                "https://example.com/admsrc-2",
+                "https://example.com/admsrc-3",
+                "https://example.com/admsrc-4",
+                "https://example.com/admsrc-5",
+                "admsrch-1-hash-32chars-abcdefghi",
+                "admsrch-2-hash-32chars-jklmnopqr",
+                "admsrch-3-hash-32chars-stuvwxyz1",
+                "admsrch-4-hash-32chars-23456789a",
+                "admsrch-5-hash-32chars-bcdefghij",
+            )
+
+        # Both moderation surfaces — dashboard recent list AND the
+        # /admin/archives full list — must surface all five icons.
+        for path in ("/admin/", "/admin/archives?limit=20"):
+            resp = await logged_in_client.get(path)
+            assert resp.status_code == 200  # noqa: PLR2004
+            body = resp.text
+            for label in ("direct", "wayback", "archive.today",
+                          "privacy frontend", "common crawl"):
+                assert f'title="{label}"' in body, (
+                    f"admin path {path} missing source label {label}"
+                )
+
     async def test_reports_page_renders_each_status_filter(
         self,
         client: AsyncClient,

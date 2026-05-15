@@ -50,6 +50,12 @@
           {% if a.removed_at %}<span class="text-red-400">removed</span>
           {% elif a.status == "complete" %}<span class="text-emerald-400">{{ a.status }}</span>
           {% else %}<span class="text-neutral-400">{{ a.status }}</span>{% endif %}
+          {% set src = a.source.value if a.source.value is defined else a.source %}
+          {% if src == "wayback" %}<span class="text-blue-400" title="wayback">▲</span>
+          {% elif src == "archive_today" %}<span class="text-orange-400" title="archive.today">◆</span>
+          {% elif src == "privacy_frontend" %}<span class="text-violet-400" title="privacy frontend">⊙</span>
+          {% elif src == "commoncrawl" %}<span class="text-pink-400" title="common crawl">★</span>
+          {% else %}<span class="text-emerald-400" title="direct">●</span>{% endif %}
           <time class="text-neutral-500">{{ a.created_at.strftime('%Y-%m-%d %H:%M') }}</time>
         </div>
       </div>

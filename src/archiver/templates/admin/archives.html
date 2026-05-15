@@ -16,6 +16,16 @@
         <div class="flex items-center gap-3 text-xs mt-1">
           {% if a.removed_at %}<span class="text-red-400">removed — {{ a.removed_reason or "no reason" }}</span>
           {% else %}<span class="text-emerald-400">{{ a.status.value }}</span>{% endif %}
+          {# Source tier so an admin scanning the moderation queue can see
+             at a glance whether each capture came from a fallback path
+             (wayback / archive.today / privacy_frontend / commoncrawl).
+             Same icon set used on every public surface. #}
+          {% set src = a.source.value if a.source.value is defined else a.source %}
+          {% if src == "wayback" %}<span class="text-blue-400" title="wayback">▲</span>
+          {% elif src == "archive_today" %}<span class="text-orange-400" title="archive.today">◆</span>
+          {% elif src == "privacy_frontend" %}<span class="text-violet-400" title="privacy frontend">⊙</span>
+          {% elif src == "commoncrawl" %}<span class="text-pink-400" title="common crawl">★</span>
+          {% else %}<span class="text-emerald-400" title="direct">●</span>{% endif %}
           <time class="text-neutral-500">{{ a.created_at.strftime('%Y-%m-%d %H:%M') }}</time>
         </div>
       </div>
