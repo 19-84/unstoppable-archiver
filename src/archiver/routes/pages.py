@@ -51,9 +51,10 @@ _archive_repo = ArchiveRepository()
 
 # robots.txt: by default disallow crawler indexing of admin + API
 # endpoints (the captured snapshots and search results are fair game
-# for indexing but the operational surface isn't). Cached aggressively
-# since the body never changes.
-_ROBOTS_BODY = (
+# for indexing but the operational surface isn't). The Sitemap line
+# is computed per request so the URL is absolute (the protocol requires
+# absolute URLs in robots.txt sitemap references).
+_ROBOTS_BODY_PREFIX = (
     "User-agent: *\n"
     "Disallow: /admin/\n"
     "Disallow: /api/\n"
@@ -63,10 +64,70 @@ _ROBOTS_BODY = (
 
 
 @router.get("/robots.txt", response_class=PlainTextResponse)
-async def robots() -> PlainTextResponse:
+async def robots(request: Request) -> PlainTextResponse:
+    settings = get_settings(request)
+    body = _ROBOTS_BODY_PREFIX
+    # In public mode there's no browsable index, so no sitemap to point at.
+    if settings.mode == "self-hosted":
+        body += f"\nSitemap: {request.base_url}sitemap.xml\n"
     return PlainTextResponse(
-        _ROBOTS_BODY,
+        body,
         headers={"Cache-Control": "public, max-age=86400"},
+    )
+
+
+# Sitemap protocol cap: 50,000 URLs per file. Most archives will sit
+# well under this for a long time; once exceeded, the cleanest path
+# is splitting into a sitemap index — left for later.
+_SITEMAP_MAX_URLS = 50_000
+
+
+@router.get("/sitemap.xml", response_model=None)
+async def sitemap_xml(
+    request: Request,
+    conn: Annotated[PgConnection, Depends(get_db)],
+) -> Response:
+    """Search-engine sitemap of every public archive detail page.
+
+    Without a sitemap, crawlers can only discover archives through
+    the home recent-list (10 entries), the /archives browse paging,
+    and search-result pages. That's a long crawl for a static
+    catalogue. The sitemap exposes every non-removed archive's
+    /archive/{id} URL with the last-modified time so search engines
+    can incrementally re-index only what changed.
+
+    404s in public mode to match the /archives discrimination — a
+    public-facing instance shouldn't expose a complete index of
+    submissions.
+    """
+    settings = get_settings(request)
+    if settings.mode != "self-hosted":
+        raise HTTPException(status_code=404, detail="Not available")
+
+    rows = await conn.fetch(
+        "SELECT id, completed_at, created_at FROM archives"
+        " WHERE removed_at IS NULL"
+        " ORDER BY coalesce(completed_at, created_at) DESC"
+        " LIMIT $1",
+        _SITEMAP_MAX_URLS,
+    )
+    base = str(request.base_url).rstrip("/")
+    lines: list[str] = [
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
+    ]
+    for r in rows:
+        lastmod = r["completed_at"] or r["created_at"]
+        lastmod_iso = lastmod.isoformat() if lastmod is not None else ""
+        lines.append(
+            f"<url><loc>{base}/archive/{r['id']}</loc>"
+            f"<lastmod>{lastmod_iso}</lastmod></url>"
+        )
+    lines.append("</urlset>")
+    return Response(
+        content="\n".join(lines),
+        media_type="application/xml",
+        headers={"Cache-Control": "public, max-age=3600"},
     )
 
 

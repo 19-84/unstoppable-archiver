@@ -83,6 +83,86 @@ class TestHomePage:
         assert "Archive this" in resp.text
 
 
+class TestSitemap:
+    """Sitemap.xml is the canonical mechanism for surfacing every
+    public archive to search engines. Without it, crawlers can only
+    discover snapshots through the recent-list / browse paging /
+    search — a slow walk for a static catalogue."""
+
+    async def test_returns_valid_xml_with_archive_loc_entries(
+        self,
+        client: AsyncClient,
+        pool: asyncpg.pool.Pool,
+    ) -> None:
+        async with pool.acquire() as conn:
+            await conn.execute(
+                """
+                INSERT INTO archives (id, url, url_hash, status, source,
+                    tier, created_at, completed_at)
+                VALUES ($1, $2, $3, 'complete', 'direct', 'chromium',
+                        now(), now())
+                """,
+                "01TESTSITEMAP00000000000",
+                "https://example.com/sitemap-uat",
+                "sitemap-hash-32chars-abcdefg012",
+            )
+
+        resp = await client.get("/sitemap.xml")
+        assert resp.status_code == 200  # noqa: PLR2004
+        assert resp.headers["content-type"].startswith("application/xml")
+        body = resp.text
+        assert body.startswith('<?xml version="1.0" encoding="UTF-8"?>')
+        assert "<urlset" in body
+        assert "/archive/01TESTSITEMAP00000000000" in body
+        assert "<lastmod>" in body
+        # Must parse as well-formed XML — a malformed sitemap is silently
+        # ignored by every search engine, which would defeat the point.
+        import xml.etree.ElementTree as ET
+        ET.fromstring(body)  # noqa: S314
+
+    async def test_excludes_removed_archives(
+        self,
+        client: AsyncClient,
+        pool: asyncpg.pool.Pool,
+    ) -> None:
+        """Taken-down archives must not appear in the sitemap. If they
+        did, search engines would keep crawling /archive/{id} URLs that
+        return a 410 takedown stub, fragmenting the index and exposing
+        removed-row IDs to anyone who fetched sitemap.xml."""
+        async with pool.acquire() as conn:
+            await conn.execute(
+                """
+                INSERT INTO archives (id, url, url_hash, status, source,
+                    tier, created_at, completed_at, removed_at,
+                    removed_reason)
+                VALUES ($1, $2, $3, 'complete', 'direct', 'chromium',
+                        now(), now(), now(), 'admin takedown')
+                """,
+                "01TESTSITERM000000000000",
+                "https://example.com/sitemap-removed",
+                "sitemap-removed-hash-1234567890",
+            )
+
+        resp = await client.get("/sitemap.xml")
+        assert "01TESTSITERM000000000000" not in resp.text
+
+    async def test_robots_references_sitemap(
+        self,
+        client: AsyncClient,
+    ) -> None:
+        """The Sitemap: directive in robots.txt is how crawlers
+        discover the sitemap URL — without it, search engines may
+        never fetch /sitemap.xml at all."""
+        resp = await client.get("/robots.txt")
+        assert resp.status_code == 200  # noqa: PLR2004
+        body = resp.text
+        assert "Sitemap:" in body
+        assert "/sitemap.xml" in body
+        # Must be an absolute URL per the robots.txt sitemap-directive
+        # spec — relative paths are not portable across crawlers.
+        assert "http" in body.split("Sitemap:", 1)[1]
+
+
 class TestArchivesBrowse:
     """Public /archives browse route — the only HTML surface that
     exposes all archives beyond the home page's recent-10 list.

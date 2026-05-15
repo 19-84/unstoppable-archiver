@@ -93,12 +93,15 @@ def crawl(
     # Seed with the home page plus routes that may be hidden behind
     # conditional links — /archives is only linked from the home page
     # when total > recent_count, and /search results only render when
-    # the user types a query. Seeding both makes the checker resilient
-    # to UI state at probe time.
+    # the user types a query. /sitemap.xml and /robots.txt are crawler
+    # endpoints with no inbound link from the UI but must stay healthy.
+    # Seeding all makes the checker resilient to UI state at probe time.
     queue: deque[str] = deque([
         base,
         f"{base}/archives",
         f"{base}/search?q=test",
+        f"{base}/sitemap.xml",
+        f"{base}/robots.txt",
     ])
     errors: list[str] = []
 
