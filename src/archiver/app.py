@@ -94,6 +94,32 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # at this layer would break those. The snapshot serve path sets
     # its own per-response `Content-Security-Policy: sandbox` so
     # untrusted captured HTML still can't run script in our origin.
+    #
+    # The default CSP applied to every other response is pragmatic:
+    # 'unsafe-inline' is permitted for both script and style because
+    # the existing UI uses an inline iframe-loader script in
+    # archive_view.html, two inline onsubmit confirm() handlers, and
+    # an inline <style> block in base.html. The high-value clauses —
+    # frame-ancestors 'none' (clickjacking), form-action 'self',
+    # base-uri 'self', object-src 'none', default-src 'self' — still
+    # work with inline allowed, and they block whole categories of
+    # exploitation that the surrounding XSS defences can't cover (a
+    # bug that injects a <script src="//attacker"> is blocked by the
+    # 'self' restriction even when 'unsafe-inline' is on).
+    base_csp = (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline'; "
+        "style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data: blob:; "
+        "font-src 'self'; "
+        "connect-src 'self'; "
+        "frame-src 'self'; "
+        "frame-ancestors 'none'; "
+        "form-action 'self'; "
+        "base-uri 'self'; "
+        "object-src 'none'"
+    )
+
     @app.middleware("http")
     async def _security_headers(request: Request, call_next):
         response = await call_next(request)
@@ -106,6 +132,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         h.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
         h.setdefault("X-Frame-Options", "SAMEORIGIN")
         h.setdefault("Permissions-Policy", "interest-cohort=()")
+        h.setdefault("Content-Security-Policy", base_csp)
         # HSTS only meaningful over HTTPS; setting it on plain-HTTP
         # responses is fine (browsers ignore it). Public mode is always
         # behind Caddy which terminates TLS.

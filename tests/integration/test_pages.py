@@ -450,6 +450,63 @@ class TestViewerSiblingsCount:
         assert "Capture " not in body or ">Capture " not in body
 
 
+class TestSecurityHeaders:
+    """Baseline security headers must apply to every response except
+    /snapshot (which sets its own CSP-sandbox to constrain captured
+    HTML)."""
+
+    async def test_csp_applied_to_html_responses(
+        self, client: AsyncClient,
+    ) -> None:
+        """Without CSP, any XSS that slips through autoescape +
+        safe_href can load remote scripts, exfil data to attackers,
+        or pivot to clickjacking. Even with 'unsafe-inline' in the
+        script-src (pragmatic compromise for the existing inline
+        viewer-loader + onsubmit handlers), the other clauses block
+        whole categories of exploitation."""
+        resp = await client.get("/")
+        csp = resp.headers.get("content-security-policy", "")
+        # The high-value clauses must be present
+        assert "default-src 'self'" in csp
+        assert "frame-ancestors 'none'" in csp, "clickjacking protection"
+        assert "form-action 'self'" in csp
+        assert "base-uri 'self'" in csp
+        assert "object-src 'none'" in csp
+
+    async def test_csp_applied_to_json_responses(
+        self, client: AsyncClient,
+    ) -> None:
+        """API responses also get CSP — defence in depth in case any
+        body bytes are ever rendered into an HTML context by a
+        consumer."""
+        resp = await client.get("/api/archives")
+        assert "content-security-policy" in resp.headers
+
+    async def test_csp_applied_to_error_responses(
+        self, client: AsyncClient,
+    ) -> None:
+        """The friendly 404/410/429 HTML pages must also carry CSP —
+        a stale-link page rendering inside an attacker's frame is a
+        clickjacking vector if frame-ancestors isn't set."""
+        resp = await client.get(
+            "/nonexistent", headers={"Accept": "text/html"},
+        )
+        csp = resp.headers.get("content-security-policy", "")
+        assert "frame-ancestors 'none'" in csp
+
+    async def test_baseline_headers_still_present(
+        self, client: AsyncClient,
+    ) -> None:
+        """The previously-shipped baseline headers must still ship
+        alongside the new CSP (didn't regress when refactoring)."""
+        resp = await client.get("/")
+        h = resp.headers
+        assert h.get("x-content-type-options") == "nosniff"
+        assert h.get("referrer-policy") == "strict-origin-when-cross-origin"
+        assert h.get("x-frame-options") == "SAMEORIGIN"
+        assert "interest-cohort=()" in h.get("permissions-policy", "")
+
+
 class TestFriendly404:
     """Browser clients hitting a stale archive link or any unknown
     route used to see a raw ``{"detail":"Not Found"}`` JSON blob —
