@@ -667,24 +667,50 @@ class ReportRepository:
         *,
         reporter_ip_hash: str | None = None,
     ) -> ReportRecord:
-        """Create a new abuse report (no auth required)."""
-        row = await conn.fetchrow(
-            "INSERT INTO reports"
-            " (id, archive_id, reason, details, reporter_email, reporter_ip_hash)"
-            " VALUES ($1, $2, $3, $4, $5, $6)"
-            " RETURNING id, archive_id, reason, details, reporter_email,"
-            " reporter_ip_hash, created_at, status, resolved_at, resolved_by,"
-            " resolution_notes",
-            _ulid(),
-            archive_id,
-            data.reason.value,
-            data.details,
-            data.reporter_email,
-            reporter_ip_hash,
-        )
-        assert row is not None  # noqa: S101
-        log.info("report.created", archive_id=archive_id, reason=data.reason.value)
-        return _record_to_report(row)
+        """Create a new abuse report (no auth required).
+
+        Idempotent per (archive_id, reporter_ip_hash): the migration
+        002 unique index means a single IP reporting the same archive
+        twice resolves to the original report. Returns the EXISTING
+        report on conflict so the public flow always sees a successful
+        submission (don't leak existence of prior reports to probers).
+        """
+        try:
+            row = await conn.fetchrow(
+                "INSERT INTO reports"
+                " (id, archive_id, reason, details, reporter_email, reporter_ip_hash)"
+                " VALUES ($1, $2, $3, $4, $5, $6)"
+                " RETURNING id, archive_id, reason, details, reporter_email,"
+                " reporter_ip_hash, created_at, status, resolved_at, resolved_by,"
+                " resolution_notes",
+                _ulid(),
+                archive_id,
+                data.reason.value,
+                data.details,
+                data.reporter_email,
+                reporter_ip_hash,
+            )
+            assert row is not None  # noqa: S101
+            log.info("report.created", archive_id=archive_id, reason=data.reason.value)
+            return _record_to_report(row)
+        except asyncpg.UniqueViolationError:
+            # Same IP already reported this archive — return the
+            # existing row so the user sees a normal success path.
+            log.info(
+                "report.duplicate_from_same_ip",
+                archive_id=archive_id,
+            )
+            existing = await conn.fetchrow(
+                "SELECT id, archive_id, reason, details, reporter_email,"
+                " reporter_ip_hash, created_at, status, resolved_at,"
+                " resolved_by, resolution_notes"
+                " FROM reports"
+                " WHERE archive_id = $1 AND reporter_ip_hash = $2"
+                " LIMIT 1",
+                archive_id, reporter_ip_hash,
+            )
+            assert existing is not None  # noqa: S101
+            return _record_to_report(existing)
 
     @beartype
     async def list_by_status(

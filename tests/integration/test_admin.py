@@ -234,6 +234,31 @@ class TestReportWorkflow:
         assert resp.status_code == 200  # noqa: PLR2004
         assert "received" in resp.text.lower() or "thank" in resp.text.lower()
 
+    async def test_duplicate_report_from_same_ip_silent_dedup(
+        self,
+        client: AsyncClient,
+        pool: asyncpg.pool.Pool,
+    ) -> None:
+        """A second report from the same IP for the same archive must
+        NOT create a new row — the migration-002 unique index +
+        repository's UniqueViolationError handler return the existing
+        row so the user sees normal-success but admins aren't spammed."""
+        archive_id = await self._create_archive(client)
+        for details in ("first attempt", "second attempt"):
+            resp = await client.post(
+                f"/report/{archive_id}",
+                data={"reason": "malicious", "details": details},
+            )
+            assert resp.status_code == 200  # noqa: PLR2004
+        async with pool.acquire() as conn:
+            count = await conn.fetchval(
+                "SELECT COUNT(*) FROM reports WHERE archive_id=$1",
+                archive_id,
+            )
+            # Only the FIRST report is in the table; the duplicate
+            # was silently dropped via the unique-index conflict.
+            assert count == 1
+
     async def test_admin_sees_pending_reports(
         self, client: AsyncClient, logged_in_client: AsyncClient
     ) -> None:
