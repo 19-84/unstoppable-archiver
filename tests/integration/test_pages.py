@@ -790,6 +790,73 @@ class TestSearchPage:
         assert resp.status_code == 200  # noqa: PLR2004
         assert "text/html" in resp.headers["content-type"]
 
+    async def test_operator_hints_only_advertise_working_operators(
+        self,
+        client: AsyncClient,
+    ) -> None:
+        """The empty-state operator-hint chips must only show
+        operators the backend actually parses. The UI used to
+        advertise 11 phantom operators (intitle:/site:/inurl:/source:/
+        tier:/before:/after:/size:/has:/is:/net:) but none had a
+        parser — they were passed verbatim to websearch_to_tsquery
+        and silently returned wrong results. Pin the contract so a
+        regression putting them back doesn't slip in."""
+        resp = await client.get("/search?q=xyz-no-match-zzz")
+        body = resp.text
+        # Working operators present
+        assert "&#34;phrase&#34;" in body or '"phrase"' in body
+        assert "-exclude" in body
+        assert "OR" in body
+        # Phantom operators must NOT appear
+        for phantom in ("intitle:", "site:", "inurl:", "source:",
+                        "tier:", "before:", "after:", "size:",
+                        "has:", "is:", "net:"):
+            assert phantom not in body, f"phantom operator {phantom} still advertised"
+
+    async def test_phrase_operator_actually_filters(
+        self,
+        client: AsyncClient,
+        pool: asyncpg.pool.Pool,
+    ) -> None:
+        """End-to-end check that the operators we DO advertise
+        function as users expect. Two archives share 'banana' in the
+        title; only one contains the exact phrase 'banana smoothie'."""
+        async with pool.acquire() as conn:
+            await conn.execute(
+                """
+                INSERT INTO archives (id, url, url_hash, status, source,
+                    tier, created_at, completed_at, title, text_content)
+                VALUES
+                  ($1, $2, $3, 'complete', 'direct', 'chromium',
+                   now(), now(), 'banana smoothie recipe',
+                   'banana smoothie blend'),
+                  ($4, $5, $6, 'complete', 'direct', 'chromium',
+                   now(), now(), 'banana bread recipe',
+                   'banana bread oven')
+                """,
+                "01TESTOPP10000000000000A",
+                "https://example.com/optest-1",
+                "optest-1-hash-32chars-abcdefghi",
+                "01TESTOPP20000000000000B",
+                "https://example.com/optest-2",
+                "optest-2-hash-32chars-jklmnopqr",
+            )
+
+        baseline = await client.get(
+            "/api/archives/search?q=banana",
+        )
+        assert baseline.json()["total"] == 2  # noqa: PLR2004
+
+        phrase = await client.get(
+            '/api/archives/search?q=%22banana+smoothie%22',
+        )
+        assert phrase.json()["total"] == 1
+
+        negation = await client.get(
+            "/api/archives/search?q=banana+-smoothie",
+        )
+        assert negation.json()["total"] == 1
+
 
 class TestSubmitForm:
     async def test_submit_url_redirects(

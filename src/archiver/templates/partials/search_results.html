@@ -77,10 +77,16 @@
     <button type="submit" class="px-5 py-2.5 bg-purple-500 text-white text-sm font-medium rounded-xl hover:bg-purple-400 transition">Go</button>
   </form>
 
+  {# Only the operators below actually parse — they are PostgreSQL
+     websearch_to_tsquery features. Earlier the UI advertised 11
+     additional operators (intitle:/site:/inurl:/source:/tier:/before:/
+     after:/size:/has:/is:/net:) but none had a backend parser, so
+     users typing them silently got useless results. Removed until
+     parsing exists. #}
   <div class="text-left max-w-md mx-auto">
     <p class="text-[10px] text-neutral-400 uppercase tracking-wider mb-2">Search operators</p>
     <div class="flex flex-wrap gap-1.5">
-      {% for op in ["intitle:", "site:", "inurl:", "source:", "tier:", "before:", "after:", "size:", "has:", "is:", "net:", '"phrase"', "-exclude", "OR"] %}
+      {% for op in ['"phrase"', "-exclude", "OR"] %}
       <span class="text-[10px] px-2 py-0.5 bg-white/[0.02] text-neutral-400 rounded-lg font-mono border border-white/[0.03]">{{ op }}</span>
       {% endfor %}
     </div>
