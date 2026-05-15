@@ -1443,6 +1443,71 @@ class TestPartials:
         resp = await client.get("/partials/search?q=test")
         assert resp.status_code == 200  # noqa: PLR2004
 
+    async def test_status_partial_triggers_refresh_on_terminal_state(
+        self,
+        client: AsyncClient,
+        pool: asyncpg.pool.Pool,
+    ) -> None:
+        """When a polled archive reaches complete/failed, the status
+        partial must return HX-Refresh:true so htmx reloads the whole
+        detail page. Without it, a user watching a capture finish
+        sees only the badge flip — the content area stays frozen on
+        the in-progress tier display with no snapshot or downloads.
+        In-progress states (pending/capturing) must NOT trigger a
+        refresh or the page would reload every 2 seconds."""
+        from archiver.enums import ArchiveStatus
+        from archiver.repository import ArchiveRepository
+
+        repo = ArchiveRepository()
+        async with pool.acquire() as conn:
+            archive = await repo.create(
+                conn, "https://example.com/refresh-uat",
+            )
+            aid = archive.id
+
+            # pending → no refresh
+            resp = await client.get(f"/partials/status/{aid}")
+            assert "hx-refresh" not in {
+                k.lower() for k in resp.headers
+            }
+
+            # capturing → no refresh
+            await repo.update_status(conn, aid, ArchiveStatus.CAPTURING)
+            resp = await client.get(f"/partials/status/{aid}")
+            assert "hx-refresh" not in {
+                k.lower() for k in resp.headers
+            }
+
+            # complete → HX-Refresh:true
+            await repo.update_status(conn, aid, ArchiveStatus.COMPLETE)
+            resp = await client.get(f"/partials/status/{aid}")
+            assert resp.headers.get("HX-Refresh") == "true"
+
+            # failed → HX-Refresh:true too
+            await repo.update_status(conn, aid, ArchiveStatus.FAILED)
+            resp = await client.get(f"/partials/status/{aid}")
+            assert resp.headers.get("HX-Refresh") == "true"
+
+    async def test_pending_archive_detail_shows_progress_block(
+        self,
+        client: AsyncClient,
+    ) -> None:
+        """A freshly-submitted (pending) archive's detail page must
+        render the in-progress tier pipeline, not a blank content
+        area. Previously the template only branched on complete /
+        capturing / failed — a pending archive showed just its title
+        with empty space below until the worker picked it up."""
+        create = await client.post(
+            "/api/archives",
+            json={"url": "https://example.com/pending-detail-uat"},
+        )
+        archive_id = create.json()["id"]
+        body = (await client.get(f"/archive/{archive_id}")).text
+        # The capture-progress polling block is present for pending.
+        assert 'id="capture-progress"' in body
+        # The tier pipeline gives the user something concrete to see.
+        assert "Tier 1" in body
+
 
 class TestSoftDeleteVisibility:
     """Soft-deleted archives must not be served on any public route.

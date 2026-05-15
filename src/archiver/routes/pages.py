@@ -597,15 +597,30 @@ async def partial_status(
     request: Request,
     conn: Annotated[PgConnection, Depends(get_db)],
 ) -> HTMLResponse:
-    """Status badge partial for htmx polling."""
+    """Status badge partial for htmx polling.
+
+    When the archive reaches a terminal state (complete or failed),
+    return an HX-Refresh header so htmx reloads the whole detail
+    page. Without this, a user watching a capture finish would see
+    only the small status badge flip to 'Complete' — the main
+    content area would stay frozen on the in-progress tier display,
+    with no snapshot preview or download buttons, until they
+    manually refreshed. The reload swaps in the proper completed /
+    failed branch.
+    """
     archive = await _archive_repo.get_by_id(conn, archive_id)
     if archive is None:
         return HTMLResponse('<span class="text-xs text-neutral-400">Not found</span>')
-    return templates.TemplateResponse(
+    response = templates.TemplateResponse(
         request,
         "partials/archive_status.html",
         {"archive": archive},
     )
+    if archive.status in (ArchiveStatus.COMPLETE, ArchiveStatus.FAILED):
+        # htmx sees this header and does a full-page GET, so the
+        # detail page re-renders with the terminal-state branch.
+        response.headers["HX-Refresh"] = "true"
+    return response
 
 
 @router.get("/partials/search", response_class=HTMLResponse)

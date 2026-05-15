@@ -131,7 +131,16 @@
     </div>
     {% endif %}
   </a>
-  {% elif archive.status == "capturing" %}
+  {% elif archive.status in ("capturing", "pending") %}
+  {# pending and capturing share the in-progress view. A freshly-
+     submitted (pending) archive previously rendered nothing in the
+     content area — just a title and blank space — until the worker
+     flipped it to capturing. Both states now show the tier pipeline
+     so the user sees their submission was received and what it will
+     go through. The poll swaps in the live status; when the archive
+     reaches a terminal state the route triggers a full page reload
+     (HX-Refresh) so the completed view with the snapshot replaces
+     this block automatically. #}
   <div hx-get="/partials/status/{{ archive.id }}" hx-trigger="every 2s" hx-swap="outerHTML" id="capture-progress">
     {% include "partials/capturing_tiers.html" %}
   </div>
