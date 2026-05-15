@@ -79,6 +79,34 @@ class TestSettings:
                 session_secret="too-short",  # type: ignore[arg-type] # noqa: S106
             )
 
+    def test_captcha_altcha_requires_hmac_key(self) -> None:
+        """captcha_provider=altcha without ARCHIVER_ALTCHA_HMAC_KEY
+        must fail at boot — without it the challenge endpoint 500s
+        the first time a user fetches a captcha. Surface the
+        misconfiguration at config load instead."""
+        with pytest.raises(ValidationError, match="ARCHIVER_ALTCHA_HMAC_KEY"):
+            Settings(captcha_provider="altcha")
+
+    def test_captcha_hcaptcha_requires_sitekey(self) -> None:
+        with pytest.raises(ValidationError, match="ARCHIVER_HCAPTCHA_SITEKEY"):
+            Settings(captcha_provider="hcaptcha")
+
+    def test_captcha_hcaptcha_requires_secret(self) -> None:
+        """Sitekey alone isn't enough — without the server-side
+        secret, hcaptcha verification can't happen."""
+        with pytest.raises(ValidationError, match="ARCHIVER_HCAPTCHA_SECRET"):
+            Settings(
+                captcha_provider="hcaptcha",
+                hcaptcha_sitekey="10000000-ffff-ffff-ffff-000000000001",
+            )
+
+    def test_captcha_none_skips_validation(self) -> None:
+        """The default captcha_provider=none must not require any of
+        the credential fields — operators who don't run captcha
+        shouldn't have to set placeholder keys."""
+        s = Settings()
+        assert s.captcha_provider == "none"
+
     def test_admin_enabled_accepts_valid_secret(self) -> None:
         """The happy path — a 32+ char operator-provided secret is
         accepted and the session lifetime defaults to 24h."""

@@ -148,6 +148,39 @@ class Settings(BaseSettings):
         return self
 
     @model_validator(mode="after")
+    def _validate_captcha_credentials_present(self) -> Settings:
+        """When captcha_provider is enabled, the matching credentials
+        must be set. Without this check, a misconfigured deployment
+        limps along until a user submits a report or the JS frontend
+        fetches a challenge, then 500s. Failing at config load instead
+        surfaces the misconfiguration the moment the app starts so it
+        never reaches users in the first place."""
+        if self.captcha_provider == "altcha":
+            if not self.altcha_hmac_key.get_secret_value():
+                msg = (
+                    "captcha_provider=altcha requires "
+                    "ARCHIVER_ALTCHA_HMAC_KEY (a long random string "
+                    "used to sign challenges)"
+                )
+                raise ValueError(msg)
+        elif self.captcha_provider == "hcaptcha":
+            if not self.hcaptcha_sitekey:
+                msg = (
+                    "captcha_provider=hcaptcha requires "
+                    "ARCHIVER_HCAPTCHA_SITEKEY (from your hcaptcha.com "
+                    "dashboard)"
+                )
+                raise ValueError(msg)
+            if not self.hcaptcha_secret.get_secret_value():
+                msg = (
+                    "captcha_provider=hcaptcha requires "
+                    "ARCHIVER_HCAPTCHA_SECRET (server-side secret "
+                    "from your hcaptcha.com dashboard)"
+                )
+                raise ValueError(msg)
+        return self
+
+    @model_validator(mode="after")
     def _validate_session_secret_when_admin_enabled(self) -> Settings:
         """If admin auth is enabled, the session secret must be a real
         operator-set value, not the source-tree placeholder. Without

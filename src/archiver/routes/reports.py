@@ -131,10 +131,8 @@ async def altcha_challenge(request: Request) -> JSONResponse:
     settings = get_settings(request)
     if settings.captcha_provider != "altcha":
         raise HTTPException(status_code=404)
+    # altcha_hmac_key is validated at Settings construction when
+    # captcha_provider=altcha, so reaching this point means it's set.
     hmac_key = settings.altcha_hmac_key.get_secret_value()
-    if not hmac_key:
-        raise HTTPException(
-            status_code=500, detail="altcha_hmac_key not configured"
-        )
     challenge = generate_altcha_challenge(hmac_key, settings.altcha_max_number)
     return JSONResponse(challenge)

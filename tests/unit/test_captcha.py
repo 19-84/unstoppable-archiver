@@ -36,6 +36,7 @@ class TestVerifyHcaptcha:
         )
         settings = Settings(
             captcha_provider="hcaptcha",
+            hcaptcha_sitekey="10000000-ffff-ffff-ffff-000000000001",  # type: ignore[arg-type]
             hcaptcha_secret="test-secret",  # noqa: S106  # type: ignore[arg-type]
         )
         assert await verify(settings, "good-token") is True
@@ -47,17 +48,21 @@ class TestVerifyHcaptcha:
         )
         settings = Settings(
             captcha_provider="hcaptcha",
+            hcaptcha_sitekey="10000000-ffff-ffff-ffff-000000000001",  # type: ignore[arg-type]
             hcaptcha_secret="test-secret",  # noqa: S106  # type: ignore[arg-type]
         )
         assert await verify(settings, "bad-token") is False
 
     async def test_empty_token_fails(self) -> None:
-        settings = Settings(captcha_provider="hcaptcha")
+        """Even with provider properly configured, an empty captcha
+        token must be rejected — the verify() function short-circuits
+        before hitting the upstream service."""
+        settings = Settings(
+            captcha_provider="hcaptcha",
+            hcaptcha_sitekey="10000000-ffff-ffff-ffff-000000000001",  # type: ignore[arg-type]
+            hcaptcha_secret="test-secret",  # noqa: S106  # type: ignore[arg-type]
+        )
         assert await verify(settings, "") is False
-
-    async def test_missing_secret_fails(self) -> None:
-        settings = Settings(captcha_provider="hcaptcha")
-        assert await verify(settings, "token") is False
 
     @respx.mock
     async def test_http_error_returns_false(self) -> None:
@@ -66,6 +71,7 @@ class TestVerifyHcaptcha:
         )
         settings = Settings(
             captcha_provider="hcaptcha",
+            hcaptcha_sitekey="10000000-ffff-ffff-ffff-000000000001",  # type: ignore[arg-type]
             hcaptcha_secret="test-secret",  # noqa: S106  # type: ignore[arg-type]
         )
         assert await verify(settings, "token") is False
@@ -81,10 +87,10 @@ class TestVerifyAltchaProvider:
         )
         assert await verify(settings, "") is False
 
-    async def test_missing_hmac_key_fails(self) -> None:
-        # Provider=altcha but no hmac_key → should reject all tokens
-        settings = Settings(captcha_provider="altcha")
-        assert await verify(settings, "any-token") is False
+    # The "captcha_provider=altcha with no hmac_key" misconfiguration
+    # is now blocked at Settings construction by the config validator
+    # (see test_captcha_altcha_requires_hmac_key in test_config.py).
+    # The runtime fallback that used to live here is unreachable.
 
 
 class TestUnknownProvider:
