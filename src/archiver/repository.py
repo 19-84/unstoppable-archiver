@@ -258,20 +258,24 @@ class ArchiveRepository:
     @beartype
     async def get_siblings_info(
         self, conn: PgConnection, uhash: str, archive_id: str,
-    ) -> tuple[int, int]:
-        """Return ``(position, total)`` for a given archive within its
-        URL's non-removed capture timeline.
+    ) -> tuple[int, int, str | None, str | None]:
+        """Return ``(position, total, newer_id, older_id)`` for a given
+        archive within its URL's non-removed capture timeline.
 
         Position is 1-based and sorted by ``created_at DESC`` so the
         newest capture is position 1 — matches the order used by the
         detail-page history block. Total excludes soft-deleted siblings
         so takedowns don't inflate the public count.
 
-        Used by the viewer toolbar to render 'Capture M of N' so a
-        user looking at one snapshot can tell where it sits in the
-        URL's timeline — crucial when fallback-tier captures (wayback /
-        privacy_frontend / commoncrawl) coexist with direct captures
-        of the same URL. Returns ``(1, 1)`` if the archive isn't found
+        ``newer_id`` is the archive at position-1 (the next-newer
+        capture), ``older_id`` is at position+1 (the next-older one).
+        Either may be None if this archive is at the timeline edge.
+        Both are returned in a single CTE query so the viewer toolbar
+        can render Capture M of N with prev/next chevrons for in-place
+        navigation between sibling snapshots without round-tripping
+        through the detail page.
+
+        Returns ``(1, 1, None, None)`` if the archive isn't found
         (e.g. row removed mid-request) so callers don't have to
         handle None."""
         row = await conn.fetchrow(
@@ -282,14 +286,23 @@ class ArchiveRepository:
                      count(*) OVER () AS total
               FROM archives
               WHERE url_hash = $1 AND removed_at IS NULL
-            )
-            SELECT pos, total FROM ordered WHERE id = $2
+            ),
+            cur AS (SELECT pos, total FROM ordered WHERE id = $2)
+            SELECT
+              cur.pos AS pos,
+              cur.total AS total,
+              (SELECT id FROM ordered WHERE pos = cur.pos - 1) AS newer_id,
+              (SELECT id FROM ordered WHERE pos = cur.pos + 1) AS older_id
+            FROM cur
             """,
             uhash, archive_id,
         )
         if row is None:
-            return (1, 1)
-        return (int(row["pos"]), int(row["total"]))
+            return (1, 1, None, None)
+        return (
+            int(row["pos"]), int(row["total"]),
+            row["newer_id"], row["older_id"],
+        )
 
     @beartype
     async def get_latest_complete(

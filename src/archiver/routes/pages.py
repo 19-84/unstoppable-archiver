@@ -347,7 +347,7 @@ async def archive_view(
         return RedirectResponse(
             url=f"/web/{ts}/{archive.url}", status_code=301
         )
-    siblings_pos, siblings_count = await _archive_repo.get_siblings_info(
+    siblings_pos, siblings_count, siblings_newer, siblings_older = await _archive_repo.get_siblings_info(
         conn, archive.url_hash, archive.id,
     )
     return templates.TemplateResponse(
@@ -356,6 +356,8 @@ async def archive_view(
             "archive": archive,
             "siblings_count": siblings_count,
             "siblings_position": siblings_pos,
+            "siblings_newer_id": siblings_newer,
+            "siblings_older_id": siblings_older,
         },
     )
 
@@ -381,7 +383,7 @@ async def wayback_latest(
     archive = await _archive_repo.get_latest_complete(conn, uhash)
     if archive is None or not archive.artifact_dir:
         raise HTTPException(status_code=404, detail="No snapshot for this URL")
-    siblings_pos, siblings_count = await _archive_repo.get_siblings_info(
+    siblings_pos, siblings_count, siblings_newer, siblings_older = await _archive_repo.get_siblings_info(
         conn, uhash, archive.id,
     )
     return templates.TemplateResponse(
@@ -390,6 +392,8 @@ async def wayback_latest(
             "archive": archive,
             "siblings_count": siblings_count,
             "siblings_position": siblings_pos,
+            "siblings_newer_id": siblings_newer,
+            "siblings_older_id": siblings_older,
         },
     )
 
@@ -419,7 +423,7 @@ async def wayback_timestamped(
     )
     if archive is None or not archive.artifact_dir:
         raise HTTPException(status_code=404, detail="No snapshot near this timestamp")
-    siblings_pos, siblings_count = await _archive_repo.get_siblings_info(
+    siblings_pos, siblings_count, siblings_newer, siblings_older = await _archive_repo.get_siblings_info(
         conn, uhash, archive.id,
     )
     return templates.TemplateResponse(
@@ -428,6 +432,8 @@ async def wayback_timestamped(
             "archive": archive,
             "siblings_count": siblings_count,
             "siblings_position": siblings_pos,
+            "siblings_newer_id": siblings_newer,
+            "siblings_older_id": siblings_older,
         },
     )
 

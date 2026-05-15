@@ -219,7 +219,9 @@ class TestViewerSiblingsCount:
                 "01TESTSIBB00000000000000",
             )
 
-        # Newer capture (B) — should be position 1 of 2.
+        # Newer capture (B) — should be position 1 of 2. At the
+        # newer edge: the newer chevron is the disabled span, the
+        # older chevron links to A.
         resp = await client.get(
             "/archive/01TESTSIBB00000000000000/view",
             follow_redirects=True,
@@ -228,14 +230,22 @@ class TestViewerSiblingsCount:
         body = resp.text
         assert "Capture 1 of 2" in body
         assert 'href="/archive/01TESTSIBB00000000000000"' in body
+        # Older chevron links to the older sibling A
+        assert 'href="/archive/01TESTSIBA00000000000000/view"' in body
+        # Newer chevron suppressed at the timeline edge
+        assert 'aria-label="Newer capture"' not in body
 
-        # Older capture (A) — should be position 2 of 2.
+        # Older capture (A) — should be position 2 of 2. At the
+        # older edge: newer chevron links to B, older chevron
+        # suppressed.
         resp = await client.get(
             "/archive/01TESTSIBA00000000000000/view",
             follow_redirects=True,
         )
         body = resp.text
         assert "Capture 2 of 2" in body
+        assert 'href="/archive/01TESTSIBB00000000000000/view"' in body
+        assert 'aria-label="Older capture"' not in body
 
     async def test_hides_link_when_only_one_capture(
         self,

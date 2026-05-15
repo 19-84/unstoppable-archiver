@@ -72,13 +72,26 @@
       <time style="font-size:12px;color:#a3a3a3;">{{ archive.created_at.strftime('%Y-%m-%d') if archive.created_at else '' }}</time>
       <div style="width:1px;height:16px;background:#262626;" aria-hidden="true"></div>
       {% if siblings_count and siblings_count > 1 %}
-      {# Surface that this URL has other captures (e.g. a direct
-         capture AND a privacy_frontend or wayback fallback) AND
-         where in the timeline this one sits. Without the position,
-         users couldn't tell if they were looking at the newest or
-         the oldest capture — only that more existed. Newest is
-         position 1 (matches the detail-page history order). #}
-      <a href="/archive/{{ archive.id }}" style="font-size:10px;padding:4px 8px;background:rgba(255,255,255,0.04);color:#a3a3a3;border-radius:4px;text-decoration:none;" title="See all snapshots of this URL">Capture {{ siblings_position }} of {{ siblings_count }}</a>
+      {# Surface where in the timeline this capture sits AND let the
+         user step forward/backward without leaving the viewer.
+         Newer = lower position number (1 = newest), older = higher.
+         Chevron links go to /archive/{id}/view which redirects to the
+         canonical /web/{ts}/{url} form and handles taken-down rows
+         (redirects to the takedown stub). When at the timeline edge,
+         the corresponding chevron is suppressed. #}
+      <div style="display:flex;align-items:center;gap:4px;">
+        {% if siblings_newer_id %}
+        <a href="/archive/{{ siblings_newer_id }}/view" style="font-size:11px;padding:3px 7px;background:rgba(255,255,255,0.04);color:#c084fc;border-radius:4px;text-decoration:none;line-height:1;" title="Newer capture of this URL" aria-label="Newer capture">‹</a>
+        {% else %}
+        <span style="font-size:11px;padding:3px 7px;color:#404040;line-height:1;" aria-hidden="true">‹</span>
+        {% endif %}
+        <a href="/archive/{{ archive.id }}" style="font-size:10px;padding:4px 8px;background:rgba(255,255,255,0.04);color:#a3a3a3;border-radius:4px;text-decoration:none;" title="See all snapshots of this URL">Capture {{ siblings_position }} of {{ siblings_count }}</a>
+        {% if siblings_older_id %}
+        <a href="/archive/{{ siblings_older_id }}/view" style="font-size:11px;padding:3px 7px;background:rgba(255,255,255,0.04);color:#c084fc;border-radius:4px;text-decoration:none;line-height:1;" title="Older capture of this URL" aria-label="Older capture">›</a>
+        {% else %}
+        <span style="font-size:11px;padding:3px 7px;color:#404040;line-height:1;" aria-hidden="true">›</span>
+        {% endif %}
+      </div>
       {% endif %}
       <a href="{{ archive.url }}" target="_blank" rel="noopener noreferrer" style="font-size:10px;padding:4px 8px;background:rgba(168,85,247,0.15);color:#c084fc;border-radius:4px;text-decoration:none;" title="Open the original site in a new tab">Original ↗</a>
       <a href="/api/archives/{{ archive.id }}/warc" style="font-size:10px;padding:4px 8px;background:rgba(255,255,255,0.05);color:#a3a3a3;border-radius:4px;text-decoration:none;" download>WARC</a>
