@@ -12,7 +12,11 @@ import structlog
 from beartype import beartype
 
 from archiver.browser_pool import BrowserPool
-from archiver.capture import capture_page, save_artifacts
+from archiver.capture import (
+    capture_page,
+    close_context_bounded,
+    save_artifacts,
+)
 from archiver.commoncrawl import (
     fetch_record_html as cc_fetch_record_html,
 )
@@ -643,7 +647,9 @@ class Worker:
                 page = await context.new_page()
                 snapshot_url = await save_to_wayback(url, page)
             finally:
-                await context.close()
+                # Bounded: unbounded close() in a finally can wedge
+                # the worker during wait_for cancellation.
+                await close_context_bounded(context, url=url)
             if not snapshot_url:
                 raise CaptureError(
                     f"URL not in Wayback and SPN submission failed: {url}"
@@ -805,8 +811,10 @@ class Worker:
             try:
                 snapshot_url = await save_to_archive_today(url, page)
             finally:
-                await page.close()
-                await context.close()
+                # Bounded: close() the context (which closes its
+                # page) with a wall-clock cap so a wedged Camoufox
+                # can't block wait_for cancellation.
+                await close_context_bounded(context, url=url)
 
         if snapshot_url is None:
             raise CaptureError(

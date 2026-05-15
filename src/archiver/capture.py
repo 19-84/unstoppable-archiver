@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import hashlib
 import json
@@ -175,6 +176,44 @@ log = structlog.get_logger()
 
 
 @beartype
+async def close_context_bounded(
+    context: Any, *, url: str, timeout: float = 30.0,
+) -> None:
+    """Close a Playwright ``BrowserContext`` with a hard wall-clock bound.
+
+    ``context`` is typed ``Any`` rather than ``BrowserContext`` on
+    purpose: the package's beartype import hook would otherwise gate
+    this internal cleanup helper, and the worker's error-path tests
+    pass bare mock contexts. The real callers always pass a genuine
+    BrowserContext; the type check would add no safety here.
+
+    A wedged browser — dead SOCKS5 proxy, hung Camoufox, crashed
+    renderer — can make ``context.close()`` hang indefinitely. That
+    is dangerous in a ``finally`` block: the worker wraps each
+    capture in ``wait_for(max_capture_timeout)``, and when that
+    timeout fires it cancels the capture task and *awaits it* to
+    unwind. The unwind runs this ``finally``. An unbounded
+    ``context.close()`` here blocks the cancellation from ever
+    completing, so ``wait_for`` never returns — the job stays
+    'running' forever and the worker's concurrency slot is wedged
+    permanently (observed: camoufox_proxy jobs stuck 'running' for
+    12+ minutes against a 300s timeout).
+
+    Bounding the close leaks a browser process on the rare wedge
+    (recoverable: the OS reaps the child, or a worker restart clears
+    it) instead of wedging the worker (not recoverable without a
+    restart). ``asyncio.wait`` returns after ``timeout`` whether or
+    not close() finished and does not block on a hung task.
+    """
+    close_task = asyncio.ensure_future(context.close())
+    done, _pending = await asyncio.wait({close_task}, timeout=timeout)
+    if not done:
+        close_task.cancel()  # best-effort; do not await — may also hang
+        log.warning(
+            "capture.context_close_timeout", url=url, timeout_s=timeout,
+        )
+
+
 async def capture_page(  # noqa: C901, PLR0912, PLR0913, PLR0915
     url: str,
     browser: Browser,
@@ -607,7 +646,9 @@ async def capture_page(  # noqa: C901, PLR0912, PLR0913, PLR0915
     except Exception as exc:
         raise CaptureError(f"Capture failed: {exc}") from exc
     finally:
-        await context.close()
+        # Bounded: an unbounded close() here can wedge the worker —
+        # see close_context_bounded's docstring.
+        await close_context_bounded(context, url=url)
 
 
 _CSP_HEADER_NAMES: frozenset[str] = frozenset({

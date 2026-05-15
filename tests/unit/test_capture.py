@@ -8,7 +8,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from playwright.async_api import Browser
+from playwright.async_api import Browser, BrowserContext
 
 from archiver.capture import (
     _await_challenge_completion,
@@ -16,6 +16,7 @@ from archiver.capture import (
     _looks_like_block_page,
     _strip_csp_route,
     capture_page,
+    close_context_bounded,
     save_artifacts,
 )
 from archiver.config import Settings
@@ -385,6 +386,50 @@ class TestCapturePageSuccess:
             await capture_page(
                 "https://example.com", browser, settings
             )
+
+
+class TestCloseContextBounded:
+    """close_context_bounded must return within its timeout even when
+    the underlying context.close() hangs.
+
+    This is the fix for a worker-wedge: capture_page's
+    `finally: await context.close()` runs while the worker's
+    wait_for(max_capture_timeout) is cancelling a timed-out capture.
+    An unbounded close() on a wedged browser blocks that cancellation
+    forever — the job stays 'running' and the worker concurrency slot
+    is permanently lost (observed live: camoufox_proxy jobs stuck
+    'running' 12+ minutes against a 300s timeout)."""
+
+    async def test_returns_even_when_close_hangs(self) -> None:
+        """A context.close() that never completes must not block the
+        caller past the timeout — the whole point of the bound."""
+        import asyncio
+        import time
+
+        context = MagicMock(spec=BrowserContext)
+
+        async def _hang() -> None:
+            await asyncio.Event().wait()  # never resolves
+
+        context.close = _hang
+
+        start = time.monotonic()
+        await close_context_bounded(
+            context, url="https://example.com", timeout=0.3,
+        )
+        elapsed = time.monotonic() - start
+        # Returned ~0.3s, NOT hung. Generous ceiling for CI jitter.
+        assert elapsed < 3.0, f"close_context_bounded hung: {elapsed:.1f}s"  # noqa: PLR2004
+
+    async def test_completes_normally_for_fast_close(self) -> None:
+        """The happy path: a well-behaved close() is awaited to
+        completion and not left dangling."""
+        context = MagicMock(spec=BrowserContext)
+        context.close = AsyncMock()
+        await close_context_bounded(
+            context, url="https://example.com", timeout=5.0,
+        )
+        context.close.assert_awaited_once()
 
 
 class TestCapturePageErrors:
