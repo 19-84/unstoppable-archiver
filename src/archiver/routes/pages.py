@@ -347,12 +347,16 @@ async def archive_view(
         return RedirectResponse(
             url=f"/web/{ts}/{archive.url}", status_code=301
         )
-    siblings_count = await _archive_repo.count_by_url_hash(
-        conn, archive.url_hash,
+    siblings_pos, siblings_count = await _archive_repo.get_siblings_info(
+        conn, archive.url_hash, archive.id,
     )
     return templates.TemplateResponse(
         request, "archive_view.html",
-        {"archive": archive, "siblings_count": siblings_count},
+        {
+            "archive": archive,
+            "siblings_count": siblings_count,
+            "siblings_position": siblings_pos,
+        },
     )
 
 
@@ -377,10 +381,16 @@ async def wayback_latest(
     archive = await _archive_repo.get_latest_complete(conn, uhash)
     if archive is None or not archive.artifact_dir:
         raise HTTPException(status_code=404, detail="No snapshot for this URL")
-    siblings_count = await _archive_repo.count_by_url_hash(conn, uhash)
+    siblings_pos, siblings_count = await _archive_repo.get_siblings_info(
+        conn, uhash, archive.id,
+    )
     return templates.TemplateResponse(
         request, "archive_view.html",
-        {"archive": archive, "siblings_count": siblings_count},
+        {
+            "archive": archive,
+            "siblings_count": siblings_count,
+            "siblings_position": siblings_pos,
+        },
     )
 
 
@@ -409,10 +419,16 @@ async def wayback_timestamped(
     )
     if archive is None or not archive.artifact_dir:
         raise HTTPException(status_code=404, detail="No snapshot near this timestamp")
-    siblings_count = await _archive_repo.count_by_url_hash(conn, uhash)
+    siblings_pos, siblings_count = await _archive_repo.get_siblings_info(
+        conn, uhash, archive.id,
+    )
     return templates.TemplateResponse(
         request, "archive_view.html",
-        {"archive": archive, "siblings_count": siblings_count},
+        {
+            "archive": archive,
+            "siblings_count": siblings_count,
+            "siblings_position": siblings_pos,
+        },
     )
 
 

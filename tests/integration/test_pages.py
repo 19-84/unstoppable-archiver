@@ -186,11 +186,16 @@ class TestViewerSiblingsCount:
     affordance to find or compare the direct version — they have to
     back out to the detail page and read the history list."""
 
-    async def test_shows_count_when_multiple_captures_exist(
+    async def test_shows_position_when_multiple_captures_exist(
         self,
         client: AsyncClient,
         pool: asyncpg.pool.Pool,
     ) -> None:
+        """Viewer toolbar must surface BOTH the total count AND this
+        capture's position — 'Capture 1 of 2'. Just '2 captures' was
+        ambiguous: a user couldn't tell if they were looking at the
+        newest or the oldest. Position 1 = newest (matches the
+        detail-page history sort order)."""
         from archiver.url import url_hash as _hash
         url = "https://example.com/multi-capture-uat"
         uhash = _hash(url)
@@ -214,24 +219,31 @@ class TestViewerSiblingsCount:
                 "01TESTSIBB00000000000000",
             )
 
+        # Newer capture (B) — should be position 1 of 2.
         resp = await client.get(
-            "/archive/01TESTSIBA00000000000000/view",
+            "/archive/01TESTSIBB00000000000000/view",
             follow_redirects=True,
         )
         assert resp.status_code == 200  # noqa: PLR2004
         body = resp.text
-        assert "2 captures" in body
-        # The link must point back to the detail page so the user can
-        # see all snapshots — not to a different snapshot directly.
-        assert 'href="/archive/01TESTSIBA00000000000000"' in body
+        assert "Capture 1 of 2" in body
+        assert 'href="/archive/01TESTSIBB00000000000000"' in body
 
-    async def test_hides_count_when_only_one_capture(
+        # Older capture (A) — should be position 2 of 2.
+        resp = await client.get(
+            "/archive/01TESTSIBA00000000000000/view",
+            follow_redirects=True,
+        )
+        body = resp.text
+        assert "Capture 2 of 2" in body
+
+    async def test_hides_link_when_only_one_capture(
         self,
         client: AsyncClient,
         pool: asyncpg.pool.Pool,
     ) -> None:
-        """A URL with a single capture must NOT render the link — '1
-        captures' would be misleading UI noise."""
+        """A URL with a single capture must NOT render the link —
+        'Capture 1 of 1' is misleading UI noise."""
         from archiver.url import url_hash as _hash
         url = "https://example.com/lonely-capture-uat"
         uhash = _hash(url)
@@ -253,12 +265,9 @@ class TestViewerSiblingsCount:
             follow_redirects=True,
         )
         body = resp.text
-        # The toolbar block uses '{N} captures' as a link; make sure
-        # neither the count-1 link nor a misleading '1 captures' badge
-        # rendered. The unrelated loading-overlay copy mentions
-        # 'captures' so we check the link form specifically.
-        assert "1 captures</a>" not in body
-        assert ">1 captures<" not in body
+        # No "Capture N of M" badge — link must be completely absent.
+        assert "Capture 1 of 1" not in body
+        assert "Capture " not in body or ">Capture " not in body
 
 
 class TestRecapture:

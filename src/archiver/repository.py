@@ -256,22 +256,40 @@ class ArchiveRepository:
         return [_record_to_archive(r) for r in rows]
 
     @beartype
-    async def count_by_url_hash(
-        self, conn: PgConnection, uhash: str
-    ) -> int:
-        """Count non-removed archives sharing this URL hash.
+    async def get_siblings_info(
+        self, conn: PgConnection, uhash: str, archive_id: str,
+    ) -> tuple[int, int]:
+        """Return ``(position, total)`` for a given archive within its
+        URL's non-removed capture timeline.
 
-        Used by the viewer toolbar to surface 'N captures →' when a URL
-        has multiple snapshots — e.g. a direct capture and a
-        privacy_frontend fallback of the same Twitter URL. Removed
-        archives are excluded so taken-down captures don't inflate the
-        public count."""
+        Position is 1-based and sorted by ``created_at DESC`` so the
+        newest capture is position 1 — matches the order used by the
+        detail-page history block. Total excludes soft-deleted siblings
+        so takedowns don't inflate the public count.
+
+        Used by the viewer toolbar to render 'Capture M of N' so a
+        user looking at one snapshot can tell where it sits in the
+        URL's timeline — crucial when fallback-tier captures (wayback /
+        privacy_frontend / commoncrawl) coexist with direct captures
+        of the same URL. Returns ``(1, 1)`` if the archive isn't found
+        (e.g. row removed mid-request) so callers don't have to
+        handle None."""
         row = await conn.fetchrow(
-            "SELECT count(*) AS n FROM archives"
-            " WHERE url_hash = $1 AND removed_at IS NULL",
-            uhash,
+            """
+            WITH ordered AS (
+              SELECT id,
+                     ROW_NUMBER() OVER (ORDER BY created_at DESC) AS pos,
+                     count(*) OVER () AS total
+              FROM archives
+              WHERE url_hash = $1 AND removed_at IS NULL
+            )
+            SELECT pos, total FROM ordered WHERE id = $2
+            """,
+            uhash, archive_id,
         )
-        return int(row["n"]) if row else 0
+        if row is None:
+            return (1, 1)
+        return (int(row["pos"]), int(row["total"]))
 
     @beartype
     async def get_latest_complete(
