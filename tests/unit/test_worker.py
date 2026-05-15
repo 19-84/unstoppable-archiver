@@ -407,6 +407,42 @@ class TestWorkerFallbackTiers:
         mock_capture.assert_awaited_once()
         worker._job_repo.complete.assert_awaited_once()
 
+    @patch("archiver.worker.save_artifacts", new_callable=AsyncMock)
+    @patch("archiver.worker.capture_page", new_callable=AsyncMock)
+    @patch("archiver.worker.fetch_archive_today_snapshot_html", new_callable=AsyncMock)
+    @patch("archiver.worker.find_archive_today_snapshot", new_callable=AsyncMock)
+    async def test_archive_today_browser_fallback_preserves_source_url(
+        self,
+        mock_find: AsyncMock,
+        mock_fetch: AsyncMock,
+        mock_capture: AsyncMock,
+        mock_save: AsyncMock,
+    ) -> None:
+        _ = mock_save  # required by the patch stack, not invoked here
+        """When archive.today direct-fetch fails and the worker falls
+        through to a full Camoufox render of the memento URL, the
+        returned CaptureResult must carry source_url=memento_url. The
+        sibling direct-fetch path already set this; the browser
+        branch silently dropped it, which meant the detail page's
+        'Captured from' provenance block would disappear for the
+        exact subset of archive.today captures that needed a browser
+        render to bypass CF."""
+        worker, _ = _make_worker()
+        memento = "https://archive.today/abc/foo"
+        mock_find.return_value = memento
+        mock_fetch.return_value = None  # CF block forces browser path
+        # capture_page returns a result without source_url set —
+        # the wrapper layer must fill it in. _make_capture_result()
+        # defaults source_url=None so the bare assignment is the
+        # 'unset' case we want to validate gets populated.
+        mock_capture.return_value = _make_capture_result()
+        worker._browser_pool.get_browser = AsyncMock()
+
+        result = await worker._capture_via_archive_today(
+            "https://twitter.com/foo",
+        )
+        assert result.source_url == memento
+
     @patch("archiver.worker.cc_find_snapshot_full_history", new_callable=AsyncMock)
     @patch("archiver.worker.cc_find_snapshot", new_callable=AsyncMock)
     @patch("archiver.worker.capture_page", new_callable=AsyncMock)

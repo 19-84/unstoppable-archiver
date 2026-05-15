@@ -743,8 +743,9 @@ class Worker:
             "worker.archive_today.direct_fetch_failed_fallback_browser",
             memento=snapshot_url,
         )
+        from dataclasses import replace
         browser = await self._browser_pool.get_browser(CaptureTier.CAMOUFOX)
-        return await capture_page(
+        result = await capture_page(
             url=snapshot_url,
             browser=browser,
             settings=self._settings,
@@ -752,6 +753,13 @@ class Worker:
             strip_selectors=ARCHIVE_TODAY_STRIP_SELECTORS,
             warc_original_url=url,
         )
+        # Record the memento URL as the provenance source — without
+        # this, the browser-fallback path silently dropped source_url
+        # while the sibling direct-fetch path (above) preserved it.
+        # The detail page's 'Captured from' block would then disappear
+        # for the exact subset of archive.today captures that needed a
+        # full render to bypass CF.
+        return replace(result, source_url=snapshot_url)
 
     async def _capture_via_archive_today_submit(
         self, url: str
