@@ -61,7 +61,14 @@ async def require_api_key(request: Request) -> None:
 
     If ARCHIVER_API_KEY is not set (empty), auth is disabled.
     If set, the request must include it as Bearer token or X-API-Key header.
+
+    Comparisons go through hmac.compare_digest so a network attacker
+    can't byte-by-byte recover the key via response-timing
+    measurements — plain ``==`` on strings short-circuits at the first
+    differing byte, leaking how many leading bytes were correct.
     """
+    import hmac
+
     settings = request.app.state.settings
     key = settings.api_key.get_secret_value()
     if not key:
@@ -69,11 +76,12 @@ async def require_api_key(request: Request) -> None:
 
     # Check Authorization header
     auth = request.headers.get("authorization", "")
-    if auth.startswith("Bearer ") and auth[7:] == key:
+    if auth.startswith("Bearer ") and hmac.compare_digest(auth[7:], key):
         return
 
     # Check X-API-Key header
-    if request.headers.get("x-api-key") == key:
+    xapi = request.headers.get("x-api-key", "")
+    if xapi and hmac.compare_digest(xapi, key):
         return
 
     raise HTTPException(status_code=401, detail="Invalid or missing API key")

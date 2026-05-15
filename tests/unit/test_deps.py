@@ -65,6 +65,37 @@ class TestRequireApiKey:
             await require_api_key(request)
         assert exc.value.status_code == 401  # noqa: PLR2004
 
+    async def test_partial_match_prefix_still_rejected(self) -> None:
+        """A key that matches the first N bytes of the real one but
+        differs later must be rejected — pins that we don't short-
+        circuit on prefix match. Plain `==` on strings would already
+        reject this, but the wider point is that the comparator is
+        hmac.compare_digest which is constant-time regardless of
+        match position, so a timing-attack adversary can't recover
+        the key byte-by-byte."""
+        # Both 9 chars; first 6 match, differ at index 6.
+        request = _make_request(
+            headers={"authorization": "Bearer secret321"},
+            api_key="secret123",
+        )
+        with pytest.raises(HTTPException) as exc:
+            await require_api_key(request)
+        assert exc.value.status_code == 401  # noqa: PLR2004
+
+    async def test_empty_x_api_key_header_rejected(self) -> None:
+        """An explicit empty X-API-Key header must be a 401, not an
+        auth bypass. Previously a request with ``X-API-Key:`` would
+        run ``"" == key`` and be rejected only because the secret was
+        non-empty — we now also short-circuit on empty header value
+        BEFORE the constant-time compare to keep the intent obvious."""
+        request = _make_request(
+            headers={"x-api-key": ""},
+            api_key="secret123",
+        )
+        with pytest.raises(HTTPException) as exc:
+            await require_api_key(request)
+        assert exc.value.status_code == 401  # noqa: PLR2004
+
 
 class TestClientIpHash:
     def _request(
