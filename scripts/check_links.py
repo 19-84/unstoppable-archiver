@@ -51,8 +51,11 @@ _SKIP_PATH_PATTERNS = (
     # admin (dashboard, reports list, archive admin views).
     re.compile(r"^/admin/archives/[^/]+/hard-delete$"),
     re.compile(r"^/admin/archives/[^/]+/restore$"),
-    re.compile(r"^/admin/archives/[^/]+/takedown$"),
+    re.compile(r"^/admin/archives/[^/]+/remove$"),
     re.compile(r"^/admin/reports/[^/]+/resolve$"),
+    re.compile(r"^/admin/blocklist/reload$"),
+    re.compile(r"^/admin/login$"),
+    re.compile(r"^/admin/logout$"),
     re.compile(r"^/api/archives/.*/(snapshot|warc|screenshot|thumbnail)$"),
 )
 

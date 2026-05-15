@@ -578,3 +578,82 @@ class TestAdminArchiveManagement:
             )
             assert row is not None
             assert row["removed_at"] is None
+
+
+class TestAdminPagesSmoke:
+    """Render-smoke each admin GET page with realistic data.
+
+    The existing TestAdmin* classes assert on specific behaviour
+    (resolving reports, restoring archives). This class catches the
+    cheaper regression: a template that references a removed field
+    or filter and 500s for everyone the moment it ships. Tests run
+    fast because they only POST one archive + one report before
+    GETting each page.
+    """
+
+    async def _setup_fixtures(
+        self, client: AsyncClient,
+    ) -> str:
+        """Create one archive + one report so every admin page has
+        non-empty data to render."""
+        resp = await client.post(
+            "/api/archives",
+            json={"url": "https://example.com/admin-smoke", "force": True},
+        )
+        archive_id = resp.json()["id"]
+        await client.post(
+            f"/report/{archive_id}",
+            data={"reason": "malicious", "details": "smoke"},
+        )
+        return archive_id
+
+    async def test_dashboard_renders(
+        self, client: AsyncClient, logged_in_client: AsyncClient,
+    ) -> None:
+        await self._setup_fixtures(client)
+        resp = await logged_in_client.get("/admin/")
+        assert resp.status_code == 200  # noqa: PLR2004
+        # Dashboard links to the three sub-pages
+        assert "/admin/reports" in resp.text
+        assert "/admin/archives" in resp.text
+        assert "/admin/audit" in resp.text
+
+    async def test_archives_page_renders(
+        self,
+        client: AsyncClient,
+        logged_in_client: AsyncClient,
+    ) -> None:
+        archive_id = await self._setup_fixtures(client)
+        resp = await logged_in_client.get("/admin/archives")
+        assert resp.status_code == 200  # noqa: PLR2004
+        assert archive_id in resp.text
+
+    async def test_reports_page_renders_each_status_filter(
+        self,
+        client: AsyncClient,
+        logged_in_client: AsyncClient,
+    ) -> None:
+        """All three status filter URLs must render — pending is the
+        landing case but the other two are reachable from the nav."""
+        await self._setup_fixtures(client)
+        for status in ("pending", "resolved", "dismissed"):
+            resp = await logged_in_client.get(
+                f"/admin/reports?status={status}",
+            )
+            assert resp.status_code == 200, (  # noqa: PLR2004
+                f"reports?status={status} returned {resp.status_code}"
+            )
+
+    async def test_audit_page_renders(
+        self,
+        client: AsyncClient,
+        logged_in_client: AsyncClient,
+    ) -> None:
+        await self._setup_fixtures(client)
+        # Trigger an audit-loggable action so the page has at least
+        # one entry to render (otherwise we just verify the empty state)
+        await logged_in_client.post(
+            "/admin/blocklist/reload", follow_redirects=False,
+        )
+        resp = await logged_in_client.get("/admin/audit")
+        assert resp.status_code == 200  # noqa: PLR2004
