@@ -128,10 +128,19 @@
   </div>
   {% elif archive.status == "failed" %}
   <div class="text-red-400 text-sm">{{ archive.error_message or "Capture failed" }}</div>
-  <button hx-post="/api/archives" hx-vals='{"url": {{ archive.url | tojson }}, "force": true}'
-          class="px-5 py-2 bg-purple-500 text-white text-sm font-medium rounded-xl hover:bg-purple-400 transition">
-    Retry
-  </button>
+  {% if mode == "self-hosted" %}
+  {# Retry uses the same /recapture form pattern as the Re-capture
+     button on complete archives: a real POST that redirects to the
+     new archive's detail page. The previous htmx POST to /api/archives
+     had no hx-target, so the JSON response was swapped into the
+     button itself — clicking Retry replaced 'Retry' with raw JSON. #}
+  <form method="POST" action="/recapture/{{ archive.id }}" class="inline mt-3">
+    <button type="submit"
+            class="px-5 py-2 bg-purple-500 text-white text-sm font-medium rounded-xl hover:bg-purple-400 transition">
+      Retry
+    </button>
+  </form>
+  {% endif %}
   {% endif %}
 
   {% if history %}

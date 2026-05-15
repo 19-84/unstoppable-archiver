@@ -548,6 +548,48 @@ class TestRecapture:
         )
         assert resp.status_code == 404  # noqa: PLR2004
 
+    async def test_failed_archive_retry_button_is_real_form_post(
+        self,
+        client: AsyncClient,
+        pool: asyncpg.pool.Pool,
+    ) -> None:
+        """The Retry button on failed-state archives used to be an
+        htmx POST to /api/archives with no hx-target — clicking it
+        replaced the button's text content with the raw JSON
+        response. Now it must be a regular form POST to /recapture/
+        {id} (matching the Re-capture button on complete archives),
+        which redirects to the new archive's detail page so the user
+        can watch fresh capture progress."""
+        async with pool.acquire() as conn:
+            await conn.execute(
+                """
+                INSERT INTO archives (id, url, url_hash, status, source,
+                    tier, created_at, completed_at, error_message)
+                VALUES ($1, $2, $3, 'failed', 'commoncrawl',
+                        'commoncrawl', now(), now(),
+                        'CF challenge exceeded retries')
+                """,
+                "01TESTRETRYBTN0000000000",
+                "https://example.com/retry-btn-uat",
+                "retrybtn-hash-32chars-abcdefg012",
+            )
+
+        body = (await client.get("/archive/01TESTRETRYBTN0000000000")).text
+        # The button is now inside a form pointing at /recapture/{id}
+        assert 'action="/recapture/01TESTRETRYBTN0000000000"' in body
+        # No leftover htmx POST attribute that would JSON-leak
+        assert 'hx-post="/api/archives"' not in body
+        # Error message is still surfaced so the user knows what failed
+        assert "CF challenge" in body
+        # Submitting the form must 303 to a fresh archive
+        resp = await client.post(
+            "/recapture/01TESTRETRYBTN0000000000",
+            follow_redirects=False,
+        )
+        assert resp.status_code == 303  # noqa: PLR2004
+        assert "/archive/" in resp.headers["location"]
+        assert "01TESTRETRYBTN0000000000" not in resp.headers["location"]
+
 
 class TestArchiveDetailPage:
     async def test_renders_for_existing_archive(
