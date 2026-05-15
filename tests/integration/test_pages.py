@@ -82,6 +82,58 @@ class TestHomePage:
         # Bookmarklet is only rendered in self-hosted mode (default)
         assert "Archive this" in resp.text
 
+    async def test_site_wide_social_preview_defaults(
+        self, client: AsyncClient
+    ) -> None:
+        """Every page that isn't a per-archive detail must render the
+        site-wide social preview defaults — og:type=website, generic
+        title, twitter:card=summary. Without these, sharing the root
+        URL or any non-detail page on Slack/Discord/Twitter rendered
+        as a bare-string preview with no thumbnail or description.
+        Detail pages override the block with per-archive metadata."""
+        for path in ("/", "/archives", "/search?q=anything"):
+            resp = await client.get(path)
+            body = resp.text
+            assert '<meta property="og:site_name" content="Unstoppable Archive">' in body, path
+            assert '<meta property="og:type" content="website">' in body, path
+            assert 'twitter:card' in body, path
+            # Default is small-card 'summary' — detail pages upgrade
+            # to summary_large_image once a screenshot exists.
+            assert 'content="summary"' in body, path
+            # Exactly one og:url — duplicates from default + override
+            # would confuse social crawlers.
+            assert body.count('property="og:url"') == 1, path
+
+    async def test_detail_override_replaces_site_defaults(
+        self, client: AsyncClient, pool: asyncpg.pool.Pool,
+    ) -> None:
+        """Detail pages must render their per-archive social meta and
+        NOT also the site-wide defaults — duplicate og:url / og:title
+        tags break social previews. The override block must fully
+        replace, not append."""
+        async with pool.acquire() as conn:
+            await conn.execute(
+                """
+                INSERT INTO archives (id, url, url_hash, status, source,
+                    tier, created_at, completed_at, title, artifact_dir,
+                    snapshot_size)
+                VALUES ($1, $2, $3, 'complete', 'direct', 'chromium',
+                        now(), now(), 'detail-override-test',
+                        'ogtest/A', 100)
+                """,
+                "01TESTOGOVR00000000000000",
+                "https://example.com/og-override-uat",
+                "ogovr-hash-32chars-abcdefghij",
+            )
+
+        body = (await client.get("/archive/01TESTOGOVR00000000000000")).text
+        # Detail-specific values present
+        assert 'content="article"' in body
+        assert "detail-override-test" in body
+        # Single og:url and og:title — no duplicates from base default
+        assert body.count('property="og:url"') == 1
+        assert body.count('property="og:title"') == 1
+
 
 class TestSitemap:
     """Sitemap.xml is the canonical mechanism for surfacing every

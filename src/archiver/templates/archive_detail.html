@@ -4,11 +4,12 @@
 
 {% block title %}{{ archive.title or archive.url }} — Unstoppable Archive{% endblock %}
 
-{% block head %}
-{# Open Graph + Twitter Card metadata so archive links rendered as
-   previews on Slack/Discord/Twitter/iMessage show the captured title,
-   the original URL, and (when available) the page screenshot. Without
-   these tags, social platforms fall back to bare URL strings. #}
+{% block social_meta %}
+{# Per-archive Open Graph + Twitter Card overrides. Replaces the
+   site-wide defaults in base.html with rich previews that include
+   the captured title, original URL, and (when available) page
+   screenshot. The detail page is the most-shared archive URL, so
+   this block carries the heaviest social-preview load. #}
 <meta property="og:site_name" content="Unstoppable Archive">
 <meta property="og:type" content="article">
 <meta property="og:title" content="{{ archive.title or archive.url }}">
@@ -26,6 +27,9 @@
 {% if archive.status == "complete" and archive.artifact_dir %}
 <meta name="twitter:image" content="{{ request.base_url }}api/archives/{{ archive.id }}/screenshot">
 {% endif %}
+{% endblock %}
+
+{% block head %}
 <link rel="canonical" href="{{ request.base_url }}archive/{{ archive.id }}">
 {% endblock %}
 

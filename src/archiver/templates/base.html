@@ -7,6 +7,21 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="description" content="Unstoppable Archive — self-hosted web preservation with six capture tiers">
 <title>{% block title %}Unstoppable Archive{% endblock %}</title>
+{# Site-wide social preview defaults — the detail template overrides
+   this block with per-archive OG/Twitter tags including the page
+   screenshot. Without these defaults, sharing the root URL or any
+   non-detail page rendered as bare-string previews on Slack/Discord/
+   Twitter/iMessage. #}
+{% block social_meta %}
+<meta property="og:site_name" content="Unstoppable Archive">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Unstoppable Archive">
+<meta property="og:url" content="{{ request.base_url }}">
+<meta property="og:description" content="Self-hosted web preservation with six capture tiers — chromium → camoufox → proxy → wayback → archive.today → commoncrawl">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="Unstoppable Archive">
+<meta name="twitter:description" content="Self-hosted web preservation with six capture tiers">
+{% endblock %}
 <!-- All assets vendored locally — no external CDN dependencies -->
 <link rel="stylesheet" href="/static/css/tailwind.css">
 <link rel="stylesheet" href="/static/css/fonts.css">
