@@ -40,6 +40,26 @@ PLATFORM_BLOCK_MARKERS: frozenset[str] = frozenset({
     "enable javascript and cookies to continue",
 })
 
+# Soft login/content walls. Some sites — notably X/Twitter — serve a
+# fully-rendered "log in to see this content" page as HTTP 200 with no
+# CAPTCHA and no block language. check_anti_bot's other markers all
+# target *hard* blocks (403s, Cloudflare, CAPTCHAs), so a soft wall
+# slips through as a "successful" capture: the worker stores 15 MB of
+# login-wall HTML and never escalates to the privacy_frontend tier
+# (nitter/redlib) that exists precisely to fetch the real content.
+#
+# Flagging the wall as blocked makes capture_page raise
+# AntiBotDetectedError, so the worker escalates through the tiers and
+# privacy_frontend serves the actual page. Markers MUST be distinctive
+# enough not to appear in legitimate page content — a generic "log in"
+# would false-positive on most of the web. These are exact copy from
+# the platforms' logged-out walls. The privacy-frontend mirrors
+# (nitter etc.) don't carry this copy, so an escalated capture won't
+# re-trip the marker.
+LOGIN_WALL_MARKERS: frozenset[str] = frozenset({
+    "people on x are the first to know",  # X/Twitter logged-out wall
+})
+
 GENERIC_BLOCK_MARKERS: frozenset[str] = frozenset({
     "captcha",
     "recaptcha",
@@ -198,7 +218,7 @@ class DetectionSignal:
     lambda result: result.reason is not None if result.is_blocked else result.reason is None,
     "Blocked signals must have a reason; non-blocked must not",
 )
-def check_anti_bot(  # noqa: C901, PLR0911
+def check_anti_bot(  # noqa: C901, PLR0911, PLR0912
     status_code: int,
     title: str,
     body_text: str,
@@ -237,6 +257,16 @@ def check_anti_bot(  # noqa: C901, PLR0911
             return DetectionSignal(
                 is_blocked=True,
                 reason=f"platform block: '{marker}'",
+            )
+
+    # Soft login walls (HTTP 200, no CAPTCHA) — match regardless of
+    # body length: X/Twitter's wall ships a multi-MB JS page. Flagged
+    # so the worker escalates to the privacy_frontend tier.
+    for marker in LOGIN_WALL_MARKERS:
+        if marker in body_lower:
+            return DetectionSignal(
+                is_blocked=True,
+                reason=f"login wall: '{marker}'",
             )
 
     for marker in GENERIC_BLOCK_MARKERS:

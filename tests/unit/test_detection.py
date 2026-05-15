@@ -79,6 +79,39 @@ class TestCheckAntiBot:
         signal = check_anti_bot(200, "Page", "")
         assert signal.is_blocked is False
 
+    def test_twitter_soft_login_wall_detected(self) -> None:
+        """X/Twitter serves its logged-out 'log in to continue' wall
+        as HTTP 200 with no CAPTCHA — a real captured wall's body.
+        Without this the worker stores the 15 MB login-wall page as a
+        'successful' direct capture and never escalates to the
+        privacy_frontend tier (nitter) that fetches the real tweet.
+
+        Body text below is the actual innerText from a live
+        twitter.com/jack/status/20 capture."""
+        wall_body = (
+            "Don't miss what's happening\n"
+            "People on X are the first to know.\n"
+            "Log in\nSign up\n"
+            "Did someone say … cookies?\n"
+            "X and its partners use cookies to provide you with a "
+            "better, safer and faster service."
+        )
+        signal = check_anti_bot(200, 'jack on X: "just setting up my twttr"', wall_body)
+        assert signal.is_blocked is True
+        assert "login wall" in (signal.reason or "")
+
+    def test_login_wall_marker_is_specific_no_false_positive(self) -> None:
+        """The wall marker must be distinctive enough that an ordinary
+        page with a 'Log in' link or generic sign-up copy is NOT
+        flagged — escalating a good capture is wasteful. Only the exact
+        platform wall phrase trips it."""
+        ordinary = (
+            "Welcome to our blog. Log in or sign up to comment. "
+            "Don't miss our latest posts about gardening." + "x" * 500
+        )
+        signal = check_anti_bot(200, "Gardening Blog", ordinary)
+        assert signal.is_blocked is False
+
     def test_access_denied_title(self) -> None:
         signal = check_anti_bot(200, "Access Denied", "No access")
         assert signal.is_blocked is True
