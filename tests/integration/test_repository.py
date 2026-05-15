@@ -11,6 +11,7 @@ import asyncpg
 import pytest
 
 from archiver.db import close_pool, create_pool, init_db
+from tests.integration.conftest import reset_test_db
 from archiver.enums import ArchiveStatus, CaptureTier, JobStatus
 from archiver.repository import (
     ArchiveRepository,
@@ -37,14 +38,8 @@ pytestmark = pytest.mark.integration
 async def pool() -> AsyncIterator[asyncpg.pool.Pool]:
     p = await create_pool(DB_URL, min_size=2, max_size=5)
     await init_db(p)
+    await reset_test_db(p)   # clean slate IN, not OUT
     yield p
-    async with p.acquire() as conn:
-        await conn.execute("DELETE FROM jobs")
-        await conn.execute("DELETE FROM archives")
-        await conn.execute("DELETE FROM proxy_status")
-        await conn.execute("DELETE FROM cf_clearance_cache")
-        await conn.execute("DELETE FROM domain_observations")
-        await conn.execute("DELETE FROM frontend_status")
     await close_pool(p)
 
 

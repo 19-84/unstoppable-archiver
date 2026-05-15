@@ -16,6 +16,7 @@ from archiver.app import create_app
 from archiver.auth import hash_password
 from archiver.config import Settings
 from archiver.db import close_pool, create_pool, init_db
+from tests.integration.conftest import reset_test_db
 
 DB_URL = os.environ.get(
     "ARCHIVER_TEST_DB_URL",
@@ -31,12 +32,8 @@ ADMIN_PASSWORD = "test-admin-password"  # noqa: S105
 async def pool() -> AsyncIterator[asyncpg.pool.Pool]:
     p = await create_pool(DB_URL, min_size=2, max_size=5)
     await init_db(p)
+    await reset_test_db(p)   # clean slate IN, not OUT
     yield p
-    async with p.acquire() as conn:
-        await conn.execute("DELETE FROM audit_log")
-        await conn.execute("DELETE FROM reports")
-        await conn.execute("DELETE FROM jobs")
-        await conn.execute("DELETE FROM archives")
     await close_pool(p)
 
 

@@ -48,3 +48,47 @@ if not _is_safe_test_db(DB_URL):
         f"postgresql://.../archiver_test).",
         allow_module_level=True,
     )
+
+
+# Tables every integration-test fixture should wipe in setup so that
+# random-order test runs are deterministic. Listed in safe deletion
+# order (children before parents) so FK cascades don't matter. The
+# operational tables that the live worker repopulates from external
+# state (proxy_status, frontend_status, domain_observations,
+# cf_clearance_cache) are included so e.g. a test that asserts on
+# a specific proxy doesn't inherit rows from an earlier file.
+#
+# `schema_migrations` is deliberately NOT wiped — it's the migration
+# tracker. Wiping it would re-run 001 on the next init_db call,
+# which is wasted work since 001 is already applied to the test DB.
+_RESET_TABLES = (
+    "audit_log",
+    "reports",
+    "jobs",
+    "archives",
+    "proxy_status",
+    "frontend_status",
+    "domain_observations",
+    "cf_clearance_cache",
+)
+
+
+async def reset_test_db(pool) -> None:  # type: ignore[no-untyped-def]
+    """Truncate every mutable table on the test DB.
+
+    Use in test fixtures' SETUP (not teardown) — clean state on the
+    way IN guarantees each test starts deterministic regardless of
+    what ran before it. Teardown-only cleanup leaks state when a
+    prior test crashes mid-fixture, when pytest-randomly orders a
+    fixture that wipes table A before one that asserts on table B,
+    or when a teardown's table list doesn't match what setup creates.
+
+    TRUNCATE … CASCADE is faster than per-row DELETE on populated
+    tables and removes FK-cascade ordering concerns. Wrapped in a
+    single transaction so partial failures don't leave the DB
+    half-clean.
+    """
+    async with pool.acquire() as conn, conn.transaction():
+        await conn.execute(
+            f"TRUNCATE {', '.join(_RESET_TABLES)} RESTART IDENTITY CASCADE"
+        )
