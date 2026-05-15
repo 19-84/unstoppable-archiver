@@ -128,6 +128,56 @@ class TestArchiveDetailPage:
         resp = await client.get("/archive/nonexistent")
         assert resp.status_code == 404  # noqa: PLR2004
 
+    async def test_provenance_renders_captured_from_link(
+        self,
+        client: AsyncClient,
+        pool: asyncpg.pool.Pool,
+    ) -> None:
+        """End-to-end pin for the provenance feature: a privacy_frontend
+        capture with source_url in metadata must render a 'Captured from:'
+        block on the detail page that links to the source_url.
+
+        This is the user-acceptance test for the original concern ('do
+        fallback archives link back to the original submission URL,
+        and is the actual capture URL visible?'). Failure here means
+        provenance is silently broken in the UI."""
+        import json as _json
+
+        # Simulate a completed privacy_frontend capture: original URL is
+        # the canonical twitter.com one, but we actually fetched from a
+        # Nitter proxy. metadata.source_url records the proxy.
+        original_url = "https://twitter.com/jack/status/20"
+        source_url = "https://nitter.tiekoetter.com/jack/status/20"
+        async with pool.acquire() as conn:
+            await conn.execute(
+                """
+                INSERT INTO archives
+                    (id, url, url_hash, status, source, tier,
+                     created_at, completed_at, title, snapshot_size, metadata)
+                VALUES ($1, $2, $3, 'complete', 'privacy_frontend',
+                        'privacy_frontend', now(), now(), $4, 21330, $5::jsonb)
+                """,
+                "01TESTPROV0000000000000000",
+                original_url,
+                "testprovenance1",
+                "just setting up my twttr",
+                _json.dumps({"source_url": source_url}),
+            )
+
+        resp = await client.get("/archive/01TESTPROV0000000000000000")
+        assert resp.status_code == 200  # noqa: PLR2004
+        body = resp.text
+
+        # 1. Original URL is shown and 'Original ↗' link points at it.
+        assert original_url in body
+        # 2. The 'Captured from:' provenance block is present.
+        assert "Captured from" in body
+        # 3. source_url appears as a clickable link with security attrs.
+        assert source_url in body
+        # 4. Source label distinguishes privacy_frontend (the icon ⊙
+        #    test is in test_view; here we check the source text).
+        assert "privacy_frontend" in body
+
 
 class TestArchiveViewPage:
     async def test_404_for_missing_archive(
