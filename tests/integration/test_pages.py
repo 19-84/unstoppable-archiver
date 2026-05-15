@@ -386,3 +386,75 @@ class TestPartials:
     ) -> None:
         resp = await client.get("/partials/search?q=test")
         assert resp.status_code == 200  # noqa: PLR2004
+
+
+class TestSoftDeleteVisibility:
+    """Soft-deleted archives must not be served on any public route.
+
+    Before the fix, admin takedown only hid the archive from the
+    list endpoint — every other route (detail, viewer, snapshot
+    serve, /web/{ts}/{url}, dedup check) happily returned the
+    removed content. Each of these tests pins one of those
+    surfaces against the regression.
+    """
+
+    async def _seed_removed(
+        self, pool: asyncpg.pool.Pool, url: str,
+    ) -> str:
+        """Create a removed archive and return its id."""
+        from archiver.url import url_hash as _hash
+        archive_id = "01TESTRM00000000000000000"
+        async with pool.acquire() as conn:
+            await conn.execute(
+                """
+                INSERT INTO archives
+                    (id, url, url_hash, status, source, tier,
+                     created_at, completed_at, title, artifact_dir,
+                     snapshot_size, removed_at, removed_reason)
+                VALUES ($1, $2, $3, 'complete', 'direct', 'chromium',
+                        now(), now(), 'taken down', 'rm/20260515', 30,
+                        now(), 'admin takedown')
+                """,
+                archive_id, url, _hash(url),
+            )
+        return archive_id
+
+    async def test_detail_404s_for_removed(
+        self,
+        client: AsyncClient,
+        pool: asyncpg.pool.Pool,
+    ) -> None:
+        archive_id = await self._seed_removed(
+            pool, "https://example.com/rm-detail",
+        )
+        resp = await client.get(f"/archive/{archive_id}")
+        assert resp.status_code == 404  # noqa: PLR2004
+
+    async def test_wayback_url_404s_for_removed(
+        self,
+        client: AsyncClient,
+        pool: asyncpg.pool.Pool,
+    ) -> None:
+        url = "https://example.com/rm-wayback"
+        await self._seed_removed(pool, url)
+        resp = await client.get(
+            f"/web/latest/{url}", follow_redirects=False,
+        )
+        assert resp.status_code == 404  # noqa: PLR2004
+
+    async def test_dedup_ignores_removed(
+        self,
+        client: AsyncClient,
+        pool: asyncpg.pool.Pool,
+    ) -> None:
+        """A take-down'd capture must NOT be returned by the dedup
+        check — re-submission creates a fresh archive instead of
+        resurrecting the removed one."""
+        url = "https://example.com/rm-dedup"
+        removed_id = await self._seed_removed(pool, url)
+        resp = await client.post(
+            "/api/archives", json={"url": url},
+        )
+        assert resp.status_code == 201  # noqa: PLR2004
+        new_id = resp.json()["id"]
+        assert new_id != removed_id

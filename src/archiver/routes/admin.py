@@ -290,7 +290,13 @@ async def admin_hard_delete_archive(
     if isinstance(_admin, RedirectResponse):
         return _admin
 
-    archive = await _archive_repo.get_by_id(conn, archive_id)
+    # include_removed=True: hard-delete typically targets archives
+    # that were already soft-deleted via takedown. Without the flag
+    # the public-safe SELECT would return None and we'd silently
+    # skip the on-disk cleanup.
+    archive = await _archive_repo.get_by_id(
+        conn, archive_id, include_removed=True,
+    )
     if archive and archive.artifact_dir:
         artifact_path = settings.artifacts_dir / archive.artifact_dir
         base = settings.artifacts_dir.resolve()

@@ -115,18 +115,26 @@ _SQL_INSERT_ARCHIVE = (
     " RETURNING " + _ARCHIVE_COLS
 )
 _SQL_SELECT_ARCHIVE = "SELECT " + _ARCHIVE_COLS + " FROM archives WHERE id = $1"
+# Admin moderation routes need to fetch soft-deleted rows to restore /
+# hard-delete them. Everything else uses the filtered variant by
+# default so a takedown'd archive doesn't keep serving on public
+# routes (detail page, viewer, snapshot route, /web/* URLs).
+_SQL_SELECT_ARCHIVE_NOT_REMOVED = (
+    "SELECT " + _ARCHIVE_COLS + " FROM archives"
+    " WHERE id = $1 AND removed_at IS NULL"
+)
 _SQL_SELECT_BY_URL_HASH = (
     "SELECT " + _ARCHIVE_COLS
     + " FROM archives WHERE url_hash = $1 ORDER BY created_at DESC"
 )
 _SQL_SELECT_LATEST_COMPLETE = (
     "SELECT " + _ARCHIVE_COLS + " FROM archives"
-    " WHERE url_hash = $1 AND status = $2"
+    " WHERE url_hash = $1 AND status = $2 AND removed_at IS NULL"
     " ORDER BY completed_at DESC LIMIT 1"
 )
 _SQL_CHECK_RECENT = (
     "SELECT " + _ARCHIVE_COLS + " FROM archives"
-    " WHERE url_hash = $1 AND status = $2"
+    " WHERE url_hash = $1 AND status = $2 AND removed_at IS NULL"
     " AND completed_at > now() - make_interval(secs => $3)"
     " ORDER BY completed_at DESC LIMIT 1"
 )
@@ -219,10 +227,24 @@ class ArchiveRepository:
 
     @beartype
     async def get_by_id(
-        self, conn: PgConnection, archive_id: str
+        self,
+        conn: PgConnection,
+        archive_id: str,
+        *,
+        include_removed: bool = False,
     ) -> ArchiveRecord | None:
-        """Fetch a single archive by ID."""
-        row = await conn.fetchrow(_SQL_SELECT_ARCHIVE, archive_id)
+        """Fetch a single archive by ID.
+
+        `include_removed=False` (default, public-safe): soft-deleted
+        archives are returned as None so public routes 404 instead of
+        leaking the takedown'd content. Admin moderation paths pass
+        True to look up the row for restore / hard-delete.
+        """
+        sql = (
+            _SQL_SELECT_ARCHIVE if include_removed
+            else _SQL_SELECT_ARCHIVE_NOT_REMOVED
+        )
+        row = await conn.fetchrow(sql, archive_id)
         return _record_to_archive(row) if row else None
 
     @beartype
