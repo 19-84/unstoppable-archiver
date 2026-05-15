@@ -23,7 +23,16 @@
 {% endblock %}
 
 {% block content %}
-<div class="max-w-3xl mx-auto px-6 py-8" id="results">
-  {% include "partials/search_results.html" %}
+<div class="max-w-3xl mx-auto px-6 py-8">
+  {# Visually-hidden h1: the Glass Noir search page has no visible
+     page title (the sticky search box is the visual anchor), but
+     screen-reader users need one heading to orient on. Reflects the
+     active query so the announced heading is meaningful. #}
+  <h1 class="sr-only">
+    {% if query %}Search results for {{ query }}{% else %}Search the archive{% endif %}
+  </h1>
+  <div id="results">
+    {% include "partials/search_results.html" %}
+  </div>
 </div>
 {% endblock %}

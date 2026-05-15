@@ -1208,6 +1208,23 @@ class TestSearchPage:
         assert resp.status_code == 200  # noqa: PLR2004
         assert "text/html" in resp.headers["content-type"]
 
+    async def test_search_page_has_h1_for_screen_readers(
+        self, client: AsyncClient
+    ) -> None:
+        """Every other page template has an <h1>; search.html had
+        none. A page with no h1 leaves screen-reader users with no
+        landmark to orient on. The heading is sr-only (the Glass Noir
+        design has no visible page title) and reflects the query."""
+        resp = await client.get("/search?q=findme")
+        body = resp.text
+        assert "<h1" in body, "search page must have an h1"
+        # The h1 reflects the active query so the announced heading
+        # is meaningful, not just a generic 'Search'.
+        assert "findme" in body
+        # The htmx live-search swap target must still exist — the h1
+        # sits outside it so a swap doesn't clobber the heading.
+        assert 'id="results"' in body
+
     async def test_operator_hints_only_advertise_working_operators(
         self,
         client: AsyncClient,

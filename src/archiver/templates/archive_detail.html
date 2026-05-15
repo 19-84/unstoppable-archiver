@@ -53,14 +53,11 @@
 {% endblock %}
 
 {% block content %}
+{# Removed archives never reach this template — the route returns
+   archive_removed.html at HTTP 410 when archive.removed_at is set.
+   So this page only ever renders a live archive; no removed-state
+   branch is needed here. #}
 <div class="max-w-4xl mx-auto px-6 py-8 space-y-6">
-
-  {% if archive.removed_at %}
-  <div class="bg-red-500/10 border border-red-500/30 rounded-2xl p-8 text-center">
-    <h1 class="text-xl font-bold text-red-300 mb-2">This archive has been removed</h1>
-    <p class="text-sm text-neutral-400">{{ archive.removed_reason or "Removed by administrator." }}</p>
-  </div>
-  {% else %}
 
   <div>
     <h1 class="text-2xl font-bold text-white mb-1">{{ archive.title or "Untitled" }}</h1>
@@ -196,6 +193,5 @@
             class="text-xs text-red-400 hover:text-red-300 transition">Delete this archive</button>
     {% endif %}
   </div>
-  {% endif %}
 </div>
 {% endblock %}
