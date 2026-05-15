@@ -7,7 +7,14 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="description" content="Archived snapshot of {{ archive.title or archive.url }}">
 <title>{{ archive.title or archive.url }} — Snapshot</title>
-<meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' data:; frame-src 'self';">
+{# CSP is set by the app-wide security-headers middleware as an HTTP
+   header — stricter than any per-page <meta> (it adds object-src
+   'none', base-uri 'self', frame-ancestors 'none'). A second <meta>
+   CSP here would be redundant and a divergence hazard: browsers
+   enforce every delivered policy as an intersection, so a weaker
+   meta tag adds nothing but a future edit could let the two drift
+   apart. The archived snapshot inside the iframe is separately
+   locked down by the /snapshot route's own CSP-sandbox response. #}
 <style>
   html, body { margin: 0; padding: 0; height: 100%; }
   body { font-family: 'DM Sans', system-ui, sans-serif; display: flex; flex-direction: column; background: #0a0812; color: #e5e5e5; }

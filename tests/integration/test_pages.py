@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import AsyncIterator
+from pathlib import Path
 
 import asyncpg.pool
 import pytest
@@ -1197,6 +1198,51 @@ class TestArchiveViewPage:
         archive_id = create.json()["id"]
         resp = await client.get(f"/archive/{archive_id}/view")
         assert resp.status_code == 404  # noqa: PLR2004
+
+    async def test_viewer_csp_from_header_not_redundant_meta(
+        self,
+        client: AsyncClient,
+        pool: asyncpg.pool.Pool,
+        tmp_path: Path,
+    ) -> None:
+        """The viewer page must carry exactly one CSP — the HTTP
+        header set by the security-headers middleware. The page used
+        to ALSO embed a weaker <meta http-equiv> CSP; two policies is
+        a divergence hazard (browsers enforce the intersection, so a
+        future edit to one silently weakens nothing but confuses).
+        The header CSP is strictly stronger, so the meta was
+        removed."""
+        from archiver.enums import ArchiveStatus
+        from archiver.repository import ArchiveRepository
+
+        repo = ArchiveRepository()
+        async with pool.acquire() as conn:
+            archive = await repo.create(
+                conn, "https://example.com/viewer-csp-uat",
+            )
+            art_dir = tmp_path / "artifacts" / "viewer_csp"
+            art_dir.mkdir(parents=True)
+            (art_dir / "snapshot.html").write_text("<html>x</html>")
+            await repo.update_status(
+                conn, archive.id, ArchiveStatus.COMPLETE,
+                artifact_dir="viewer_csp",
+            )
+        client._transport.app.state.settings.artifacts_dir = (  # type: ignore[union-attr]
+            tmp_path / "artifacts"
+        )
+
+        resp = await client.get(
+            f"/archive/{archive.id}/view", follow_redirects=True,
+        )
+        assert resp.status_code == 200  # noqa: PLR2004
+        # No embedded meta CSP — single source of truth.
+        assert 'http-equiv="Content-Security-Policy"' not in resp.text
+        # The header CSP is present and carries the strong clauses.
+        csp = resp.headers.get("content-security-policy", "")
+        assert "frame-ancestors 'none'" in csp
+        assert "object-src 'none'" in csp
+        # Viewer still functions: the sandboxed iframe is rendered.
+        assert 'id="snapshotIframe"' in resp.text
 
 
 class TestWaybackStyleURLs:
