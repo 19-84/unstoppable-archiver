@@ -13,8 +13,8 @@ import pytest
 from archiver.db import close_pool, create_pool, init_db
 
 DB_URL = os.environ.get(
-    "ARCHIVER_DB_URL",
-    "postgresql://archiver:archiver@localhost:15432/archiver",
+    "ARCHIVER_TEST_DB_URL",
+    "postgresql://archiver:archiver@localhost:15432/archiver_test",
 )
 
 pytestmark = pytest.mark.integration
@@ -22,11 +22,21 @@ pytestmark = pytest.mark.integration
 
 @pytest.fixture
 async def pool() -> AsyncIterator[asyncpg.pool.Pool]:
+    """Pool with a clean schema BEFORE each test.
+
+    test_db.py exercises init_db itself, so it needs to start from a
+    state where the tables don't exist. Clean-slate setup (DROP +
+    clear schema_migrations) instead of clean-slate teardown — that
+    way after each test runs, init_db has just rebuilt the schema and
+    the DB is left in a healthy state for any other integration test
+    that happens to run next (pytest-randomly shuffles file order).
+    """
     p = await create_pool(DB_URL, min_size=1, max_size=2)
-    yield p
     async with p.acquire() as conn:
         await conn.execute("DROP TABLE IF EXISTS jobs CASCADE")
         await conn.execute("DROP TABLE IF EXISTS archives CASCADE")
+        await conn.execute("DROP TABLE IF EXISTS schema_migrations CASCADE")
+    yield p
     await close_pool(p)
 
 

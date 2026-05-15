@@ -17,8 +17,8 @@ from archiver.config import Settings
 from archiver.db import close_pool, create_pool, init_db
 
 DB_URL = os.environ.get(
-    "ARCHIVER_DB_URL",
-    "postgresql://archiver:archiver@localhost:15432/archiver",
+    "ARCHIVER_TEST_DB_URL",
+    "postgresql://archiver:archiver@localhost:15432/archiver_test",
 )
 
 pytestmark = pytest.mark.integration
