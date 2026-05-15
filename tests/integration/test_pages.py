@@ -69,6 +69,41 @@ class TestHomePage:
         assert "domains" in resp.text
         assert "success" in resp.text
 
+    async def test_success_rate_counts_only_terminal_captures(
+        self,
+        client: AsyncClient,
+        pool: asyncpg.pool.Pool,
+    ) -> None:
+        """The home-page success rate must be computed over TERMINAL
+        captures only — complete / (complete + failed). Counting
+        pending / capturing archives in the denominator drags the
+        headline number down for in-flight work that hasn't failed:
+        a URL submitted seconds ago is not a failure. Seeds 3
+        complete + 1 failed + 2 capturing → expect 3/4 = 75.0%, not
+        3/6 = 50%."""
+        async with pool.acquire() as conn:
+            for i, status in enumerate(
+                ["complete", "complete", "complete",
+                 "failed", "capturing", "capturing"]
+            ):
+                await conn.execute(
+                    """
+                    INSERT INTO archives (id, url, url_hash, status,
+                        source, tier, created_at)
+                    VALUES ($1, $2, $3, $4, 'direct', 'chromium', now())
+                    """,
+                    f"01TESTSRATE{i:013d}",
+                    f"https://example.com/srate-{i}",
+                    f"srate-hash-{i:030d}",
+                    status,
+                )
+
+        body = (await client.get("/")).text
+        # 3 complete of 4 terminal (3 complete + 1 failed) = 75.0%
+        assert "75.0%" in body
+        # The buggy formula (3 of 6 total) would render 50.0%.
+        assert "50.0%" not in body
+
     async def test_has_search_description(
         self, client: AsyncClient
     ) -> None:

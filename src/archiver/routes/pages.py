@@ -182,16 +182,24 @@ async def index(
         " count(*) as total_pages,"
         " count(DISTINCT split_part(url, '/', 3)) as total_domains,"
         " coalesce(sum(coalesce(snapshot_size, 0) + coalesce(warc_size, 0)), 0) as total_bytes,"
-        " count(*) FILTER (WHERE status = 'complete') as complete_count"
+        " count(*) FILTER (WHERE status = 'complete') as complete_count,"
+        " count(*) FILTER (WHERE status = 'failed') as failed_count"
         " FROM archives WHERE removed_at IS NULL"
     )
     total = stats_row["total_pages"] if stats_row else 0
     complete = stats_row["complete_count"] if stats_row else 0
+    failed = stats_row["failed_count"] if stats_row else 0
+    # Success rate is over TERMINAL captures only (complete + failed).
+    # Counting pending / capturing archives in the denominator drags
+    # the rate down for in-flight work that hasn't failed — a URL
+    # submitted ten seconds ago isn't a failure, so it shouldn't
+    # depress the headline number.
+    finished = complete + failed
     stats = {
         "total_pages": total,
         "total_domains": stats_row["total_domains"] if stats_row else 0,
         "storage_mb": round((stats_row["total_bytes"] if stats_row else 0) / 1048576, 1),
-        "success_rate": round(complete / total * 100, 1) if total > 0 else 0,
+        "success_rate": round(complete / finished * 100, 1) if finished > 0 else 0,
     }
 
     settings = get_settings(request)
