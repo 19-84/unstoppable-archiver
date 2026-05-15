@@ -167,12 +167,27 @@ def _get_artifact_path(
     return path
 
 
+# Artifact-route cache policy. Snapshots/WARCs/screenshots are
+# immutable BYTES once captured — they'd happily cache forever — but
+# the row's takedown state is mutable: an archive removed via the
+# admin moderation flow must stop serving its artifacts. Without any
+# Cache-Control header, browsers + intermediate proxies apply
+# heuristic caching and may keep serving a 200 from disk cache for
+# hours after the DB returns 410. Five minutes is short enough that
+# takedowns propagate quickly, long enough that a user clicking
+# around an archive doesn't re-fetch the snapshot on every view.
+# `private` blocks shared-cache hits (CDN / Caddy) from serving the
+# same content to other users — soft-deletes are admin-state and
+# shouldn't have cross-user residency.
+_ARTIFACT_CACHE_CONTROL = "private, max-age=300"
+
 _SNAPSHOT_HEADERS = {
     "Content-Security-Policy": (
         "sandbox; default-src 'none'; style-src 'unsafe-inline';"
         " img-src data: blob:"
     ),
     "X-Content-Type-Options": "nosniff",
+    "Cache-Control": _ARTIFACT_CACHE_CONTROL,
 }
 
 
@@ -264,6 +279,7 @@ async def get_warc(
         path,
         media_type="application/warc",
         filename=f"{archive_id}.warc.gz",
+        headers={"Cache-Control": _ARTIFACT_CACHE_CONTROL},
     )
 
 
@@ -280,7 +296,11 @@ async def get_screenshot(
     path = _get_artifact_path(
         archive, "screenshot.png", request.app.state.settings.artifacts_dir
     )
-    return FileResponse(path, media_type="image/png")
+    return FileResponse(
+        path,
+        media_type="image/png",
+        headers={"Cache-Control": _ARTIFACT_CACHE_CONTROL},
+    )
 
 
 @router.get("/{archive_id}/thumbnail")
@@ -296,4 +316,8 @@ async def get_thumbnail(
     path = _get_artifact_path(
         archive, "thumbnail.png", request.app.state.settings.artifacts_dir
     )
-    return FileResponse(path, media_type="image/png")
+    return FileResponse(
+        path,
+        media_type="image/png",
+        headers={"Cache-Control": _ARTIFACT_CACHE_CONTROL},
+    )

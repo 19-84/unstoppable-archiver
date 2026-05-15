@@ -410,6 +410,54 @@ class TestArtifactEndpoints:
         )
         assert resp.status_code == 200  # noqa: PLR2004
 
+    async def test_artifact_responses_emit_short_cache_control(
+        self,
+        client: AsyncClient,
+        pool: asyncpg.pool.Pool,
+        tmp_path: Path,
+    ) -> None:
+        """All artifact routes must emit Cache-Control: private,
+        max-age=300. Without it, browsers + intermediate caches apply
+        heuristic caching and may serve a previously-200 artifact
+        from disk for hours after a takedown switched the row to 410
+        — moderation actions wouldn't propagate to viewers who had
+        already loaded the artifact once."""
+        from archiver.enums import ArchiveStatus
+        from archiver.repository import ArchiveRepository
+
+        repo = ArchiveRepository()
+        async with pool.acquire() as conn:
+            archive = await repo.create(
+                conn, "https://example.com/cache-headers-uat",
+            )
+            art_dir = tmp_path / "artifacts" / "cache_headers"
+            art_dir.mkdir(parents=True)
+            (art_dir / "snapshot.html").write_text("<html>x</html>")
+            (art_dir / "archive.warc.gz").write_bytes(b"warc")
+            (art_dir / "screenshot.png").write_bytes(b"\x89PNG")
+            (art_dir / "thumbnail.png").write_bytes(b"\x89PNG")
+            await repo.update_status(
+                conn, archive.id, ArchiveStatus.COMPLETE,
+                artifact_dir="cache_headers",
+            )
+
+        client._transport.app.state.settings.artifacts_dir = (  # type: ignore[union-attr]
+            tmp_path / "artifacts"
+        )
+
+        for route in ("snapshot", "warc", "screenshot", "thumbnail"):
+            resp = await client.get(
+                f"/api/archives/{archive.id}/{route}",
+            )
+            assert resp.status_code == 200, route  # noqa: PLR2004
+            cc = resp.headers.get("cache-control", "")
+            # `private` is the key clause — blocks CDN / shared-cache
+            # residency so a takedown can't be served from another
+            # user's intermediate cache.
+            assert "private" in cc, f"{route}: {cc!r}"
+            # max-age caps the takedown propagation delay to 5 minutes.
+            assert "max-age=300" in cc, f"{route}: {cc!r}"
+
     async def test_artifact_404_when_archive_missing(
         self, client: AsyncClient
     ) -> None:
