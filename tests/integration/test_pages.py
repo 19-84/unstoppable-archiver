@@ -383,6 +383,69 @@ class TestArchiveDetailPage:
         assert "summary_large_image" not in body
         assert 'property="og:image"' not in body
 
+    async def test_history_renders_all_five_source_labels(
+        self,
+        client: AsyncClient,
+        pool: asyncpg.pool.Pool,
+    ) -> None:
+        """The snapshot history block on the detail page must
+        distinguish every source tier — direct, wayback, archive.today,
+        privacy_frontend, and commoncrawl. Earlier the template only
+        branched on wayback/archive.today and bucketed the rest as
+        '● direct', so a privacy_frontend or commoncrawl capture was
+        visually indistinguishable from a genuine direct capture. This
+        defeated the whole provenance story: the history list is
+        exactly where the user looks to see how each snapshot was
+        obtained."""
+        from archiver.url import url_hash as _hash
+        url = "https://example.com/sources-uat-pin"
+        uhash = _hash(url)
+        async with pool.acquire() as conn:
+            await conn.execute(
+                """
+                INSERT INTO archives (id, url, url_hash, status, source,
+                    tier, created_at, completed_at, title, artifact_dir,
+                    snapshot_size)
+                VALUES
+                  ($1, $6, $7, 'complete', 'direct', 'chromium',
+                   now() - interval '5 days',
+                   now() - interval '5 days', 'D', 'srcpin/A', 100),
+                  ($2, $6, $7, 'complete', 'wayback', 'wayback',
+                   now() - interval '4 days',
+                   now() - interval '4 days', 'W', 'srcpin/B', 100),
+                  ($3, $6, $7, 'complete', 'archive_today',
+                   'archive_today',
+                   now() - interval '3 days',
+                   now() - interval '3 days', 'AT', 'srcpin/C', 100),
+                  ($4, $6, $7, 'complete', 'privacy_frontend',
+                   'privacy_frontend',
+                   now() - interval '2 days',
+                   now() - interval '2 days', 'PF', 'srcpin/D', 100),
+                  ($5, $6, $7, 'complete', 'commoncrawl', 'commoncrawl',
+                   now() - interval '1 day',
+                   now() - interval '1 day', 'CC', 'srcpin/E', 100)
+                """,
+                "01TESTSRC1AAAAAAAAAAAAAA",
+                "01TESTSRC2BBBBBBBBBBBBBB",
+                "01TESTSRC3CCCCCCCCCCCCCC",
+                "01TESTSRC4DDDDDDDDDDDDDD",
+                "01TESTSRC5EEEEEEEEEEEEEE",
+                url, uhash,
+            )
+
+        resp = await client.get("/archive/01TESTSRC1AAAAAAAAAAAAAA")
+        assert resp.status_code == 200  # noqa: PLR2004
+        body = resp.text
+
+        # Every fallback source must be uniquely labeled — no silent
+        # bucketing into 'direct'.
+        assert "▲ wayback" in body
+        assert "◆ archive.today" in body
+        assert "⊙ privacy frontend" in body
+        assert "★ common crawl" in body
+        # Genuine direct capture still labels as such.
+        assert "● direct" in body
+
     async def test_provenance_renders_captured_from_link(
         self,
         client: AsyncClient,
