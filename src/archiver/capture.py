@@ -183,6 +183,7 @@ async def capture_page(  # noqa: C901, PLR0912, PLR0913, PLR0915
     cookie_cache: CfClearanceCache | None = None,
     strip_selectors: list[str] | None = None,
     proxy: ProxyConfig | None = None,
+    warc_original_url: str | None = None,
 ) -> CaptureResult:
     """Capture a page: SingleFile HTML + WARC + screenshot + text.
 
@@ -194,6 +195,13 @@ async def capture_page(  # noqa: C901, PLR0912, PLR0913, PLR0915
     navigation but before SingleFile capture. Used by the Wayback and
     archive.today fallback tiers to hide the host archive's chrome
     (toolbars, banners) so our snapshot records only the original page.
+
+    `warc_original_url`: the user's ORIGINAL submission URL when it
+    differs from `url` (e.g. privacy_frontend rewrote twitter.com to
+    nitter.tiekoetter.com — we fetch from nitter, but the WARC
+    represents an archive of twitter). Recorded in the warcinfo
+    header so downstream WARC consumers can recover provenance even
+    when they don't have access to our DB metadata.
     """
     warc_writer = PlaywrightWARCWriter()
     is_firefox = tier != CaptureTier.CHROMIUM
@@ -568,7 +576,9 @@ async def capture_page(  # noqa: C901, PLR0912, PLR0913, PLR0915
             warc_path = (
                 settings.artifacts_dir / f"tmp_{uuid.uuid4().hex}.warc.gz"
             )
-            warc_size = warc_writer.finalize(warc_path)
+            warc_size = warc_writer.finalize(
+                warc_path, original_url=warc_original_url,
+            )
 
         # Content hashes for dedup
         content_hash = hashlib.sha256(snapshot_html).hexdigest()

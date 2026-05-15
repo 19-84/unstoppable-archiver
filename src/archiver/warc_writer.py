@@ -50,10 +50,22 @@ class PlaywrightWARCWriter:
         self._exchanges.append(exchange)
 
     @beartype
-    def finalize(self, output_path: Path) -> int:
+    def finalize(
+        self, output_path: Path, original_url: str | None = None,
+    ) -> int:
         """Write all collected exchanges to a .warc.gz file.
 
         Returns the file size in bytes.
+
+        `original_url` (optional) records the user's ORIGINAL submission
+        URL in the warcinfo header when it differs from what we actually
+        fetched. Privacy-frontend captures fetch from
+        nitter.tiekoetter.com/... but represent an archive of
+        twitter.com/...; without this header a downstream consumer
+        holding only the WARC can't recover that mapping.
+
+        Field name `X-Archiver-Original-URI` (X- prefix marks it as
+        non-WARC-spec; consumers expecting strict WARC 1.1 ignore it).
         """
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -61,10 +73,15 @@ class PlaywrightWARCWriter:
         writer = WARCWriter(buf, gzip=True)
 
         # Write warcinfo record
-        info_payload = (
-            b"software: unstoppable-archive\r\n"
-            b"format: WARC File Format 1.1\r\n"
-        )
+        info_lines = [
+            b"software: unstoppable-archive",
+            b"format: WARC File Format 1.1",
+        ]
+        if original_url:
+            info_lines.append(
+                f"X-Archiver-Original-URI: {original_url}".encode(),
+            )
+        info_payload = b"\r\n".join(info_lines) + b"\r\n"
         info_record = writer.create_warc_record(
             uri="urn:unstoppable-archive",
             record_type="warcinfo",

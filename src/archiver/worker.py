@@ -656,6 +656,7 @@ class Worker:
             settings=self._settings,
             tier=CaptureTier.CHROMIUM,
             strip_selectors=WAYBACK_STRIP_SELECTORS,
+            warc_original_url=url,
         )
         from dataclasses import replace
         return replace(result, source_url=snapshot_url)
@@ -749,6 +750,7 @@ class Worker:
             settings=self._settings,
             tier=CaptureTier.CAMOUFOX,
             strip_selectors=ARCHIVE_TODAY_STRIP_SELECTORS,
+            warc_original_url=url,
         )
 
     async def _capture_via_archive_today_submit(
@@ -893,6 +895,7 @@ class Worker:
                     settings=self._settings,
                     tier=CaptureTier.CAMOUFOX,
                     proxy=proxy_config,
+                    warc_original_url=url,
                 )
             except (AntiBotDetectedError, CaptureError) as exc:
                 last_error = str(exc)

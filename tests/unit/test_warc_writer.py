@@ -6,6 +6,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+from warcio.archiveiterator import (  # type: ignore[import-untyped]
+    ArchiveIterator,
+)
+
 from archiver.warc_writer import (
     CapturedExchange,
     PlaywrightWARCWriter,
@@ -179,3 +184,69 @@ class TestWarcUnknownStatus:
         out = tmp_path / "unknown_status.warc.gz"
         writer.finalize(out)
         assert is_valid_warc(out)
+
+
+class TestWarcInfoProvenance:
+    """warcinfo header records the user's original URL when a tier
+    rewrote the fetch target (privacy_frontend / wayback / archive_today).
+    A downstream consumer holding only the .warc.gz can recover the
+    original from X-Archiver-Original-URI."""
+
+    def test_warcinfo_includes_original_uri_when_set(
+        self, tmp_path: Path,
+    ) -> None:
+
+        writer = PlaywrightWARCWriter()
+        writer.add_exchange(
+            CapturedExchange(
+                url="https://nitter.tiekoetter.com/jack/status/20",
+                method="GET",
+                request_headers={},
+                status=200,
+                response_headers={"content-type": "text/html"},
+                body=b"<html>...</html>",
+            )
+        )
+        out = tmp_path / "provenance.warc.gz"
+        writer.finalize(
+            out,
+            original_url="https://twitter.com/jack/status/20",
+        )
+
+        # Read the warcinfo record back and verify the custom header.
+        with out.open("rb") as fh:
+            for record in ArchiveIterator(fh):
+                if record.rec_type == "warcinfo":
+                    payload = record.content_stream().read().decode()
+                    assert "X-Archiver-Original-URI" in payload
+                    assert "twitter.com/jack/status/20" in payload
+                    return
+        pytest.fail("warcinfo record not found in WARC file")
+
+    def test_warcinfo_omits_original_uri_when_not_set(
+        self, tmp_path: Path,
+    ) -> None:
+        """Direct-capture tiers don't pass original_url; the header
+        must NOT be added when there's no provenance to record."""
+
+        writer = PlaywrightWARCWriter()
+        writer.add_exchange(
+            CapturedExchange(
+                url="https://example.com/",
+                method="GET",
+                request_headers={},
+                status=200,
+                response_headers={"content-type": "text/html"},
+                body=b"<html/>",
+            )
+        )
+        out = tmp_path / "no_provenance.warc.gz"
+        writer.finalize(out)
+
+        with out.open("rb") as fh:
+            for record in ArchiveIterator(fh):
+                if record.rec_type == "warcinfo":
+                    payload = record.content_stream().read().decode()
+                    assert "X-Archiver-Original-URI" not in payload
+                    return
+        pytest.fail("warcinfo record not found in WARC file")
