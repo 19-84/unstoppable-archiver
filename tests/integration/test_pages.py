@@ -398,6 +398,80 @@ class TestViewerSiblingsCount:
         assert "Capture " not in body or ">Capture " not in body
 
 
+class TestFriendly404:
+    """Browser clients hitting a stale archive link or any unknown
+    route used to see a raw ``{"detail":"Not Found"}`` JSON blob —
+    no Glass Noir styling, no link home, no orientation. The custom
+    HTTPException handler routes 404s to a HTML template when the
+    client wants text/html and the path isn't an API surface.
+
+    API + partials paths always return JSON regardless of Accept,
+    because programmatic consumers always want the same shape."""
+
+    async def test_browser_404_renders_html_with_home_link(
+        self,
+        client: AsyncClient,
+    ) -> None:
+        resp = await client.get(
+            "/this-route-does-not-exist",
+            headers={"Accept": "text/html"},
+        )
+        assert resp.status_code == 404  # noqa: PLR2004
+        assert resp.headers["content-type"].startswith("text/html")
+        body = resp.text
+        assert "404" in body
+        assert "Page not found" in body
+        assert 'href="/"' in body
+        # The bad path is surfaced so the user can see what they
+        # mistyped or what stale link they followed.
+        assert "/this-route-does-not-exist" in body
+
+    async def test_browser_archive_404_renders_html(
+        self,
+        client: AsyncClient,
+    ) -> None:
+        """An archive id that doesn't exist must hit the friendly
+        page too — that's the most common stale-link case (someone
+        shared a link to an archive that was later hard-deleted)."""
+        resp = await client.get(
+            "/archive/01TESTBOGUS00000000000000",
+            headers={"Accept": "text/html"},
+        )
+        assert resp.status_code == 404  # noqa: PLR2004
+        assert resp.headers["content-type"].startswith("text/html")
+        assert "Page not found" in resp.text
+
+    async def test_api_404_stays_json(
+        self,
+        client: AsyncClient,
+    ) -> None:
+        """/api/* must keep returning JSON even when the client says
+        Accept: text/html. API consumers (curl scripts, integrations)
+        always want a parseable shape; switching them to HTML would
+        break every existing integration."""
+        resp = await client.get(
+            "/api/archives/01TESTNONEXISTENT00000000",
+            headers={"Accept": "text/html"},
+        )
+        assert resp.status_code == 404  # noqa: PLR2004
+        assert resp.headers["content-type"].startswith("application/json")
+        assert resp.json() == {"detail": "Archive not found"}
+
+    async def test_partials_404_stays_json(
+        self,
+        client: AsyncClient,
+    ) -> None:
+        """Same logic for /partials/* — htmx swaps the response body
+        into the page; an HTML 'page not found' template would render
+        a nested 404 page inside the existing page."""
+        resp = await client.get(
+            "/partials/bogus-partial-name",
+            headers={"Accept": "text/html"},
+        )
+        assert resp.status_code == 404  # noqa: PLR2004
+        assert resp.headers["content-type"].startswith("application/json")
+
+
 class TestRecapture:
     async def test_recapture_creates_new_archive(
         self, client: AsyncClient

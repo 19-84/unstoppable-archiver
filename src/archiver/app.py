@@ -12,8 +12,10 @@ from pathlib import Path
 import structlog
 from beartype import beartype
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.sessions import SessionMiddleware
 
 from archiver.blocklist import load_blocklist
@@ -26,6 +28,13 @@ from archiver.routes.archives import router as archives_router
 from archiver.routes.health import router as health_router
 from archiver.routes.pages import router as pages_router
 from archiver.routes.reports import router as reports_router
+
+# Shared template directory — routes/pages.py owns rendering for
+# normal pages; the 404 handler in this module needs its own handle
+# to render the friendly error page outside the routing layer.
+_templates = Jinja2Templates(
+    directory=str(Path(__file__).parent / "templates"),
+)
 
 log = structlog.get_logger()
 
@@ -140,6 +149,42 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "message": exc.message,
                 "existing_id": exc.existing_id,
             },
+        )
+
+    @app.exception_handler(StarletteHTTPException)
+    async def _http_exception_handler(
+        request: Request, exc: StarletteHTTPException
+    ) -> Response:
+        """Render 404s as a friendly HTML page for browser clients
+        while keeping the JSON shape for API + partials surfaces.
+
+        Without this, every missing-page response was a raw
+        ``{"detail": "Not Found"}`` JSON blob — fine for API
+        consumers, but a confusing wall of text for a user clicking
+        a stale archive link. The HTML branch keeps the user oriented
+        with the same Glass Noir layout and a clear link back home /
+        to /archives.
+
+        Non-404 HTTPExceptions (4xx auth errors, 410 takedown stubs,
+        500s) keep the framework default — only the 'page missing'
+        case gets the template treatment because it's the only one
+        that benefits from a navigation affordance.
+        """
+        path = request.url.path
+        is_api = path.startswith(("/api/", "/partials/"))
+        accept = request.headers.get("accept", "")
+        wants_html = "text/html" in accept or "*/*" in accept
+        if exc.status_code == 404 and not is_api and wants_html:  # noqa: PLR2004
+            return _templates.TemplateResponse(
+                request,
+                "error_404.html",
+                {"detail": exc.detail, "path": path},
+                status_code=404,
+            )
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={"detail": exc.detail},
+            headers=getattr(exc, "headers", None) or {},
         )
 
     return app

@@ -1,0 +1,25 @@
+<!-- ABOUTME: Friendly 404 page for browser clients hitting unknown routes -->
+<!-- ABOUTME: API + partials surfaces still return JSON; this is for /archive/* and /web/* etc. -->
+{% extends "base.html" %}
+
+{% block title %}Not found — Unstoppable Archive{% endblock %}
+
+{% block content %}
+<main class="max-w-3xl mx-auto px-6 py-20">
+  <div class="text-center">
+    <div class="text-6xl text-neutral-700 font-mono mb-6" aria-hidden="true">404</div>
+    <h1 class="text-2xl font-bold text-white mb-3">Page not found</h1>
+    <p class="text-sm text-neutral-400 mb-2">
+      {{ detail or "We couldn't find what you were looking for." }}
+    </p>
+    {% if path %}
+    <p class="font-mono text-xs text-neutral-500 mb-10 break-all">{{ path }}</p>
+    {% endif %}
+
+    <div class="flex flex-col sm:flex-row gap-3 justify-center">
+      <a href="/" class="px-5 py-2.5 bg-purple-500/90 text-white text-sm font-medium rounded-xl hover:bg-purple-400 transition">← Home</a>
+      <a href="/archives" class="px-5 py-2.5 bg-white/[0.03] text-neutral-300 text-sm rounded-xl border border-white/[0.06] hover:border-purple-500/30 transition">Browse archives</a>
+    </div>
+  </div>
+</main>
+{% endblock %}
