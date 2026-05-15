@@ -76,9 +76,21 @@
     {% if archive.metadata and archive.metadata.source_url %}
     <div class="text-xs text-neutral-500 mt-1 font-mono truncate">
       Captured from:
+      {# Render as a clickable link ONLY for http(s) schemes. A
+         javascript:/data:/file: source_url would be a stored XSS
+         in the click — Jinja escapes the quote but the scheme is
+         preserved, so 'javascript:alert(1)' in metadata becomes an
+         executable href. Show non-http source URLs as inert mono
+         text instead. Worker-side writes are trusted but defense-
+         in-depth at the render boundary protects against future
+         insertions via admin tooling or DB ingestion. #}
+      {% if archive.metadata.source_url.startswith(('http://', 'https://')) %}
       <a href="{{ archive.metadata.source_url }}" target="_blank" rel="noopener noreferrer"
          class="text-purple-400/60 hover:text-purple-300 transition"
          title="Open the exact URL the capture was fetched from">{{ archive.metadata.source_url }}</a>
+      {% else %}
+      <span class="text-purple-400/40" title="Non-http source URL — link suppressed">{{ archive.metadata.source_url }}</span>
+      {% endif %}
     </div>
     {% endif %}
   </div>

@@ -820,6 +820,85 @@ class TestArchiveDetailPage:
         # Genuine direct capture still labels as such.
         assert "● direct" in body
 
+    async def test_provenance_block_rejects_non_http_source_url(
+        self,
+        client: AsyncClient,
+        pool: asyncpg.pool.Pool,
+    ) -> None:
+        """The 'Captured from' block renders metadata.source_url as a
+        clickable <a href>. Jinja escapes the quote inside the
+        attribute value but the URL SCHEME is preserved — a
+        javascript:/data:/file: source_url would become a stored XSS
+        that fires on click. Worker writes are internally trusted but
+        defense-in-depth at the render boundary protects against
+        future insertions via admin tools or direct DB writes.
+
+        Non-http(s) source URLs must render as inert <span> text, not
+        as an <a href>. The user still sees the value (debugging /
+        audit visibility) but can't execute it."""
+        async with pool.acquire() as conn:
+            import json
+            await conn.execute(
+                """
+                INSERT INTO archives (id, url, url_hash, status, source,
+                    tier, created_at, completed_at, title, metadata)
+                VALUES ($1, $2, $3, 'complete', 'privacy_frontend',
+                        'privacy_frontend', now(), now(),
+                        'xss-source-url', $4::jsonb)
+                """,
+                "01TESTXSSSRC00000000000A",
+                "https://example.com/xss-srcurl-uat",
+                "xssrc-hash-32chars-abcdefghij12",
+                json.dumps({
+                    "source_url": 'javascript:alert("XSS-IN-METADATA")',
+                }),
+            )
+
+        body = (
+            await client.get("/archive/01TESTXSSSRC00000000000A")
+        ).text
+        # The dangerous href form must be absent
+        assert 'href="javascript:' not in body
+        # But the user-visible value is still shown as inert text so
+        # an admin can audit what was attempted.
+        assert "XSS-IN-METADATA" in body
+        # The inert form uses a span with the link-suppressed title
+        assert "Non-http source URL" in body
+
+    async def test_provenance_block_renders_http_source_url_as_link(
+        self,
+        client: AsyncClient,
+        pool: asyncpg.pool.Pool,
+    ) -> None:
+        """Sanity check on the http branch — legitimate fallback URLs
+        (nitter, xcancel, web.archive.org, archive.today mementos)
+        all start with http(s), so they must still render as
+        clickable <a href> with the expected security attrs."""
+        async with pool.acquire() as conn:
+            import json
+            await conn.execute(
+                """
+                INSERT INTO archives (id, url, url_hash, status, source,
+                    tier, created_at, completed_at, title, metadata)
+                VALUES ($1, $2, $3, 'complete', 'privacy_frontend',
+                        'privacy_frontend', now(), now(),
+                        'legit-source-url', $4::jsonb)
+                """,
+                "01TESTXSSSRC00000000000B",
+                "https://example.com/legit-srcurl-uat",
+                "legitsrc-hash-32chars-abcdefghi1",
+                json.dumps({
+                    "source_url": "https://nitter.example.com/foo",
+                }),
+            )
+
+        body = (
+            await client.get("/archive/01TESTXSSSRC00000000000B")
+        ).text
+        # Link form rendered with security attrs intact
+        assert 'href="https://nitter.example.com/foo"' in body
+        assert 'rel="noopener noreferrer"' in body
+
     async def test_provenance_renders_captured_from_link(
         self,
         client: AsyncClient,
