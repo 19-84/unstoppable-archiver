@@ -500,6 +500,46 @@ class TestRepositoryEdgeCases:
                     bogus_field="x",
                 )
 
+    async def test_archive_url_is_immutable_after_creation(
+        self,
+        pool: asyncpg.pool.Pool,
+        archive_repo: ArchiveRepository,
+    ) -> None:
+        """Cornerstone of the provenance contract: archive.url is the
+        ORIGINAL user-submitted URL and must never be mutated, even
+        when a fallback tier captures from a rewritten URL. The
+        rewritten/fetched URL goes in metadata.source_url instead.
+
+        Concretely: a privacy_frontend tier capture of twitter.com/foo
+        stores ``archive.url = 'https://twitter.com/foo'`` (original)
+        and ``metadata.source_url = 'https://xcancel.com/foo'`` (what
+        actually got fetched). If a code path ever flipped these,
+        users would lose the link back to the canonical URL — every
+        detail page, search result, sitemap, social preview, and the
+        'Captured from' provenance block would point at the fallback
+        mirror, not the user's original submission.
+
+        Pinned by asserting update_status rejects ``url=`` as an
+        unknown field, which is the only path that COULD mutate the
+        row from inside the application."""
+        async with pool.acquire() as conn:
+            original = "https://twitter.com/jack/status/20"
+            archive = await archive_repo.create(conn, original)
+            # update_status must reject url= as an unknown field —
+            # that's the structural guarantee. metadata is the right
+            # place for rewritten/fallback URLs.
+            with pytest.raises(ValueError, match="Unknown update field: url"):
+                await archive_repo.update_status(
+                    conn,
+                    archive.id,
+                    ArchiveStatus.COMPLETE,
+                    url="https://xcancel.com/jack/status/20",
+                )
+            # Sanity check: the row's url field stayed the original.
+            reloaded = await archive_repo.get_by_id(conn, archive.id)
+            assert reloaded is not None
+            assert reloaded.url == original
+
     async def test_get_latest_complete(
         self,
         pool: asyncpg.pool.Pool,
