@@ -8,7 +8,12 @@ from pathlib import Path
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import (
+    HTMLResponse,
+    PlainTextResponse,
+    RedirectResponse,
+    Response,
+)
 from fastapi.templating import Jinja2Templates
 
 from archiver.blocklist import DomainBlocklist
@@ -42,6 +47,38 @@ def _wayback_url(archive: object) -> str:
 templates.env.filters["wayback_url"] = _wayback_url
 
 _archive_repo = ArchiveRepository()
+
+
+# robots.txt: by default disallow crawler indexing of admin + API
+# endpoints (the captured snapshots and search results are fair game
+# for indexing but the operational surface isn't). Cached aggressively
+# since the body never changes.
+_ROBOTS_BODY = (
+    "User-agent: *\n"
+    "Disallow: /admin/\n"
+    "Disallow: /api/\n"
+    "Disallow: /partials/\n"
+    "Allow: /\n"
+)
+
+
+@router.get("/robots.txt", response_class=PlainTextResponse)
+async def robots() -> PlainTextResponse:
+    return PlainTextResponse(
+        _ROBOTS_BODY,
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
+
+
+@router.get("/favicon.ico")
+async def favicon() -> Response:
+    """Return 204 No Content for favicon requests.
+
+    Stops the browser from logging a 404 in its console every page load
+    while we don't ship a real .ico. Replace with a FileResponse to a
+    real asset when one exists.
+    """
+    return Response(status_code=204)
 
 
 @router.get("/", response_class=HTMLResponse)
