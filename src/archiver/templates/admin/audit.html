@@ -6,18 +6,44 @@
   <h1 class="text-2xl font-bold text-white mb-4">Audit log</h1>
   <div class="bg-white/[0.02] rounded-xl border border-white/[0.04] divide-y divide-white/[0.04]">
     {% for e in entries %}
-    <div class="px-5 py-3 text-sm flex items-center gap-4">
-      <time class="font-mono text-xs text-neutral-500 w-36 shrink-0">{{ e.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</time>
-      <span class="px-2 py-0.5 rounded text-xs bg-white/[0.03] text-neutral-300 font-mono">{{ e.action.value }}</span>
-      {% if e.archive_id %}
-      <a href="/archive/{{ e.archive_id }}" class="text-xs font-mono text-purple-400 hover:text-purple-300 truncate">{{ e.archive_id }}</a>
+    <div class="px-5 py-3 text-sm">
+      <div class="flex items-center gap-4">
+        <time class="font-mono text-xs text-neutral-500 w-36 shrink-0">{{ e.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</time>
+        <span class="px-2 py-0.5 rounded text-xs bg-white/[0.03] text-neutral-300 font-mono">{{ e.action.value }}</span>
+        {% if e.archive_id %}
+        <a href="/archive/{{ e.archive_id }}" class="text-xs font-mono text-purple-400 hover:text-purple-300 truncate">{{ e.archive_id }}</a>
+        {% endif %}
+        {% if e.admin_user %}<span class="text-xs text-neutral-400">{{ e.admin_user }}</span>{% endif %}
+        {% if e.ip_address_hash %}<span class="text-xs text-neutral-500 font-mono ml-auto" title="IP hash (raw IP never stored)">{{ e.ip_address_hash[:12] }}…</span>{% endif %}
+      </div>
+      {# Details JSON: surfacing the per-action context (reason for
+         a removal, notes from a report resolution, etc.) without it,
+         the log told moderators *what* happened but never *why*. #}
+      {% if e.details %}
+      <div class="mt-1 ml-40 font-mono text-[11px] text-neutral-500 flex flex-wrap gap-x-3">
+        {% for k, v in e.details.items() %}{% if v %}<span><span class="text-neutral-600">{{ k }}=</span>{{ v }}</span>{% endif %}{% endfor %}
+      </div>
       {% endif %}
-      {% if e.admin_user %}<span class="text-xs text-neutral-400">{{ e.admin_user }}</span>{% endif %}
-      {% if e.ip_address_hash %}<span class="text-xs text-neutral-500 font-mono ml-auto" title="IP hash (raw IP never stored)">{{ e.ip_address_hash[:12] }}…</span>{% endif %}
     </div>
     {% else %}
     <div class="px-5 py-8 text-center text-neutral-400 text-sm">No audit entries yet.</div>
     {% endfor %}
   </div>
+
+  {% if entries or offset > 0 %}
+  {# Pagination uses the same simple shape as admin/archives.html: a
+     prev link when there's a previous page, and a next link when the
+     current slice is exactly `limit` entries (signal that more may
+     exist). Skipping a total-count query keeps the page cheap. #}
+  <nav class="flex items-center justify-between mt-4 text-xs" aria-label="Audit pagination">
+    {% if offset > 0 %}
+    <a href="/admin/audit?limit={{ limit }}&offset={{ [offset - limit, 0] | max }}" class="text-neutral-400 hover:text-white">← Newer</a>
+    {% else %}<span></span>{% endif %}
+    <span class="text-neutral-500">Showing from #{{ offset + 1 }}</span>
+    {% if entries | length == limit %}
+    <a href="/admin/audit?limit={{ limit }}&offset={{ offset + limit }}" class="text-neutral-400 hover:text-white">Older →</a>
+    {% else %}<span></span>{% endif %}
+  </nav>
+  {% endif %}
 </div>
 {% endblock %}

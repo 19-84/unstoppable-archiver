@@ -719,3 +719,46 @@ class TestAdminPagesSmoke:
         )
         resp = await logged_in_client.get("/admin/audit")
         assert resp.status_code == 200  # noqa: PLR2004
+
+    async def test_audit_page_renders_details_and_pagination(
+        self,
+        client: AsyncClient,
+        logged_in_client: AsyncClient,
+    ) -> None:
+        """The audit log must surface the per-action `details` dict
+        (reason for a removal, notes from a report resolution, etc.)
+        and offer prev/next navigation when more entries exist than
+        fit on one page. Earlier the template hid `details` entirely,
+        so moderators could see *what* happened but never *why*; and
+        the log silently truncated at the most recent 100 with no way
+        to walk back."""
+        archive_id = await self._setup_fixtures(client)
+
+        # Resolve the report with a takedown so the audit row carries
+        # a non-trivial details dict (report_id + notes).
+        reports_page = await logged_in_client.get("/admin/reports")
+        # Extract the seeded report id from the page
+        import re
+        m = re.search(r'/admin/reports/(\d[A-Z0-9]+)/resolve', reports_page.text)
+        assert m is not None, "no pending report on /admin/reports"
+        report_id = m.group(1)
+        await logged_in_client.post(
+            f"/admin/reports/{report_id}/resolve",
+            data={"action": "resolve", "notes": "audit-trail-test"},
+            follow_redirects=False,
+        )
+
+        body = (await logged_in_client.get("/admin/audit?limit=50")).text
+        # The takedown-reason notes from the resolve form must appear
+        # somewhere in the rendered audit row — that's the whole point.
+        assert "audit-trail-test" in body
+        # archive_id is rendered as a clickable link to the detail page
+        # (the takedown stub for soft-deleted rows).
+        assert f'href="/archive/{archive_id}"' in body
+        # Pagination nav must render with at least the 'Newer' or
+        # 'Older' control gated on offset / fullness.
+        assert 'aria-label="Audit pagination"' in body
+        # offset=10 must not 500 — even if entries are sparse the
+        # template should render an empty rows block + a Newer link.
+        resp = await logged_in_client.get("/admin/audit?limit=10&offset=10")
+        assert resp.status_code == 200  # noqa: PLR2004
