@@ -82,6 +82,25 @@ class TestHomePage:
         # Bookmarklet is only rendered in self-hosted mode (default)
         assert "Archive this" in resp.text
 
+    async def test_skip_to_content_link_present(
+        self, client: AsyncClient
+    ) -> None:
+        """Every page that extends base.html must carry a skip-to-
+        content link as the first focusable element, targeting the
+        <main id="main-content">. Keyboard / screen-reader users use
+        it to bypass the repeated header nav — without it, reaching
+        the page content means tabbing through every header link on
+        every navigation."""
+        for path in ("/", "/archives", "/search?q=test"):
+            body = (await client.get(path)).text
+            assert 'href="#main-content" class="skip-link"' in body, path
+            assert 'id="main-content"' in body, path
+            # The skip link must come before the header's home link
+            # in source order — it has to be the first Tab stop.
+            skip_pos = body.index('class="skip-link"')
+            header_pos = body.index('role="banner"')
+            assert skip_pos < header_pos, f"{path}: skip link after header"
+
     async def test_site_wide_social_preview_defaults(
         self, client: AsyncClient
     ) -> None:
@@ -1242,11 +1261,17 @@ class TestSearchPage:
         assert "&#34;phrase&#34;" in body or '"phrase"' in body
         assert "-exclude" in body
         assert "OR" in body
-        # Phantom operators must NOT appear
+        # Phantom operators must NOT appear as hint chips. Each chip
+        # renders as `<span ...>{{ op }}</span>`, so we check the
+        # chip-closing form `{op}</span>` rather than a bare substring
+        # — a bare `"size:"` check false-matches CSS like `font-size:`
+        # elsewhere in the page.
         for phantom in ("intitle:", "site:", "inurl:", "source:",
                         "tier:", "before:", "after:", "size:",
                         "has:", "is:", "net:"):
-            assert phantom not in body, f"phantom operator {phantom} still advertised"
+            assert f"{phantom}</span>" not in body, (
+                f"phantom operator {phantom} still advertised as a chip"
+            )
 
     async def test_phrase_operator_actually_filters(
         self,
