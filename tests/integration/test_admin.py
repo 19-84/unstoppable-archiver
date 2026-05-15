@@ -143,6 +143,31 @@ class TestAdminAuth:
         )
         assert resp.status_code == 401  # noqa: PLR2004
 
+    async def test_login_form_has_password_manager_and_a11y_hints(
+        self, client: AsyncClient
+    ) -> None:
+        """The login form's password field must carry
+        autocomplete="current-password" so password managers
+        recognise and fill it. The GET form renders it; a failed
+        POST re-renders with an error that must be announced via
+        role="alert" and wired to the field via aria-describedby."""
+        # GET the empty login form.
+        resp = await client.get("/admin/login")
+        assert resp.status_code == 200  # noqa: PLR2004
+        assert 'autocomplete="current-password"' in resp.text
+
+        # A failed login re-renders the form with the error block.
+        resp = await client.post(
+            "/admin/login",
+            data={"password": "definitely-wrong", "next": "/admin/"},
+        )
+        body = resp.text
+        assert 'autocomplete="current-password"' in body
+        # The error is announced and associated with the input.
+        assert 'role="alert"' in body
+        assert 'id="login-error"' in body
+        assert 'aria-describedby="login-error"' in body
+
     async def test_login_accepts_correct_password(
         self, client: AsyncClient
     ) -> None:
