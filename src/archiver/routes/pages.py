@@ -44,7 +44,27 @@ def _wayback_url(archive: object) -> str:
     return f"/web/{ts}/{url}"
 
 
+def _safe_href(url: object) -> str:
+    """Jinja filter: scheme-whitelist for URLs rendered into href attrs.
+
+    The submission API blocks javascript:/file:/data: at intake, but
+    archive.url is rendered as ``<a href="{{ archive.url }}">`` in
+    multiple places, and a bypass (admin DB seed, migration, ingest
+    job) would let a dangerous scheme execute as JS on click.
+    Defense-in-depth: only http(s) URLs are rendered as-is; anything
+    else returns ``#`` so the link is inert.
+
+    The user-visible link TEXT is unaffected (still escaped by
+    Jinja's autoescape); only the href value is sanitized."""
+    if not isinstance(url, str):
+        return "#"
+    if url.startswith(("http://", "https://", "/")):
+        return url
+    return "#"
+
+
 templates.env.filters["wayback_url"] = _wayback_url
+templates.env.filters["safe_href"] = _safe_href
 
 _archive_repo = ArchiveRepository()
 

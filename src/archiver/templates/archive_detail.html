@@ -39,7 +39,7 @@
     <div class="flex items-center gap-4 min-w-0">
       <a href="/" class="text-purple-400 hover:text-purple-300 text-sm shrink-0" aria-label="Back to home">←</a>
       <div class="h-4 w-px bg-white/[0.06]" aria-hidden="true"></div>
-      <a href="{{ archive.url }}" target="_blank" rel="noopener noreferrer"
+      <a href="{{ archive.url | safe_href }}" target="_blank" rel="noopener noreferrer"
          class="font-mono text-xs text-neutral-400 hover:text-purple-300 truncate transition"
          title="Open original site in a new tab">{{ archive.url }}</a>
       <div class="h-4 w-px bg-white/[0.06]" aria-hidden="true"></div>
@@ -98,7 +98,7 @@
   {% if archive.status == "complete" %}
   <div class="flex flex-wrap gap-2">
     <a href="{{ archive | wayback_url }}" class="px-4 py-2 bg-purple-500 text-white text-sm font-medium rounded-xl hover:bg-purple-400 transition">View Snapshot</a>
-    <a href="{{ archive.url }}" target="_blank" rel="noopener noreferrer"
+    <a href="{{ archive.url | safe_href }}" target="_blank" rel="noopener noreferrer"
        class="px-4 py-2 bg-white/[0.03] text-purple-300 text-sm rounded-xl border border-purple-500/30 hover:border-purple-500/60 transition"
        title="Open the original site in a new tab">Original ↗</a>
     <a href="/api/archives/{{ archive.id }}/warc" class="px-4 py-2 bg-white/[0.03] text-neutral-400 text-sm rounded-xl border border-white/[0.06] hover:border-white/[0.12] transition" download>WARC ↓</a>

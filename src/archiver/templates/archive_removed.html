@@ -30,7 +30,7 @@
       <div class="flex flex-col sm:flex-row gap-1 sm:gap-4">
         <dt class="text-neutral-500 sm:w-24 shrink-0">Original URL</dt>
         <dd class="font-mono text-neutral-300 break-all min-w-0">
-          <a href="{{ archive.url }}" target="_blank" rel="noopener noreferrer"
+          <a href="{{ archive.url | safe_href }}" target="_blank" rel="noopener noreferrer"
              class="hover:text-purple-300 transition"
              title="Open the original site in a new tab">{{ archive.url }} ↗</a>
         </dd>

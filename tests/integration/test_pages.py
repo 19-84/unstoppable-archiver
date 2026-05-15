@@ -820,6 +820,85 @@ class TestArchiveDetailPage:
         # Genuine direct capture still labels as such.
         assert "● direct" in body
 
+    async def test_archive_url_with_dangerous_scheme_renders_inert_href(
+        self,
+        client: AsyncClient,
+        pool: asyncpg.pool.Pool,
+    ) -> None:
+        """archive.url goes through url_safety validation at the API
+        and form boundaries, but DB-seed / migration / admin-tool
+        paths can bypass it. Every template render site that puts
+        archive.url in an <a href> must pass it through the
+        safe_href filter so a stored javascript:/data:/file: URL
+        renders as href='#' instead of an exploitable handler.
+
+        Probes the detail page, the takedown stub, and confirms the
+        legit-https case still works."""
+        async with pool.acquire() as conn:
+            await conn.execute(
+                """
+                INSERT INTO archives (id, url, url_hash, status, source,
+                    tier, created_at, completed_at, title)
+                VALUES ($1, $2, $3, 'complete', 'direct', 'chromium',
+                        now(), now(), 'bad-scheme')
+                """,
+                "01TESTBADURL000000000000",
+                'javascript:alert("STORED-URL-XSS")',
+                "badurl-hash-32chars-abcdefghi12",
+            )
+
+        body = (
+            await client.get("/archive/01TESTBADURL000000000000")
+        ).text
+        # No exploitable href anywhere on the page
+        assert 'href="javascript:' not in body
+        # The dangerous URL got sanitized to inert '#'
+        assert 'href="#"' in body
+        # User-visible text content still shows the URL (so an admin
+        # auditing the page can see what was stored)
+        assert "STORED-URL-XSS" in body
+
+        # Takedown variant — archive_removed.html also renders archive.url
+        async with pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE archives SET removed_at=now(),"
+                " removed_reason='xss' WHERE id=$1",
+                "01TESTBADURL000000000000",
+            )
+        body = (
+            await client.get("/archive/01TESTBADURL000000000000")
+        ).text
+        assert 'href="javascript:' not in body
+        assert 'href="#"' in body
+
+    async def test_archive_url_https_renders_as_functional_link(
+        self,
+        client: AsyncClient,
+        pool: asyncpg.pool.Pool,
+    ) -> None:
+        """Sanity check on the http(s) branch — the overwhelming
+        common case must keep working. A legitimate https URL renders
+        with its full href intact + the security attrs (noopener,
+        noreferrer)."""
+        async with pool.acquire() as conn:
+            await conn.execute(
+                """
+                INSERT INTO archives (id, url, url_hash, status, source,
+                    tier, created_at, completed_at, title)
+                VALUES ($1, $2, $3, 'complete', 'direct', 'chromium',
+                        now(), now(), 'legit')
+                """,
+                "01TESTGOODURL00000000000",
+                "https://example.com/legit-href-test",
+                "goodurl-hash-32chars-abcdefghi1",
+            )
+
+        body = (
+            await client.get("/archive/01TESTGOODURL00000000000")
+        ).text
+        assert 'href="https://example.com/legit-href-test"' in body
+        assert 'rel="noopener noreferrer"' in body
+
     async def test_provenance_block_rejects_non_http_source_url(
         self,
         client: AsyncClient,
