@@ -83,6 +83,101 @@ class TestHomePage:
         assert "Archive this" in resp.text
 
 
+class TestArchivesBrowse:
+    """Public /archives browse route — the only HTML surface that
+    exposes all archives beyond the home page's recent-10 list.
+
+    Without this route, captures past index #10 are unreachable through
+    the UI unless the user knows the ULID or guesses a keyword that
+    matches the title."""
+
+    async def _seed_n(
+        self, pool: asyncpg.pool.Pool, n: int, prefix: str,
+    ) -> None:
+        async with pool.acquire() as conn:
+            for i in range(n):
+                await conn.execute(
+                    """
+                    INSERT INTO archives
+                        (id, url, url_hash, status, source, tier,
+                         created_at, completed_at, title)
+                    VALUES ($1, $2, $3, 'complete', 'direct', 'chromium',
+                            now() - ($4::int || ' seconds')::interval,
+                            now() - ($4::int || ' seconds')::interval,
+                            $5)
+                    """,
+                    f"01TESTBROWSE{i:013d}",
+                    f"https://example.com/{prefix}-{i}",
+                    f"{prefix}-hash-{i:030d}",
+                    i,
+                    f"{prefix} {i}",
+                )
+
+    async def test_renders_list_with_pagination(
+        self,
+        client: AsyncClient,
+        pool: asyncpg.pool.Pool,
+    ) -> None:
+        await self._seed_n(pool, 12, "browse")
+        resp = await client.get("/archives?limit=5&offset=0")
+        assert resp.status_code == 200  # noqa: PLR2004
+        body = resp.text
+        assert "All archives" in body
+        assert 'aria-label="Pagination"' in body
+        # Page 1 of 3 → next link present, prev hidden
+        assert "Next" in body
+        assert "/archives?limit=5&offset=5" in body
+        # First 5 archives present, last 7 not yet
+        assert "browse 0" in body
+        assert "browse 11" not in body
+
+    async def test_pagination_offset_navigates(
+        self,
+        client: AsyncClient,
+        pool: asyncpg.pool.Pool,
+    ) -> None:
+        await self._seed_n(pool, 12, "page2")
+        resp = await client.get("/archives?limit=5&offset=5")
+        body = resp.text
+        # Page 2 shows prev + next
+        assert "Prev" in body
+        assert "Next" in body
+        assert "6–10 of 12" in body  # noqa: RUF001
+
+    async def test_negative_offset_clamps_to_zero(
+        self,
+        client: AsyncClient,
+    ) -> None:
+        """A bogus negative offset must not crash or trigger a 500 — it
+        gets clamped to 0 so the page renders the first slice."""
+        resp = await client.get("/archives?offset=-9999")
+        assert resp.status_code == 200  # noqa: PLR2004
+
+    async def test_excessive_limit_is_capped(
+        self,
+        client: AsyncClient,
+    ) -> None:
+        """An over-large limit is capped at 100 so a malicious query
+        can't request 'limit=1000000' to DoS the listing query."""
+        resp = await client.get("/archives?limit=99999")
+        assert resp.status_code == 200  # noqa: PLR2004
+
+    async def test_view_all_link_appears_when_more_archives_exist(
+        self,
+        client: AsyncClient,
+        pool: asyncpg.pool.Pool,
+    ) -> None:
+        """The home page only renders the 'View all →' link when there
+        are more archives than the recent list shows. Without this
+        gate, the link would appear even on empty / small instances
+        where it points to nothing extra."""
+        # Seed 11 — one more than the home-page recent_archives limit (10).
+        await self._seed_n(pool, 11, "viewall")
+        resp = await client.get("/")
+        assert "View all" in resp.text
+        assert 'href="/archives"' in resp.text
+
+
 class TestRecapture:
     async def test_recapture_creates_new_archive(
         self, client: AsyncClient

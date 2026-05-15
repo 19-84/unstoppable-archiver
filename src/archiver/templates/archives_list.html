@@ -1,0 +1,57 @@
+<!-- ABOUTME: Public 'browse all archives' page with pagination -->
+<!-- ABOUTME: Mirrors the home-page recent list but with prev/next nav -->
+{% extends "base.html" %}
+
+{% block title %}All archives — Unstoppable Archive{% endblock %}
+
+{% block content %}
+<div class="max-w-3xl mx-auto px-6 py-10">
+  <div class="flex items-baseline justify-between mb-6">
+    <h1 class="text-xl font-semibold text-white">All archives</h1>
+    <span class="text-xs text-neutral-500">{{ total }} total</span>
+  </div>
+
+  {% if archives %}
+  <div class="bg-white/[0.02] rounded-2xl border border-white/[0.04] divide-y divide-white/[0.04]">
+    {% for a in archives %}
+    <a href="/archive/{{ a.id }}" class="flex items-center gap-3 px-4 py-3 hover:bg-white/[0.02] transition group">
+      {% if a.artifact_dir %}
+      <img src="/api/archives/{{ a.id }}/thumbnail" alt="" class="w-10 h-8 object-cover rounded shrink-0 bg-neutral-900">
+      {% else %}
+      <div class="w-10 h-8 rounded bg-neutral-900 shrink-0" aria-hidden="true"></div>
+      {% endif %}
+      <div class="min-w-0 flex-1">
+        <div class="text-sm text-neutral-200 group-hover:text-white truncate">{{ a.title or a.url }}</div>
+        <div class="font-mono text-[11px] text-neutral-500 truncate">{{ a.url }}</div>
+      </div>
+      <div class="flex items-center gap-2 text-[11px] text-neutral-500 shrink-0">
+        {% if a.source == "wayback" %}<span class="text-blue-400">▲</span>
+        {% elif a.source == "archive_today" %}<span class="text-orange-400">◆</span>
+        {% elif a.source == "privacy_frontend" %}<span class="text-violet-400">⊙</span>
+        {% elif a.source == "commoncrawl" %}<span class="text-pink-400">★</span>
+        {% else %}<span class="text-emerald-400">●</span>
+        {% endif %}
+        <time>{{ a.created_at.strftime('%Y-%m-%d') if a.created_at else '' }}</time>
+      </div>
+    </a>
+    {% endfor %}
+  </div>
+
+  <nav class="flex items-center justify-between mt-6 text-xs" aria-label="Pagination">
+    {% if offset > 0 %}
+    <a href="/archives?limit={{ limit }}&offset={{ [offset - limit, 0] | max }}" class="text-neutral-400 hover:text-purple-300 transition">← Prev</a>
+    {% else %}<span></span>{% endif %}
+    <span class="text-neutral-500">{{ offset + 1 }}–{{ offset + archives | length }} of {{ total }}</span>
+    {% if offset + limit < total %}
+    <a href="/archives?limit={{ limit }}&offset={{ offset + limit }}" class="text-neutral-400 hover:text-purple-300 transition">Next →</a>
+    {% else %}<span></span>{% endif %}
+  </nav>
+
+  {% else %}
+  <div class="py-20 text-center text-neutral-500">
+    <p class="mb-4">No archives yet.</p>
+    <a href="/" class="text-purple-400 hover:text-purple-300">← Submit one from the home page</a>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

@@ -126,6 +126,41 @@ async def index(
     )
 
 
+@router.get("/archives", response_model=None)
+async def archives_browse(
+    request: Request,
+    conn: Annotated[PgConnection, Depends(get_db)],
+    limit: int = 25,
+    offset: int = 0,
+) -> HTMLResponse:
+    """Browse all archives with pagination.
+
+    The home page only shows the 10 most recent archives — older
+    captures were unreachable through the UI without knowing the ULID
+    or guessing keywords. This route is the public 'view all' surface
+    in self-hosted mode. Public mode 404s to match the home-page mode
+    discrimination (a public-facing instance shouldn't expose a
+    browsable index of every submission).
+    """
+    settings = get_settings(request)
+    if settings.mode != "self-hosted":
+        raise HTTPException(status_code=404, detail="Not available")
+
+    limit = max(1, min(limit, 100))
+    offset = max(0, offset)
+    archives, total = await _archive_repo.list_recent(
+        conn, limit=limit, offset=offset,
+    )
+    return templates.TemplateResponse(
+        request,
+        "archives_list.html",
+        {
+            "archives": archives, "total": total,
+            "limit": limit, "offset": offset,
+        },
+    )
+
+
 @router.post("/submit", response_model=None)
 async def submit_form(
     request: Request,
