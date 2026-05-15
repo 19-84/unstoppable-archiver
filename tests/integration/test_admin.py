@@ -71,6 +71,68 @@ async def logged_in_client(client: AsyncClient) -> AsyncClient:
     return client
 
 
+class TestAdminLoginRateLimit:
+    """Brute-force protection on /admin/login. bcrypt cost slows
+    attempts to ~10/sec but doesn't prevent enumeration of a weak
+    password over hours — without a per-IP cap, an attacker can
+    grind through ~36k attempts/hour. The limit applies to all
+    POSTs to /admin/login (success + fail). Legitimate operators
+    don't re-login often enough to hit it; once authenticated, the
+    session lasts 14 days."""
+
+    async def test_login_rate_limit_caps_attempts(
+        self,
+        pool: asyncpg.pool.Pool,
+    ) -> None:
+        from httpx import ASGITransport
+
+        from archiver.blocklist import DomainBlocklist
+        from archiver.rate_limit import _global_limiter
+        # Reset the in-memory limiter so prior tests don't bleed in.
+        _global_limiter._windows.clear()
+
+        settings = Settings(
+            db_url=DB_URL,
+            log_format="console",
+            admin_password_hash=hash_password(ADMIN_PASSWORD),  # type: ignore[arg-type]
+            session_secret="test-rate-limit-secret-min-32-bytes-xxxx",  # noqa: S106  # type: ignore[arg-type]
+            rate_limit_enabled=True,
+            rate_limit_login_per_hour=3,
+        )
+        app = create_app(settings)
+        app.state.pool = pool
+        app.state.blocklist = DomainBlocklist()
+        transport = ASGITransport(app=app)  # type: ignore[arg-type]
+        async with AsyncClient(
+            transport=transport, base_url="http://test",
+        ) as c:
+            # First 3 wrong-password attempts return 401 (auth fail).
+            for i in range(3):
+                resp = await c.post(
+                    "/admin/login",
+                    data={"password": "wrong", "next": "/admin/"},
+                )
+                assert resp.status_code == 401, f"attempt {i}: {resp.status_code}"  # noqa: PLR2004
+            # 4th attempt MUST be capped at 429 — bcrypt cost no
+            # longer running because the rate limiter trips first.
+            resp = await c.post(
+                "/admin/login",
+                data={"password": "wrong", "next": "/admin/"},
+            )
+            assert resp.status_code == 429  # noqa: PLR2004
+            # Retry-After header surfaced so brute-forcer / friendly
+            # error page knows when to come back.
+            assert "Retry-After" in resp.headers
+            # Even a CORRECT password is blocked while rate-limited —
+            # this is the right tradeoff; legitimate operators re-auth
+            # at most once per session-lifetime (14 days).
+            resp = await c.post(
+                "/admin/login",
+                data={"password": ADMIN_PASSWORD, "next": "/admin/"},
+            )
+            assert resp.status_code == 429  # noqa: PLR2004
+
+
 class TestAdminAuth:
     async def test_login_rejects_wrong_password(
         self, client: AsyncClient

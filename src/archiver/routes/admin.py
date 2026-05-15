@@ -18,6 +18,7 @@ from archiver.blocklist import load_blocklist
 from archiver.config import Settings
 from archiver.deps import get_client_ip_hash, get_db, get_settings
 from archiver.enums import AuditAction, ReportStatus
+from archiver.rate_limit import enforce_limit
 from archiver.repository import (
     ArchiveRepository,
     AuditRepository,
@@ -64,6 +65,15 @@ async def login_submit(
     """Authenticate admin password and set session."""
     if not settings.admin_enabled:
         raise HTTPException(status_code=404)
+
+    # Cap attempts per IP. bcrypt cost slows brute-force but doesn't
+    # bound it — ~10 attempts/sec is plenty to enumerate a weak
+    # password over a few hours. The limit applies to all attempts
+    # (success + fail) because a successful login then doesn't need
+    # to re-auth for the session lifetime, so a legitimate operator
+    # never hits 10/hour. Failed attempts are also audit-logged
+    # below so abuse is visible.
+    enforce_limit(request, settings.rate_limit_login_per_hour)
 
     ip = get_client_ip_hash(request)
     if verify_password(

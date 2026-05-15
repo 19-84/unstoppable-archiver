@@ -100,6 +100,10 @@ class Settings(BaseSettings):
     rate_limit_enabled: bool | None = None
     rate_limit_submit_per_hour: int = 60
     rate_limit_report_per_hour: int = 10
+    # Admin login: low cap so brute-force is bounded even with a weak
+    # password. bcrypt's cost only buys you ~100 ms / attempt — without
+    # an IP-level limit, an attacker can still try ~36k passwords/hour.
+    rate_limit_login_per_hour: int = 10
 
     # Captcha — provider-agnostic. "none" = disabled.
     # "hcaptcha" = third-party visual (needs sitekey + secret from hcaptcha.com)
