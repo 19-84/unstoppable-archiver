@@ -151,35 +151,65 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             },
         )
 
+    # Status-code → user-facing heading map. 410 is omitted because
+    # the takedown stub renders its own template via the route. Codes
+    # not in this map fall through to JSON.
+    error_headings = {
+        400: "Bad request",
+        401: "Sign-in required",
+        403: "Forbidden",
+        404: "Page not found",
+        429: "Too many requests",
+        500: "Something went wrong",
+        502: "Upstream error",
+        503: "Service unavailable",
+    }
+
     @app.exception_handler(StarletteHTTPException)
     async def _http_exception_handler(
         request: Request, exc: StarletteHTTPException
     ) -> Response:
-        """Render 404s as a friendly HTML page for browser clients
+        """Render 4xx/5xx as a friendly HTML page for browser clients
         while keeping the JSON shape for API + partials surfaces.
 
-        Without this, every missing-page response was a raw
-        ``{"detail": "Not Found"}`` JSON blob — fine for API
-        consumers, but a confusing wall of text for a user clicking
-        a stale archive link. The HTML branch keeps the user oriented
-        with the same Glass Noir layout and a clear link back home /
-        to /archives.
+        Without this, every error response was a raw
+        ``{"detail": "..."}`` JSON blob — fine for API consumers, but
+        a confusing wall of text for a user who clicked a stale
+        archive link, hit the rate limit, or accessed an admin URL
+        unauthenticated. The HTML branch keeps the user oriented with
+        the same Glass Noir layout, the status code, the detail
+        message, and a clear link back home.
 
-        Non-404 HTTPExceptions (4xx auth errors, 410 takedown stubs,
-        500s) keep the framework default — only the 'page missing'
-        case gets the template treatment because it's the only one
-        that benefits from a navigation affordance.
+        Status codes not in _ERROR_HEADINGS fall through to JSON —
+        this covers obscure 4xx like 418 / 451 / 511 where we'd
+        rather not invent a heading on the fly. The 410 takedown
+        stub is rendered by the route directly (it needs the archive
+        object), so it never reaches this handler.
         """
         path = request.url.path
         is_api = path.startswith(("/api/", "/partials/"))
         accept = request.headers.get("accept", "")
         wants_html = "text/html" in accept or "*/*" in accept
-        if exc.status_code == 404 and not is_api and wants_html:  # noqa: PLR2004
+        heading = error_headings.get(exc.status_code)
+        if heading and not is_api and wants_html:
+            # Retry-After is set by the rate-limit path; surface it
+            # so the user knows when to try again.
+            retry_after: str | None = None
+            headers = getattr(exc, "headers", None) or {}
+            if headers and "Retry-After" in headers:
+                retry_after = str(headers["Retry-After"])
             return _templates.TemplateResponse(
                 request,
                 "error_404.html",
-                {"detail": exc.detail, "path": path},
-                status_code=404,
+                {
+                    "status_code": exc.status_code,
+                    "heading": heading,
+                    "detail": exc.detail,
+                    "path": path,
+                    "retry_after": retry_after,
+                },
+                status_code=exc.status_code,
+                headers=headers,
             )
         return JSONResponse(
             status_code=exc.status_code,

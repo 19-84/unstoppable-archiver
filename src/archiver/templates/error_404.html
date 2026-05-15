@@ -1,19 +1,22 @@
-<!-- ABOUTME: Friendly 404 page for browser clients hitting unknown routes -->
+<!-- ABOUTME: Friendly error page for browser clients hitting 4xx/5xx -->
 <!-- ABOUTME: API + partials surfaces still return JSON; this is for /archive/* and /web/* etc. -->
 {% extends "base.html" %}
 
-{% block title %}Not found — Unstoppable Archive{% endblock %}
+{% block title %}{{ heading or "Error" }} — Unstoppable Archive{% endblock %}
 
 {% block content %}
 <main class="max-w-3xl mx-auto px-6 py-20">
   <div class="text-center">
-    <div class="text-6xl text-neutral-700 font-mono mb-6" aria-hidden="true">404</div>
-    <h1 class="text-2xl font-bold text-white mb-3">Page not found</h1>
+    <div class="text-6xl text-neutral-700 font-mono mb-6" aria-hidden="true">{{ status_code or 404 }}</div>
+    <h1 class="text-2xl font-bold text-white mb-3">{{ heading or "Page not found" }}</h1>
     <p class="text-sm text-neutral-400 mb-2">
       {{ detail or "We couldn't find what you were looking for." }}
     </p>
     {% if path %}
     <p class="font-mono text-xs text-neutral-500 mb-10 break-all">{{ path }}</p>
+    {% endif %}
+    {% if retry_after %}
+    <p class="text-xs text-neutral-500 mb-10">Retry in {{ retry_after }}s.</p>
     {% endif %}
 
     <div class="flex flex-col sm:flex-row gap-3 justify-center">

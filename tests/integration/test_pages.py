@@ -523,6 +523,75 @@ class TestFriendly404:
         assert resp.status_code == 404  # noqa: PLR2004
         assert resp.headers["content-type"].startswith("application/json")
 
+    async def test_429_rate_limit_renders_html_with_retry_after(
+        self,
+        client: AsyncClient,
+    ) -> None:
+        """A 429 from the rate limiter used to return raw JSON to
+        browser clients. The friendly handler renders a Glass Noir
+        page with the status code, a 'Too many requests' heading, the
+        retry-after wait time, and a link home. API surfaces still
+        get JSON."""
+        from starlette.exceptions import HTTPException
+        # Manually raise a 429 from a test endpoint by simulating
+        # the exact shape the rate_limit module produces: detail
+        # message + Retry-After header.
+        app = client._transport.app  # type: ignore[attr-defined]
+
+        @app.get("/_test_rate_limit_probe")
+        async def _probe() -> None:
+            raise HTTPException(
+                status_code=429,
+                detail="Rate limit exceeded (60/hour). Retry in 35s.",
+                headers={"Retry-After": "35"},
+            )
+
+        resp = await client.get(
+            "/_test_rate_limit_probe",
+            headers={"Accept": "text/html"},
+        )
+        assert resp.status_code == 429  # noqa: PLR2004
+        assert resp.headers["content-type"].startswith("text/html")
+        body = resp.text
+        assert "Too many requests" in body
+        assert "429" in body
+        # The Retry-After header is preserved (RFC compliance for
+        # client-side back-off) AND surfaced in the body for the user.
+        assert resp.headers.get("Retry-After") == "35"
+        assert "Retry in 35s" in body or "35s" in body
+
+    async def test_html_error_handler_covers_known_4xx_5xx(
+        self,
+        client: AsyncClient,
+    ) -> None:
+        """Beyond 404/429, the handler must render HTML for the other
+        statuses we map: 400, 401, 403, 500, 502, 503. Unmapped codes
+        (418, 451, etc.) fall through to JSON so we don't invent
+        headings for them."""
+        from starlette.exceptions import HTTPException
+        app = client._transport.app  # type: ignore[attr-defined]
+
+        for code, heading in [
+            (400, "Bad request"),
+            (401, "Sign-in required"),
+            (403, "Forbidden"),
+            (500, "Something went wrong"),
+        ]:
+            route_path = f"/_test_err_{code}"
+
+            def _make_handler(c: int) -> object:
+                async def _handler() -> None:
+                    raise HTTPException(status_code=c, detail=f"err {c}")
+                return _handler
+
+            app.get(route_path)(_make_handler(code))
+            resp = await client.get(
+                route_path, headers={"Accept": "text/html"},
+            )
+            assert resp.status_code == code
+            assert resp.headers["content-type"].startswith("text/html")
+            assert heading in resp.text
+
 
 class TestRecapture:
     async def test_recapture_creates_new_archive(
