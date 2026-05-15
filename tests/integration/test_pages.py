@@ -450,6 +450,46 @@ class TestViewerSiblingsCount:
         assert "Capture " not in body or ">Capture " not in body
 
 
+class TestHEADMethod:
+    """Every GET-able route must also accept HEAD. Without it,
+    uptime monitors hitting /api/health get 405, HTTP cache
+    revalidators can't revalidate, and link checkers that preflight
+    with HEAD before GET fall over."""
+
+    async def test_head_returns_same_status_as_get(
+        self, client: AsyncClient,
+    ) -> None:
+        for path in ("/", "/archives", "/sitemap.xml", "/robots.txt",
+                     "/api/archives", "/api/health"):
+            get = await client.get(path)
+            head = await client.head(path)
+            assert head.status_code == get.status_code, (
+                f"{path}: GET={get.status_code} HEAD={head.status_code}"
+            )
+
+    async def test_head_strips_body(
+        self, client: AsyncClient,
+    ) -> None:
+        """RFC 7231: HEAD response MUST NOT have a body. The middleware
+        rewrites HEAD→GET so handlers run, then strips the body so the
+        wire response is empty."""
+        resp = await client.head("/")
+        assert resp.status_code == 200  # noqa: PLR2004
+        assert resp.content == b""
+        assert resp.headers.get("content-length") == "0"
+
+    async def test_head_preserves_response_headers(
+        self, client: AsyncClient,
+    ) -> None:
+        """The whole point of HEAD is to get the headers without the
+        body — content-type, cache-control, security headers must
+        survive intact."""
+        head = await client.head("/")
+        assert head.headers.get("content-type", "").startswith("text/html")
+        assert "content-security-policy" in head.headers
+        assert "x-content-type-options" in head.headers
+
+
 class TestSecurityHeaders:
     """Baseline security headers must apply to every response except
     /snapshot (which sets its own CSP-sandbox to constrain captured

@@ -59,7 +59,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:  # pragma: no cover
 
 
 @beartype
-def create_app(settings: Settings | None = None) -> FastAPI:
+def create_app(settings: Settings | None = None) -> FastAPI:  # noqa: C901
     """Create and configure the FastAPI application."""
     if settings is None:
         settings = Settings()
@@ -81,6 +81,23 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         https_only=(settings.mode == "public"),
         same_site="lax",
     )
+
+    # HEAD-method shim: every @router.get route by default returns 405
+    # to a HEAD request, breaking uptime monitors, HTTP cache
+    # revalidators, and link checkers that preflight with HEAD before
+    # GET. This middleware re-dispatches HEAD as GET so the same
+    # handler runs, then strips the response body to keep the wire
+    # behaviour RFC-compliant (HEAD responses must not have a body).
+    @app.middleware("http")
+    async def _head_as_get(request: Request, call_next):
+        if request.method != "HEAD":
+            return await call_next(request)
+        request.scope["method"] = "GET"
+        response = await call_next(request)
+        if hasattr(response, "body"):
+            response.body = b""
+        response.headers["content-length"] = "0"
+        return response
 
     # App-wide security headers. The Caddy reverse proxy in the public
     # profile already sets these, but self-hosted operators who put
