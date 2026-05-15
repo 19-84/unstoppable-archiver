@@ -91,6 +91,11 @@ class SearchResult(BaseModel):
     archives: list[ArchiveRecord]
     total: int
     query: str
+    # Echo the pagination window so API consumers iterating with
+    # ?limit=N&offset=M don't need to track their own state to walk
+    # forward — they can compute has_next as offset + len(archives) < total.
+    limit: int = 20
+    offset: int = 0
 
 
 class ArchiveListResponse(BaseModel):
@@ -100,6 +105,8 @@ class ArchiveListResponse(BaseModel):
 
     archives: list[ArchiveRecord]
     total: int
+    limit: int = 20
+    offset: int = 0
 
 
 class AuditLogEntry(BaseModel):

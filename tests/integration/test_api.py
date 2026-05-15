@@ -212,6 +212,59 @@ class TestArchiveList:
         assert len(data["archives"]) == 2  # noqa: PLR2004
         assert data["total"] == 3  # noqa: PLR2004
 
+    async def test_list_response_echoes_pagination_window(
+        self, client: AsyncClient,
+    ) -> None:
+        """API consumers paginating through archives need limit +
+        offset echoed in the response so they don't have to track
+        their own state. Without these fields, an integration script
+        walking the list with ?limit=N&offset=M has no way to know
+        which slice it's looking at — and computing has_next from
+        ``offset + len(archives) < total`` requires knowing offset."""
+        for i in range(5):
+            await client.post(
+                "/api/archives",
+                json={"url": f"https://echopag{i}.example.com"},
+            )
+
+        resp = await client.get("/api/archives?limit=2&offset=2")
+        data = resp.json()
+        assert data["limit"] == 2  # noqa: PLR2004
+        assert data["offset"] == 2  # noqa: PLR2004
+        assert data["total"] == 5  # noqa: PLR2004
+        # The combination lets the client compute has_next without
+        # tracking its own pagination state.
+        has_next = data["offset"] + len(data["archives"]) < data["total"]
+        assert has_next is True
+
+    async def test_search_response_echoes_pagination_window(
+        self, client: AsyncClient, pool: asyncpg.pool.Pool,
+    ) -> None:
+        """Same self-describing-pagination requirement for the search
+        endpoint — without limit/offset in the response, paginating
+        search results requires the client to remember its own state."""
+        async with pool.acquire() as conn:
+            for i in range(4):
+                await conn.execute(
+                    """
+                    INSERT INTO archives (id, url, url_hash, status,
+                        source, tier, created_at, completed_at, title)
+                    VALUES ($1, $2, $3, 'complete', 'direct', 'chromium',
+                            now(), now(), 'echopag-title')
+                    """,
+                    f"01TESTPAGSRCH{i:011d}",
+                    f"https://example.com/srch-pag-{i}",
+                    f"srchpag-hash-{i:030d}",
+                )
+
+        resp = await client.get(
+            "/api/archives/search?q=echopag-title&limit=2&offset=1",
+        )
+        data = resp.json()
+        assert data["limit"] == 2  # noqa: PLR2004
+        assert data["offset"] == 1
+        assert data["query"] == "echopag-title"
+
 
 class TestArchiveGet:
     async def test_get_by_id(

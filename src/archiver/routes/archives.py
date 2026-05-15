@@ -81,7 +81,9 @@ async def list_archives(
     archives, total = await _archive_repo.list_recent(
         conn, limit=limit, offset=offset
     )
-    return ArchiveListResponse(archives=archives, total=total)
+    return ArchiveListResponse(
+        archives=archives, total=total, limit=limit, offset=offset,
+    )
 
 
 @router.get("/search", response_model=SearchResult)
@@ -92,9 +94,13 @@ async def search_archives(
     offset: int = Query(default=0, ge=0),
 ) -> SearchResult:
     """Full-text search across archived pages."""
-    return await _archive_repo.search(
+    result = await _archive_repo.search(
         conn, q, limit=limit, offset=offset
     )
+    # The repo's SearchResult uses defaults for limit/offset; overwrite
+    # with the actual values the caller used so the response is self-
+    # describing for paginating API consumers.
+    return result.model_copy(update={"limit": limit, "offset": offset})
 
 
 @router.get("/{archive_id}", response_model=ArchiveRecord)
