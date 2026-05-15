@@ -73,6 +73,40 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         same_site="lax",
     )
 
+    # App-wide security headers. The Caddy reverse proxy in the public
+    # profile already sets these, but self-hosted operators who put
+    # nothing in front of the app (a tailnet, an internal network)
+    # were missing them. Setting them at the app layer is harmless when
+    # a proxy is also setting them — the proxy's headers win since they
+    # ship the final response, but ours apply during direct access.
+    #
+    # CSP is deliberately permissive on default-src because the app
+    # serves htmx, vendored CSS, and archived snapshots; a strict CSP
+    # at this layer would break those. The snapshot serve path sets
+    # its own per-response `Content-Security-Policy: sandbox` so
+    # untrusted captured HTML still can't run script in our origin.
+    @app.middleware("http")
+    async def _security_headers(request: Request, call_next):
+        response = await call_next(request)
+        # Skip on the snapshot route — it sets its own CSP-sandbox and
+        # we don't want to clobber it with a less-restrictive header.
+        if request.url.path.endswith("/snapshot"):
+            return response
+        h = response.headers
+        h.setdefault("X-Content-Type-Options", "nosniff")
+        h.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+        h.setdefault("X-Frame-Options", "SAMEORIGIN")
+        h.setdefault("Permissions-Policy", "interest-cohort=()")
+        # HSTS only meaningful over HTTPS; setting it on plain-HTTP
+        # responses is fine (browsers ignore it). Public mode is always
+        # behind Caddy which terminates TLS.
+        if settings.mode == "public":
+            h.setdefault(
+                "Strict-Transport-Security",
+                "max-age=31536000; includeSubDomains",
+            )
+        return response
+
     # Static files
     static_dir = Path(__file__).parent / "static"
     if static_dir.exists():
