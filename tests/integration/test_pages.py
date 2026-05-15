@@ -128,6 +128,83 @@ class TestArchiveDetailPage:
         resp = await client.get("/archive/nonexistent")
         assert resp.status_code == 404  # noqa: PLR2004
 
+    async def test_social_preview_meta_tags_for_complete_archive(
+        self,
+        client: AsyncClient,
+        pool: asyncpg.pool.Pool,
+    ) -> None:
+        """Archive detail pages must emit Open Graph + Twitter Card
+        meta tags so shared links render as preview cards on
+        Slack / Discord / Twitter / iMessage instead of bare URLs.
+
+        Pins the contract: title, original URL, capture date, canonical
+        URL, and (when the archive is complete) an og:image pointing at
+        the screenshot artifact with summary_large_image card type. All
+        URLs must be absolute — relative paths break the social crawlers."""
+        async with pool.acquire() as conn:
+            await conn.execute(
+                """
+                INSERT INTO archives
+                    (id, url, url_hash, status, source, tier,
+                     created_at, completed_at, title, artifact_dir,
+                     snapshot_size, screenshot_hash)
+                VALUES ($1, $2, $3, 'complete', 'direct', 'chromium',
+                        now() - interval '1 hour',
+                        now() - interval '1 hour',
+                        $4, 'og/20260515', 1024, 'shothash')
+                """,
+                "01TESTOG00000000000000000",
+                "https://example.com/og-pin",
+                "ogpin-hash-32chars-abc1234567890",
+                "OG Test Page",
+            )
+
+        resp = await client.get("/archive/01TESTOG00000000000000000")
+        assert resp.status_code == 200  # noqa: PLR2004
+        body = resp.text
+
+        assert '<meta property="og:site_name" content="Unstoppable Archive">' in body
+        assert '<meta property="og:type" content="article">' in body
+        assert '<meta property="og:title" content="OG Test Page">' in body
+        assert "og:url" in body
+        assert "archive/01TESTOG00000000000000000" in body
+        assert 'og:description' in body
+        assert "https://example.com/og-pin" in body
+        assert 'og:image' in body
+        assert "api/archives/01TESTOG00000000000000000/screenshot" in body
+        assert 'twitter:card" content="summary_large_image"' in body
+        assert 'rel="canonical"' in body
+
+    async def test_social_preview_falls_back_to_summary_when_no_screenshot(
+        self,
+        client: AsyncClient,
+        pool: asyncpg.pool.Pool,
+    ) -> None:
+        """In-progress / pending archives have no screenshot yet, so the
+        twitter:card type must downgrade to 'summary' (not
+        summary_large_image) and og:image must be omitted. Emitting an
+        og:image URL that 404s makes the social preview broken on
+        platforms that fetch the image before rendering."""
+        async with pool.acquire() as conn:
+            await conn.execute(
+                """
+                INSERT INTO archives
+                    (id, url, url_hash, status, source, tier, created_at)
+                VALUES ($1, $2, $3, 'pending', 'direct', 'chromium', now())
+                """,
+                "01TESTOGPEND000000000000",
+                "https://example.com/og-pending",
+                "ogpending-hash-32chars-abcdefg12",
+            )
+
+        resp = await client.get("/archive/01TESTOGPEND000000000000")
+        assert resp.status_code == 200  # noqa: PLR2004
+        body = resp.text
+
+        assert 'twitter:card" content="summary"' in body
+        assert "summary_large_image" not in body
+        assert 'property="og:image"' not in body
+
     async def test_provenance_renders_captured_from_link(
         self,
         client: AsyncClient,

@@ -4,6 +4,31 @@
 
 {% block title %}{{ archive.title or archive.url }} — Unstoppable Archive{% endblock %}
 
+{% block head %}
+{# Open Graph + Twitter Card metadata so archive links rendered as
+   previews on Slack/Discord/Twitter/iMessage show the captured title,
+   the original URL, and (when available) the page screenshot. Without
+   these tags, social platforms fall back to bare URL strings. #}
+<meta property="og:site_name" content="Unstoppable Archive">
+<meta property="og:type" content="article">
+<meta property="og:title" content="{{ archive.title or archive.url }}">
+<meta property="og:url" content="{{ request.base_url }}archive/{{ archive.id }}">
+<meta property="og:description" content="Archived snapshot of {{ archive.url }}{% if archive.created_at %} captured {{ archive.created_at.strftime('%Y-%m-%d') }}{% endif %}.">
+{% if archive.status == "complete" and archive.artifact_dir %}
+<meta property="og:image" content="{{ request.base_url }}api/archives/{{ archive.id }}/screenshot">
+<meta property="og:image:alt" content="Screenshot of {{ archive.url }}">
+<meta name="twitter:card" content="summary_large_image">
+{% else %}
+<meta name="twitter:card" content="summary">
+{% endif %}
+<meta name="twitter:title" content="{{ archive.title or archive.url }}">
+<meta name="twitter:description" content="Archived snapshot of {{ archive.url }}.">
+{% if archive.status == "complete" and archive.artifact_dir %}
+<meta name="twitter:image" content="{{ request.base_url }}api/archives/{{ archive.id }}/screenshot">
+{% endif %}
+<link rel="canonical" href="{{ request.base_url }}archive/{{ archive.id }}">
+{% endblock %}
+
 {% block header %}
 <header class="sticky top-0 z-50 bg-[#050208]/90 backdrop-blur-xl border-b border-white/[0.04]" role="banner">
   <div class="max-w-4xl mx-auto px-6 py-3 flex items-center justify-between">
