@@ -289,11 +289,19 @@ async def archive_view(
     """Legacy viewer URL — redirects to the Wayback-style /web/ form.
 
     Kept as a 301 redirect so external links and bookmarks keep working
-    while /web/{ts}/{url} becomes the canonical viewer URL.
+    while /web/{ts}/{url} becomes the canonical viewer URL. If the
+    archive was taken down, redirect to the detail page so the user
+    lands on the friendly takedown stub instead of a bare 404.
     """
-    archive = await _archive_repo.get_by_id(conn, archive_id)
+    archive = await _archive_repo.get_by_id(
+        conn, archive_id, include_removed=True,
+    )
     if archive is None:
         raise HTTPException(status_code=404, detail="Archive not found")
+    if archive.removed_at is not None:
+        return RedirectResponse(
+            url=f"/archive/{archive_id}", status_code=303,
+        )
     if archive.status != ArchiveStatus.COMPLETE:
         raise HTTPException(status_code=404, detail="Archive not complete")
     if not archive.artifact_dir:

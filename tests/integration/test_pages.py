@@ -450,6 +450,24 @@ class TestSoftDeleteVisibility:
         )
         assert resp.status_code == 404  # noqa: PLR2004
 
+    async def test_legacy_view_redirects_to_takedown_stub(
+        self,
+        client: AsyncClient,
+        pool: asyncpg.pool.Pool,
+    ) -> None:
+        """The legacy /archive/{id}/view route is a 301 redirect to the
+        Wayback-style viewer for live archives. For removed archives it
+        should send the user to the detail page (which renders the
+        friendly takedown stub at HTTP 410) instead of a bare 404."""
+        archive_id = await self._seed_removed(
+            pool, "https://example.com/rm-view-redirect",
+        )
+        resp = await client.get(
+            f"/archive/{archive_id}/view", follow_redirects=False,
+        )
+        assert resp.status_code == 303  # noqa: PLR2004
+        assert resp.headers["location"] == f"/archive/{archive_id}"
+
     async def test_dedup_ignores_removed(
         self,
         client: AsyncClient,
