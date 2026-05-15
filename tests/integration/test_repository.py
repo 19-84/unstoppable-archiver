@@ -415,6 +415,52 @@ class TestJobRepository:
             assert new_job.id != job.id
             assert new_job.archive_id == archive.id
 
+    async def test_fail_with_retry_at_job_cap_marks_archive_failed(
+        self,
+        pool: asyncpg.pool.Pool,
+        archive_repo: ArchiveRepository,
+        job_repo: JobRepository,
+    ) -> None:
+        """When an archive hits the max_total_jobs (15) retry cap, the
+        next fail(retry=True) must drive the archive to 'failed'.
+
+        Before the fix, fail() at the cap just logged a warning and
+        enqueued nothing — leaving the archive dangling in 'capturing'
+        forever with no job to resolve it (observed live: 48 archives
+        stuck this way). The archive must instead reach a terminal
+        state so the UI shows the failure and offers Retry."""
+        async with pool.acquire() as conn:
+            archive = await archive_repo.create(
+                conn, "https://example.com/job-cap",
+            )
+            await archive_repo.update_status(
+                conn, archive.id, ArchiveStatus.CAPTURING,
+            )
+            # Pile up jobs to the cap. enqueue() doesn't itself cap, so
+            # this simulates an archive that churned through retries +
+            # tier escalations until it accumulated the 15-job budget.
+            last_job = None
+            for _ in range(15):
+                last_job = await job_repo.enqueue(
+                    conn, archive.id, CaptureTier.CHROMIUM,
+                )
+            assert last_job is not None
+            await job_repo.claim_next(conn, "worker-1")
+
+            # Failing one more with retry=True is past the cap → no new
+            # job, and the archive must be marked failed.
+            await job_repo.fail(
+                conn, last_job.id, "exhausted", retry=True,
+            )
+
+            reloaded = await archive_repo.get_by_id(conn, archive.id)
+            assert reloaded is not None
+            # The archive reached a terminal state instead of
+            # dangling in 'capturing' forever.
+            assert reloaded.status == ArchiveStatus.FAILED
+            assert reloaded.error_message is not None
+            assert "abandoned" in reloaded.error_message
+
     async def test_reclaim_stale(
         self,
         pool: asyncpg.pool.Pool,

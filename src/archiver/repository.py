@@ -621,6 +621,25 @@ class JobRepository:
                     archive_id=job.archive_id,
                     total=total_jobs,
                 )
+                # Retry budget exhausted: no new job is enqueued, so
+                # nothing will ever move this archive out of
+                # 'capturing'. Without this update the archive
+                # dangles in 'capturing' forever — no job, no
+                # snapshot, no failure shown to the user (observed
+                # live: 48 archives stuck this way). Drive it to a
+                # terminal 'failed' state. The status guard avoids
+                # clobbering an archive a concurrent path already
+                # completed.
+                await conn.execute(
+                    "UPDATE archives"
+                    " SET status = 'failed', error_message = $2,"
+                    " completed_at = now()"
+                    " WHERE id = $1"
+                    " AND status NOT IN ('complete', 'failed')",
+                    job.archive_id,
+                    f"Capture abandoned after {total_jobs} attempts:"
+                    f" {error}",
+                )
         if row:
             log.info(
                 "job.failed", job_id=job_id, retry=retry, error=error
