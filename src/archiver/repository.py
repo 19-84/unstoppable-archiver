@@ -256,6 +256,24 @@ class ArchiveRepository:
         return [_record_to_archive(r) for r in rows]
 
     @beartype
+    async def count_by_url_hash(
+        self, conn: PgConnection, uhash: str
+    ) -> int:
+        """Count non-removed archives sharing this URL hash.
+
+        Used by the viewer toolbar to surface 'N captures →' when a URL
+        has multiple snapshots — e.g. a direct capture and a
+        privacy_frontend fallback of the same Twitter URL. Removed
+        archives are excluded so taken-down captures don't inflate the
+        public count."""
+        row = await conn.fetchrow(
+            "SELECT count(*) AS n FROM archives"
+            " WHERE url_hash = $1 AND removed_at IS NULL",
+            uhash,
+        )
+        return int(row["n"]) if row else 0
+
+    @beartype
     async def get_latest_complete(
         self, conn: PgConnection, uhash: str
     ) -> ArchiveRecord | None:

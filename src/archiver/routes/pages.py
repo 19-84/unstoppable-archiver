@@ -347,8 +347,12 @@ async def archive_view(
         return RedirectResponse(
             url=f"/web/{ts}/{archive.url}", status_code=301
         )
+    siblings_count = await _archive_repo.count_by_url_hash(
+        conn, archive.url_hash,
+    )
     return templates.TemplateResponse(
-        request, "archive_view.html", {"archive": archive},
+        request, "archive_view.html",
+        {"archive": archive, "siblings_count": siblings_count},
     )
 
 
@@ -373,8 +377,10 @@ async def wayback_latest(
     archive = await _archive_repo.get_latest_complete(conn, uhash)
     if archive is None or not archive.artifact_dir:
         raise HTTPException(status_code=404, detail="No snapshot for this URL")
+    siblings_count = await _archive_repo.count_by_url_hash(conn, uhash)
     return templates.TemplateResponse(
-        request, "archive_view.html", {"archive": archive},
+        request, "archive_view.html",
+        {"archive": archive, "siblings_count": siblings_count},
     )
 
 
@@ -403,8 +409,10 @@ async def wayback_timestamped(
     )
     if archive is None or not archive.artifact_dir:
         raise HTTPException(status_code=404, detail="No snapshot near this timestamp")
+    siblings_count = await _archive_repo.count_by_url_hash(conn, uhash)
     return templates.TemplateResponse(
-        request, "archive_view.html", {"archive": archive},
+        request, "archive_view.html",
+        {"archive": archive, "siblings_count": siblings_count},
     )
 
 

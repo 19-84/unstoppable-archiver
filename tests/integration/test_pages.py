@@ -178,6 +178,89 @@ class TestArchivesBrowse:
         assert 'href="/archives"' in resp.text
 
 
+class TestViewerSiblingsCount:
+    """The viewer toolbar must surface 'N captures' when a URL has
+    multiple snapshots so users can discover sibling captures (e.g. a
+    direct capture and a privacy_frontend fallback of the same URL).
+    Without this, a user viewing the fallback capture has no UI
+    affordance to find or compare the direct version — they have to
+    back out to the detail page and read the history list."""
+
+    async def test_shows_count_when_multiple_captures_exist(
+        self,
+        client: AsyncClient,
+        pool: asyncpg.pool.Pool,
+    ) -> None:
+        from archiver.url import url_hash as _hash
+        url = "https://example.com/multi-capture-uat"
+        uhash = _hash(url)
+        async with pool.acquire() as conn:
+            await conn.execute(
+                """
+                INSERT INTO archives (id, url, url_hash, status, source,
+                    tier, created_at, completed_at, title, artifact_dir,
+                    snapshot_size)
+                VALUES ($1, $2, $3, 'complete', 'direct', 'chromium',
+                        now() - interval '2 days',
+                        now() - interval '2 days',
+                        'A', 'sibtest/A', 100),
+                       ($4, $2, $3, 'complete', 'privacy_frontend',
+                        'privacy_frontend', now() - interval '1 day',
+                        now() - interval '1 day',
+                        'B', 'sibtest/B', 100)
+                """,
+                "01TESTSIBA00000000000000",
+                url, uhash,
+                "01TESTSIBB00000000000000",
+            )
+
+        resp = await client.get(
+            "/archive/01TESTSIBA00000000000000/view",
+            follow_redirects=True,
+        )
+        assert resp.status_code == 200  # noqa: PLR2004
+        body = resp.text
+        assert "2 captures" in body
+        # The link must point back to the detail page so the user can
+        # see all snapshots — not to a different snapshot directly.
+        assert 'href="/archive/01TESTSIBA00000000000000"' in body
+
+    async def test_hides_count_when_only_one_capture(
+        self,
+        client: AsyncClient,
+        pool: asyncpg.pool.Pool,
+    ) -> None:
+        """A URL with a single capture must NOT render the link — '1
+        captures' would be misleading UI noise."""
+        from archiver.url import url_hash as _hash
+        url = "https://example.com/lonely-capture-uat"
+        uhash = _hash(url)
+        async with pool.acquire() as conn:
+            await conn.execute(
+                """
+                INSERT INTO archives (id, url, url_hash, status, source,
+                    tier, created_at, completed_at, title, artifact_dir,
+                    snapshot_size)
+                VALUES ($1, $2, $3, 'complete', 'direct', 'chromium',
+                        now(), now(), 'Lonely', 'lonely/A', 100)
+                """,
+                "01TESTLONELY000000000000",
+                url, uhash,
+            )
+
+        resp = await client.get(
+            "/archive/01TESTLONELY000000000000/view",
+            follow_redirects=True,
+        )
+        body = resp.text
+        # The toolbar block uses '{N} captures' as a link; make sure
+        # neither the count-1 link nor a misleading '1 captures' badge
+        # rendered. The unrelated loading-overlay copy mentions
+        # 'captures' so we check the link form specifically.
+        assert "1 captures</a>" not in body
+        assert ">1 captures<" not in body
+
+
 class TestRecapture:
     async def test_recapture_creates_new_archive(
         self, client: AsyncClient

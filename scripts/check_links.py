@@ -90,7 +90,16 @@ def crawl(
     """
     base_host = urlparse(base).netloc
     visited: set[str] = set()
-    queue: deque[str] = deque([base])
+    # Seed with the home page plus routes that may be hidden behind
+    # conditional links — /archives is only linked from the home page
+    # when total > recent_count, and /search results only render when
+    # the user types a query. Seeding both makes the checker resilient
+    # to UI state at probe time.
+    queue: deque[str] = deque([
+        base,
+        f"{base}/archives",
+        f"{base}/search?q=test",
+    ])
     errors: list[str] = []
 
     cookies = {"session": session_cookie} if session_cookie else None

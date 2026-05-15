@@ -71,6 +71,14 @@
       {% endif %}
       <time style="font-size:12px;color:#a3a3a3;">{{ archive.created_at.strftime('%Y-%m-%d') if archive.created_at else '' }}</time>
       <div style="width:1px;height:16px;background:#262626;" aria-hidden="true"></div>
+      {% if siblings_count and siblings_count > 1 %}
+      {# Surface that this URL has other captures (e.g. a direct
+         capture AND a privacy_frontend or wayback fallback). Without
+         this, users viewing one snapshot can't tell that sibling
+         captures exist — they'd have to back out to the detail page
+         to discover them. #}
+      <a href="/archive/{{ archive.id }}" style="font-size:10px;padding:4px 8px;background:rgba(255,255,255,0.04);color:#a3a3a3;border-radius:4px;text-decoration:none;" title="See all snapshots of this URL">{{ siblings_count }} captures</a>
+      {% endif %}
       <a href="{{ archive.url }}" target="_blank" rel="noopener noreferrer" style="font-size:10px;padding:4px 8px;background:rgba(168,85,247,0.15);color:#c084fc;border-radius:4px;text-decoration:none;" title="Open the original site in a new tab">Original ↗</a>
       <a href="/api/archives/{{ archive.id }}/warc" style="font-size:10px;padding:4px 8px;background:rgba(255,255,255,0.05);color:#a3a3a3;border-radius:4px;text-decoration:none;" download>WARC</a>
       <a href="/api/archives/{{ archive.id }}/snapshot" style="font-size:10px;padding:4px 8px;background:rgba(255,255,255,0.05);color:#a3a3a3;border-radius:4px;text-decoration:none;" download>HTML</a>
