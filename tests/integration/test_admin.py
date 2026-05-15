@@ -234,6 +234,36 @@ class TestReportWorkflow:
         assert resp.status_code == 200  # noqa: PLR2004
         assert "received" in resp.text.lower() or "thank" in resp.text.lower()
 
+    async def test_invalid_reason_re_renders_form_with_error(
+        self, client: AsyncClient,
+    ) -> None:
+        """A POST with an unrecognized reason (typo / DevTools edit /
+        direct curl) used to return a bare ``{"detail":"Invalid
+        reason: spam"}`` JSON 400. Browser users hitting that path
+        saw an unstyled JSON blob with no path back to fixing their
+        input. The route now re-renders the report form with an
+        inline error banner and the same Glass Noir styling."""
+        archive_id = await self._create_archive(client)
+        resp = await client.post(
+            f"/report/{archive_id}",
+            data={
+                "reason": "spam-this-is-not-valid",
+                "details": "any details",
+            },
+        )
+        assert resp.status_code == 400  # noqa: PLR2004
+        assert resp.headers["content-type"].startswith("text/html")
+        body = resp.text
+        # Form re-rendered (not a bare JSON blob)
+        assert "Report this archive" in body
+        # Error block surfaced as an alert
+        assert 'role="alert"' in body
+        # The bad reason value is echoed back so the user can see what
+        # they sent (helps with DevTools/auto-fill debugging).
+        assert "spam-this-is-not-valid" in body
+        # Original action URL preserved so retry goes to the same endpoint
+        assert f'action="/report/{archive_id}"' in body
+
     async def test_duplicate_report_from_same_ip_silent_dedup(
         self,
         client: AsyncClient,

@@ -71,23 +71,42 @@ async def submit_report(  # noqa: PLR0913
     settings = get_settings(request)
     enforce_limit(request, settings.rate_limit_report_per_hour)
 
-    # Captcha verification (no-op when provider=none)
-    token = altcha_token if settings.captcha_provider == "altcha" else captcha_token
-    if not await verify_captcha(settings, token):
-        raise HTTPException(
-            status_code=400, detail="Captcha verification failed"
-        )
-
     archive = await _archive_repo.get_by_id(conn, archive_id)
     if archive is None:
         raise HTTPException(status_code=404, detail="Archive not found")
 
+    def _render_with_error(msg: str) -> HTMLResponse:
+        # User-recoverable failures (captcha, bad reason) re-render the
+        # report form with a clear inline error instead of raising a
+        # bare HTTPException — a 400 JSON blob is opaque to anyone
+        # using the form, and the existing 404-only friendly-handler
+        # doesn't cover 400s.
+        return templates.TemplateResponse(
+            request,
+            "report_form.html",
+            {
+                "archive": archive,
+                "reasons": list(ReportReason),
+                "captcha_provider": settings.captcha_provider,
+                "hcaptcha_sitekey": settings.hcaptcha_sitekey,
+                "error": msg,
+            },
+            status_code=400,
+        )
+
+    # Captcha verification (no-op when provider=none)
+    token = altcha_token if settings.captcha_provider == "altcha" else captcha_token
+    if not await verify_captcha(settings, token):
+        return _render_with_error(
+            "Captcha verification failed — please try again.",
+        )
+
     try:
         parsed_reason = ReportReason(reason)
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=400, detail=f"Invalid reason: {reason}"
-        ) from exc
+    except ValueError:
+        return _render_with_error(
+            f"'{reason}' isn't a valid report reason — pick one from the list.",
+        )
 
     report_data = ReportCreate(
         reason=parsed_reason,
