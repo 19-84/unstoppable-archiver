@@ -243,10 +243,28 @@ async def archive_detail(
     request: Request,
     conn: Annotated[PgConnection, Depends(get_db)],
 ) -> HTMLResponse:
-    """Archive detail page."""
-    archive = await _archive_repo.get_by_id(conn, archive_id)
+    """Archive detail page.
+
+    Three outcomes:
+      - row missing entirely    -> 404 ("Archive not found")
+      - row exists but removed  -> 410 with a takedown notice page,
+                                   reason + date if admin recorded one
+      - row exists, not removed -> 200, normal render
+    Using `include_removed=True` lets us distinguish 'never existed'
+    from 'taken down' — a 404 alone confuses legitimate revisits.
+    """
+    archive = await _archive_repo.get_by_id(
+        conn, archive_id, include_removed=True,
+    )
     if archive is None:
         raise HTTPException(status_code=404, detail="Archive not found")
+    if archive.removed_at is not None:
+        return templates.TemplateResponse(
+            request,
+            "archive_removed.html",
+            {"archive": archive},
+            status_code=410,
+        )
 
     # Get snapshot history for this URL (filter removed)
     history = [

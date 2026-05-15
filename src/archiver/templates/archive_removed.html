@@ -1,0 +1,68 @@
+<!-- ABOUTME: Takedown notice — rendered at HTTP 410 for soft-deleted archives -->
+<!-- ABOUTME: Shows the original URL, removal date, and reason if admin set one -->
+{% extends "base.html" %}
+
+{% block title %}Removed — Unstoppable Archive{% endblock %}
+
+{% block header %}
+<header class="sticky top-0 z-50 bg-[#050208]/90 backdrop-blur-xl border-b border-white/[0.04]" role="banner">
+  <div class="max-w-4xl mx-auto px-6 py-3 flex items-center justify-between">
+    <a href="/" class="text-purple-400 hover:text-purple-300 text-sm" aria-label="Back to home">← Home</a>
+    <span class="text-xs text-neutral-500 uppercase tracking-wider">Archive removed</span>
+  </div>
+</header>
+{% endblock %}
+
+{% block content %}
+<main class="max-w-3xl mx-auto px-6 py-20">
+  <div class="border border-orange-500/20 bg-orange-500/[0.04] rounded-2xl p-8" role="alert">
+    <div class="flex items-center gap-3 mb-4">
+      <span class="text-orange-400 text-2xl" aria-hidden="true">⊘</span>
+      <h1 class="text-2xl font-bold text-white">This archive has been removed</h1>
+    </div>
+
+    <p class="text-sm text-neutral-400 mb-6 leading-relaxed">
+      An administrator took this archive down. The snapshot is no longer
+      served; the metadata below is kept as a public record of the takedown.
+    </p>
+
+    <dl class="space-y-3 text-sm">
+      <div class="flex flex-col sm:flex-row gap-1 sm:gap-4">
+        <dt class="text-neutral-500 sm:w-24 shrink-0">Original URL</dt>
+        <dd class="font-mono text-neutral-300 break-all min-w-0">
+          <a href="{{ archive.url }}" target="_blank" rel="noopener noreferrer"
+             class="hover:text-purple-300 transition"
+             title="Open the original site in a new tab">{{ archive.url }} ↗</a>
+        </dd>
+      </div>
+      {% if archive.removed_at %}
+      <div class="flex flex-col sm:flex-row gap-1 sm:gap-4">
+        <dt class="text-neutral-500 sm:w-24 shrink-0">Removed</dt>
+        <dd class="text-neutral-300">
+          <time datetime="{{ archive.removed_at }}">{{ archive.removed_at.strftime('%Y-%m-%d %H:%M UTC') if archive.removed_at else '' }}</time>
+        </dd>
+      </div>
+      {% endif %}
+      {% if archive.removed_reason %}
+      <div class="flex flex-col sm:flex-row gap-1 sm:gap-4">
+        <dt class="text-neutral-500 sm:w-24 shrink-0">Reason</dt>
+        <dd class="text-neutral-300">{{ archive.removed_reason }}</dd>
+      </div>
+      {% endif %}
+      {% if archive.created_at %}
+      <div class="flex flex-col sm:flex-row gap-1 sm:gap-4">
+        <dt class="text-neutral-500 sm:w-24 shrink-0">Captured</dt>
+        <dd class="text-neutral-300">
+          <time datetime="{{ archive.created_at }}">{{ archive.created_at.strftime('%Y-%m-%d') if archive.created_at else '' }}</time>
+        </dd>
+      </div>
+      {% endif %}
+    </dl>
+  </div>
+
+  <p class="text-xs text-neutral-500 mt-6 text-center">
+    Believe this removal was a mistake? <a href="/" class="text-purple-400 hover:text-purple-300">Submit a fresh capture</a>
+    of the URL above to create a new archive.
+  </p>
+</main>
+{% endblock %}

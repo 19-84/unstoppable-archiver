@@ -419,16 +419,24 @@ class TestSoftDeleteVisibility:
             )
         return archive_id
 
-    async def test_detail_404s_for_removed(
+    async def test_detail_returns_410_with_takedown_notice(
         self,
         client: AsyncClient,
         pool: asyncpg.pool.Pool,
     ) -> None:
+        """Removed archives render a friendly takedown stub at 410 Gone
+        (not a bare 404) so legitimate revisits learn *why* the archive
+        is gone instead of seeing a generic 'not found' page. The
+        snapshot is no longer served; only the takedown metadata is."""
         archive_id = await self._seed_removed(
             pool, "https://example.com/rm-detail",
         )
         resp = await client.get(f"/archive/{archive_id}")
-        assert resp.status_code == 404  # noqa: PLR2004
+        assert resp.status_code == 410  # noqa: PLR2004
+        body = resp.text
+        assert "This archive has been removed" in body
+        assert "admin takedown" in body
+        assert "https://example.com/rm-detail" in body
 
     async def test_wayback_url_404s_for_removed(
         self,
