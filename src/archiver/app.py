@@ -80,6 +80,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:  # noqa: C901
         secret_key=settings.session_secret.get_secret_value(),
         https_only=(settings.mode == "public"),
         same_site="lax",
+        max_age=settings.session_lifetime_seconds,
     )
 
     # HEAD-method shim: every @router.get route by default returns 405

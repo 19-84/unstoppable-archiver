@@ -48,3 +48,43 @@ class TestSettings:
     def test_db_url_is_secret_str(self) -> None:
         s = Settings()
         assert "postgresql" in s.db_url.get_secret_value()
+
+    def test_admin_disabled_skips_session_secret_validation(self) -> None:
+        """When admin auth is off, the session_secret placeholder is
+        fine — sessions are never created and the key is unused."""
+        s = Settings()  # admin_password_hash="" by default
+        assert s.admin_enabled is False
+        # No exception; the placeholder is accepted because the key
+        # never signs anything in this mode.
+        assert "change-me" in s.session_secret.get_secret_value()
+
+    def test_admin_enabled_rejects_placeholder_secret(self) -> None:
+        """Enabling admin with the source-tree placeholder session
+        secret must hard-fail at config load — running production
+        with a known signing key means anyone with the source can
+        forge admin sessions. The error must name the env var so the
+        operator knows how to fix it."""
+        with pytest.raises(ValidationError, match="ARCHIVER_SESSION_SECRET"):
+            Settings(
+                admin_password_hash="$2b$12$abcdefghijklmnopqrstuv",  # type: ignore[arg-type] # noqa: S106
+            )
+
+    def test_admin_enabled_rejects_short_secret(self) -> None:
+        """Even a non-placeholder secret must be long enough to
+        resist brute-force on the signing key — 32 chars gives
+        ~128 bits of entropy if the value is random."""
+        with pytest.raises(ValidationError, match="at least 32"):
+            Settings(
+                admin_password_hash="$2b$12$abcdefghijklmnopqrstuv",  # type: ignore[arg-type] # noqa: S106
+                session_secret="too-short",  # type: ignore[arg-type] # noqa: S106
+            )
+
+    def test_admin_enabled_accepts_valid_secret(self) -> None:
+        """The happy path — a 32+ char operator-provided secret is
+        accepted and the session lifetime defaults to 24h."""
+        s = Settings(
+            admin_password_hash="$2b$12$abcdefghijklmnopqrstuv",  # type: ignore[arg-type] # noqa: S106
+            session_secret="proper-32-byte-random-secret-for-prod-use",  # type: ignore[arg-type] # noqa: S106
+        )
+        assert s.admin_enabled is True
+        assert s.session_lifetime_seconds == 86400  # 24h default  # noqa: PLR2004

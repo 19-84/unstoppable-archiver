@@ -95,6 +95,11 @@ class Settings(BaseSettings):
     # Admin auth — bcrypt hash, empty disables admin UI entirely
     admin_password_hash: SecretStr = SecretStr("")
     session_secret: SecretStr = SecretStr("change-me-in-production-via-env-var")
+    # Session cookie lifetime. The Starlette default is 14 days, which
+    # is too long for an admin session — once authenticated, a stolen
+    # cookie buys two weeks of access. 24 hours is a reasonable balance
+    # for self-hosted operators who don't want to re-auth constantly.
+    session_lifetime_seconds: int = 86400
 
     # Abuse prevention — rate limiting (auto-on in public mode unless overridden)
     rate_limit_enabled: bool | None = None
@@ -140,6 +145,35 @@ class Settings(BaseSettings):
         """Auto-enable rate limiting in public mode (unless explicitly overridden)."""
         if self.rate_limit_enabled is None:
             self.rate_limit_enabled = self.mode == "public"
+        return self
+
+    @model_validator(mode="after")
+    def _validate_session_secret_when_admin_enabled(self) -> Settings:
+        """If admin auth is enabled, the session secret must be a real
+        operator-set value, not the source-tree placeholder. Without
+        this check, an operator who sets admin_password_hash but
+        forgets to override ARCHIVER_SESSION_SECRET runs production
+        with a well-known signing key — anyone with the source can
+        forge admin sessions. 32-byte minimum gives ~128 bits of
+        unguessable entropy if random."""
+        if not self.admin_enabled:
+            return self
+        placeholder = "change-me-in-production-via-env-var"
+        secret_value = self.session_secret.get_secret_value()
+        if secret_value == placeholder:
+            msg = (
+                "session_secret is the default placeholder — set "
+                "ARCHIVER_SESSION_SECRET to a long random string "
+                "before enabling admin auth"
+            )
+            raise ValueError(msg)
+        if len(secret_value) < 32:  # noqa: PLR2004
+            msg = (
+                "session_secret too short: need at least 32 chars "
+                f"(got {len(secret_value)}) — admin sessions are signed "
+                "with this key and a short key is brute-forceable"
+            )
+            raise ValueError(msg)
         return self
 
     @property

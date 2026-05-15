@@ -84,6 +84,7 @@ class TestRequireAdmin:
 
         settings = Settings(
             admin_password_hash=hash_password("x"),  # type: ignore[arg-type]
+            session_secret="test-session-secret-min-32-bytes-xxxxxx",  # type: ignore[arg-type] # noqa: S106
         )
         request = _make_request_with_session(settings, {})
 
@@ -98,6 +99,7 @@ class TestRequireAdmin:
 
         settings = Settings(
             admin_password_hash=hash_password("x"),  # type: ignore[arg-type]
+            session_secret="test-session-secret-min-32-bytes-xxxxxx",  # type: ignore[arg-type] # noqa: S106
         )
         request = _make_request_with_session(settings, {"admin": True})
 
