@@ -7,6 +7,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, HttpUrl
 
@@ -55,6 +56,11 @@ class ArchiveRecord(BaseModel):
     completed_at: datetime | None = None
     removed_at: datetime | None = None
     removed_reason: str | None = None
+    # JSONB column. Currently used for source_url provenance —
+    # the exact URL we actually fetched from when it differs from
+    # the original submission (privacy_frontend rewrite, wayback
+    # memento, archive.today memento). Future fields land here too.
+    metadata: dict[str, Any] | None = None
 
 
 class JobRecord(BaseModel):
@@ -151,3 +157,13 @@ class CaptureResult:
     warc_size: int
     content_hash: str
     screenshot_hash: str
+    # The URL we actually fetched from when it differs from the
+    # archive's original submission URL. Set by tiers that route via
+    # a different host:
+    #   privacy_frontend  -> rewritten proxy URL (nitter.tiekoetter.com/...)
+    #   wayback           -> wayback memento URL
+    #   archive_today     -> archive.today memento URL
+    # Direct-capture tiers (chromium / camoufox / camoufox_proxy)
+    # leave it None — for those archive.url IS what was captured.
+    # Stored in archives.metadata.source_url for provenance.
+    source_url: str | None = None

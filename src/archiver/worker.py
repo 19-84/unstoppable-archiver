@@ -319,7 +319,7 @@ class Worker:
                 ).inc()
 
     @beartype
-    async def _process_job_inner(self, job: JobRecord) -> str:  # noqa: C901, PLR0911
+    async def _process_job_inner(self, job: JobRecord) -> str:  # noqa: C901, PLR0911, PLR0915
         """Inner job processing; returns outcome label for metrics."""
         assert self._pool is not None  # noqa: S101
         apex = ""  # bound for the except handlers; set properly once archive is fetched
@@ -432,6 +432,16 @@ class Worker:
                     elif job.tier == CaptureTier.PRIVACY_FRONTEND:
                         source = CaptureSource.PRIVACY_FRONTEND
 
+                    # source_url provenance — recorded in metadata
+                    # so the UI can show "captured from <instance>"
+                    # without losing the original submission URL.
+                    metadata_json: str | None = None
+                    if result.source_url is not None:
+                        import json as _json
+                        metadata_json = _json.dumps(
+                            {"source_url": result.source_url},
+                        )
+
                     await self._archive_repo.update_status(
                         conn,
                         job.archive_id,
@@ -444,6 +454,7 @@ class Worker:
                         snapshot_size=len(result.snapshot_html),
                         warc_size=result.warc_size,
                         source=source.value,
+                        metadata=metadata_json,
                     )
                     await self._job_repo.complete(conn, job.id)
                     await self._obs_repo.record_outcome(
@@ -646,7 +657,8 @@ class Worker:
             tier=CaptureTier.CHROMIUM,
             strip_selectors=WAYBACK_STRIP_SELECTORS,
         )
-        return result
+        from dataclasses import replace
+        return replace(result, source_url=snapshot_url)
 
     async def _capture_via_commoncrawl(self, url: str) -> CaptureResult:
         """Last-tier fallback: fetch a cached version from Common Crawl.
@@ -922,7 +934,10 @@ class Worker:
                 original_url=url,
                 instance=instance,
             )
-            return result
+            # Record the rewritten URL we actually captured so the UI
+            # can show which instance won.
+            from dataclasses import replace
+            return replace(result, source_url=rewritten)
 
         raise CaptureError(
             f"All privacy frontend instances failed for {url}: "
@@ -954,6 +969,10 @@ class Worker:
             screenshot_hash=hashlib.sha256(
                 placeholder_png
             ).hexdigest(),
+            # Direct-fetch tiers (CC, archive.today read, wayback
+            # browser-render-of-memento) feed source_url through so
+            # the archive metadata records exactly where the bytes came from.
+            source_url=source_url,
         )
 
     @beartype

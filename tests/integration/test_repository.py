@@ -11,7 +11,6 @@ import asyncpg
 import pytest
 
 from archiver.db import close_pool, create_pool, init_db
-from tests.integration.conftest import reset_test_db
 from archiver.enums import ArchiveStatus, CaptureTier, JobStatus
 from archiver.repository import (
     ArchiveRepository,
@@ -22,6 +21,7 @@ from archiver.repository import (
     ProxyStatusRepository,
 )
 from archiver.url import url_hash
+from tests.integration.conftest import reset_test_db
 
 DB_URL = os.environ.get(
     "ARCHIVER_TEST_DB_URL",
@@ -115,6 +115,57 @@ class TestArchiveRepository:
             assert updated.status == ArchiveStatus.COMPLETE
             assert updated.title == "Example"
             assert updated.text_content == "Hello world"
+
+    async def test_update_status_with_metadata(
+        self,
+        pool: asyncpg.pool.Pool,
+        archive_repo: ArchiveRepository,
+    ) -> None:
+        """metadata JSONB round-trips through update_status + get_by_id.
+
+        The privacy_frontend / wayback / archive_today / commoncrawl
+        capture paths write source_url into metadata so the UI can
+        show 'captured from <instance>' without losing the original
+        submission URL. Verify the column is wired end-to-end.
+        """
+        import json
+        async with pool.acquire() as conn:
+            archive = await archive_repo.create(
+                conn, "https://twitter.com/jack/status/20",
+            )
+            meta = {
+                "source_url": "https://nitter.tiekoetter.com/jack/status/20",
+            }
+            updated = await archive_repo.update_status(
+                conn,
+                archive.id,
+                ArchiveStatus.COMPLETE,
+                metadata=json.dumps(meta),
+            )
+            assert updated is not None
+            assert updated.metadata == meta
+            # Round-trip via get_by_id too (different code path: that
+            # exercises _record_to_archive's JSONB decode, not the
+            # UPDATE ... RETURNING path).
+            fetched = await archive_repo.get_by_id(conn, archive.id)
+            assert fetched is not None
+            assert fetched.metadata == meta
+
+    async def test_update_status_metadata_none_stays_none(
+        self,
+        pool: asyncpg.pool.Pool,
+        archive_repo: ArchiveRepository,
+    ) -> None:
+        """Direct-capture tiers leave source_url=None so the worker
+        skips passing metadata. The column stays NULL → decode yields
+        None, not an empty dict."""
+        async with pool.acquire() as conn:
+            archive = await archive_repo.create(conn, "https://e.com/")
+            updated = await archive_repo.update_status(
+                conn, archive.id, ArchiveStatus.COMPLETE,
+            )
+            assert updated is not None
+            assert updated.metadata is None
 
     async def test_search_fts(
         self,

@@ -842,8 +842,15 @@ class TestCaptureViaPrivacyFrontend:
         result = await worker._capture_via_privacy_frontend(
             "https://medium.com/@vgr/foo"
         )
-        # Got the second instance's result — first was rejected.
-        assert result is good
+        # Got the second instance's bytes — first was rejected. Identity
+        # check would fail because the privacy_frontend path wraps the
+        # winning result in dataclasses.replace() to record source_url.
+        assert result.snapshot_html == good.snapshot_html
+        assert result.content_hash == good.content_hash
+        # source_url provenance landed: it points at the SECOND instance
+        # (the one whose bytes we kept), not the rejected first.
+        assert result.source_url is not None
+        assert "scribe.rip" not in result.source_url
         assert mock_capture.await_count == 2  # noqa: PLR2004
 
     @patch("archiver.worker.capture_page", new_callable=AsyncMock)

@@ -62,6 +62,10 @@
       <span style="color:#60a5fa;font-size:12px;">▲ Wayback</span>
       {% elif archive.source == "archive_today" %}
       <span style="color:#fb923c;font-size:12px;">◆ archive.today</span>
+      {% elif archive.source == "privacy_frontend" %}
+      <span style="color:#a78bfa;font-size:12px;">⊙ Privacy frontend</span>
+      {% elif archive.source == "commoncrawl" %}
+      <span style="color:#f472b6;font-size:12px;">★ Common Crawl</span>
       {% else %}
       <span style="color:#34d399;font-size:12px;">● Direct</span>
       {% endif %}

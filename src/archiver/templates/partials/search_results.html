@@ -29,6 +29,10 @@
         <span class="text-blue-400">▲ wayback</span>
         {% elif archive.source == "archive_today" %}
         <span class="text-orange-400">◆ archive.today</span>
+        {% elif archive.source == "privacy_frontend" %}
+        <span class="text-violet-400">⊙ privacy frontend</span>
+        {% elif archive.source == "commoncrawl" %}
+        <span class="text-pink-400">★ common crawl</span>
         {% else %}
         <span class="text-emerald-400">● direct</span>
         {% endif %}

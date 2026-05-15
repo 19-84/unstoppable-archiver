@@ -44,6 +44,14 @@
       <span>{{ (archive.snapshot_size / 1048576) | round(1) }} MB{% if archive.warc_size %} + {{ (archive.warc_size / 1048576) | round(1) }} MB WARC{% endif %}</span>
       {% endif %}
     </div>
+    {% if archive.metadata and archive.metadata.source_url %}
+    <div class="text-xs text-neutral-500 mt-1 font-mono truncate">
+      Captured from:
+      <a href="{{ archive.metadata.source_url }}" target="_blank" rel="noopener noreferrer"
+         class="text-purple-400/60 hover:text-purple-300 transition"
+         title="Open the exact URL the capture was fetched from">{{ archive.metadata.source_url }}</a>
+    </div>
+    {% endif %}
   </div>
 
   {% if archive.status == "complete" %}

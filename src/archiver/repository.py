@@ -44,6 +44,14 @@ def _ulid() -> str:
 
 @beartype
 def _record_to_archive(row: asyncpg.Record) -> ArchiveRecord:
+    # JSONB arrives as a str (asyncpg has no JSON codec registered).
+    # The column enforces well-formed JSON at write time so json.loads
+    # never fails here; a defensive try/except would be dead branches.
+    meta_raw = row["metadata"] if "metadata" in row.keys() else None  # noqa: SIM118
+    metadata: dict[str, Any] | None = (
+        __import__("json").loads(meta_raw) if meta_raw is not None else None
+    )
+
     return ArchiveRecord(
         id=row["id"],
         url=row["url"],
@@ -64,6 +72,7 @@ def _record_to_archive(row: asyncpg.Record) -> ArchiveRecord:
         completed_at=row["completed_at"],
         removed_at=row.get("removed_at"),
         removed_reason=row.get("removed_reason"),
+        metadata=metadata,
     )
 
 
@@ -90,7 +99,7 @@ _ARCHIVE_COLS = (
     "id, url, url_hash, title, text_content, status, tier, source, "
     "error_message, artifact_dir, content_hash, screenshot_hash, "
     "revisit_of, snapshot_size, warc_size, created_at, completed_at, "
-    "removed_at, removed_reason"
+    "removed_at, removed_reason, metadata"
 )
 
 _JOB_COLS = (
@@ -310,7 +319,7 @@ class ArchiveRepository:
             "title", "text_content", "error_message", "artifact_dir",
             "content_hash", "screenshot_hash", "revisit_of",
             "snapshot_size", "warc_size", "completed_at", "tier",
-            "source",
+            "source", "metadata",
         }
 
         for key, value in kwargs.items():
