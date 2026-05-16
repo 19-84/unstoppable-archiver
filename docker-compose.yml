@@ -50,6 +50,15 @@ services:
     build:
       context: .
       target: dev
+    # Run an init process (tini) as PID 1. The worker launches
+    # Camoufox/Firefox, whose child processes (Socket/RDD/Utility)
+    # get orphaned and reparented to PID 1 when a browser closes.
+    # uv/python as PID 1 only reaps its own direct children, so those
+    # orphans pile up as zombies — observed 771 defunct processes
+    # after hours of capture cycles, correlating with steadily
+    # rising capture latency as the PID table filled. tini reaps any
+    # reparented zombie automatically.
+    init: true
     command: uv run python -m archiver
     volumes:
       - artifacts:/data
