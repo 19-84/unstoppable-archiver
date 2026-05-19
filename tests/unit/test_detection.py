@@ -96,7 +96,12 @@ class TestCheckAntiBot:
             "X and its partners use cookies to provide you with a "
             "better, safer and faster service."
         )
-        signal = check_anti_bot(200, 'jack on X: "just setting up my twttr"', wall_body)
+        signal = check_anti_bot(
+            200,
+            'jack on X: "just setting up my twttr"',
+            wall_body,
+            has_privacy_frontend=True,
+        )
         assert signal.is_blocked is True
         assert "login wall" in (signal.reason or "")
 
@@ -112,7 +117,9 @@ class TestCheckAntiBot:
             "Logga in\nRegistrera dig\n"
             "Did someone say … cookies?"
         )
-        signal = check_anti_bot(200, "jack on X", wall_sv)
+        signal = check_anti_bot(
+            200, "jack on X", wall_sv, has_privacy_frontend=True
+        )
         assert signal.is_blocked is True
         assert "login wall" in (signal.reason or "")
 
@@ -125,7 +132,26 @@ class TestCheckAntiBot:
             "Welcome to our blog. Log in or sign up to comment. "
             "Don't miss our latest posts about gardening." + "x" * 500
         )
-        signal = check_anti_bot(200, "Gardening Blog", ordinary)
+        signal = check_anti_bot(
+            200, "Gardening Blog", ordinary, has_privacy_frontend=True
+        )
+        assert signal.is_blocked is False
+
+    def test_login_wall_not_flagged_without_privacy_frontend(self) -> None:
+        """The wall flag exists solely to escalate to the
+        privacy_frontend tier. On a URL with no frontend fallback
+        (resolve_policy returned None) the same wall body must NOT be
+        flagged — escalating would only burn the remaining browser
+        tiers re-capturing an identical wall. capture_page passes
+        has_privacy_frontend=resolve_policy(url) is not None."""
+        wall_body = (
+            "Don't miss what's happening\n"
+            "People on X are the first to know.\n"
+            "Log in\nSign up\n"
+        )
+        signal = check_anti_bot(
+            200, "jack on X", wall_body, has_privacy_frontend=False
+        )
         assert signal.is_blocked is False
 
     def test_access_denied_title(self) -> None:

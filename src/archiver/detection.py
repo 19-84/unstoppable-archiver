@@ -232,11 +232,19 @@ def check_anti_bot(  # noqa: C901, PLR0911, PLR0912
     status_code: int,
     title: str,
     body_text: str,
+    *,
+    has_privacy_frontend: bool = False,
 ) -> DetectionSignal:
     """Check if a page response indicates anti-bot blocking.
 
     Inspects HTTP status, page title, and body text for known
     anti-bot patterns from Cloudflare, CAPTCHAs, and generic blocks.
+
+    `has_privacy_frontend` is True when the captured URL has a
+    privacy-frontend fallback (resolve_policy matched). It gates the
+    soft login-wall check: that flag exists solely to escalate to the
+    privacy_frontend tier, so it is only meaningful when the tier
+    exists to serve the real content.
     """
     if status_code in _BLOCKED_STATUS_CODES:
         return DetectionSignal(
@@ -270,14 +278,20 @@ def check_anti_bot(  # noqa: C901, PLR0911, PLR0912
             )
 
     # Soft login walls (HTTP 200, no CAPTCHA) — match regardless of
-    # body length: X/Twitter's wall ships a multi-MB JS page. Flagged
-    # so the worker escalates to the privacy_frontend tier.
-    for marker in LOGIN_WALL_MARKERS:
-        if marker in body_lower:
-            return DetectionSignal(
-                is_blocked=True,
-                reason=f"login wall: '{marker}'",
-            )
+    # body length: X/Twitter's wall ships a multi-MB JS page. Gated on
+    # has_privacy_frontend: the flag exists solely to escalate to the
+    # privacy_frontend tier, so on a domain with no frontend fallback
+    # it would only burn the remaining browser tiers re-capturing the
+    # same wall. Gating also bounds false-positive blast radius — a
+    # page merely quoting the wall phrase is only ever flagged on an
+    # eligible apex (twitter.com/x.com/...), never the open web.
+    if has_privacy_frontend:
+        for marker in LOGIN_WALL_MARKERS:
+            if marker in body_lower:
+                return DetectionSignal(
+                    is_blocked=True,
+                    reason=f"login wall: '{marker}'",
+                )
 
     for marker in GENERIC_BLOCK_MARKERS:
         if marker in body_lower and len(body_text) < _MIN_BODY_LENGTH_FOR_BLOCK:

@@ -31,6 +31,7 @@ from archiver.detection import check_anti_bot, detect_js_challenge
 from archiver.enums import CaptureTier
 from archiver.errors import AntiBotDetectedError, CaptureError
 from archiver.models import CaptureResult
+from archiver.privacy_frontends import resolve_policy
 from archiver.proxy import ProxyConfig
 from archiver.singlefile import (
     SINGLEFILE_CAPTURE_JS,
@@ -244,6 +245,9 @@ async def capture_page(  # noqa: C901, PLR0912, PLR0913, PLR0915
     """
     warc_writer = PlaywrightWARCWriter()
     is_firefox = tier != CaptureTier.CHROMIUM
+    # A soft login wall is only worth flagging when this URL has a
+    # privacy_frontend fallback to escalate into (see check_anti_bot).
+    has_privacy_frontend = resolve_policy(url) is not None
 
     # Proxy selection order of precedence:
     #   1. Darknet proxy when URL is onion/i2p (forced by URL).
@@ -390,7 +394,12 @@ async def capture_page(  # noqa: C901, PLR0912, PLR0913, PLR0915
                     body_text = await page.evaluate(
                         "document.body ? document.body.innerText : ''"
                     )
-                    signal = check_anti_bot(0, page_title, body_text)
+                    signal = check_anti_bot(
+                        0,
+                        page_title,
+                        body_text,
+                        has_privacy_frontend=has_privacy_frontend,
+                    )
                     if signal.is_blocked:
                         raise AntiBotDetectedError(
                             f"Blocked (timeout): {signal.reason}"
@@ -451,7 +460,12 @@ async def capture_page(  # noqa: C901, PLR0912, PLR0913, PLR0915
                 )
 
         # Check for anti-bot blocking
-        signal = check_anti_bot(status_code, page_title, body_text)
+        signal = check_anti_bot(
+            status_code,
+            page_title,
+            body_text,
+            has_privacy_frontend=has_privacy_frontend,
+        )
         if signal.is_blocked:
             raise AntiBotDetectedError(
                 f"Blocked: {signal.reason}"
