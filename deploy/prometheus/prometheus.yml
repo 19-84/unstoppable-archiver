@@ -24,6 +24,24 @@ scrape_configs:
     static_configs:
       - targets: ["worker:9090"]
 
+  - job_name: archiver-app
+    # The API process has its OWN metrics registry, separate from the
+    # worker's: blocklist_hits_total, rate_limit_exceeded_total and
+    # jobs_queued are incremented here, not in the worker. FastAPI
+    # serves them at the default /metrics path on :8000 over the
+    # compose network. Without this job those counters increment but
+    # are never collected — invisible in Grafana.
+    #
+    # /metrics is on the app's PUBLIC :8000 (unlike the worker's
+    # localhost-only port). Left open by default. To lock it down, set
+    # ARCHIVER_METRICS_TOKEN on the `app` service and add a matching
+    # bearer credential here — point at a file kept OUT of version
+    # control, never an inline literal:
+    #   authorization:
+    #     credentials_file: /etc/prometheus/metrics_token
+    static_configs:
+      - targets: ["app:8000"]
+
   - job_name: prometheus
     # Self-scrape so we can graph the monitoring stack's own health
     # — backup alerting works only if Prom itself stays up.

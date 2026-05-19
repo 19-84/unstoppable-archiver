@@ -15,6 +15,7 @@ from archiver.deps import (
     get_db,
     get_settings,
     require_api_key,
+    require_metrics_token,
 )
 
 
@@ -94,6 +95,60 @@ class TestRequireApiKey:
         )
         with pytest.raises(HTTPException) as exc:
             await require_api_key(request)
+        assert exc.value.status_code == 401  # noqa: PLR2004
+
+
+def _make_metrics_request(
+    headers: dict[str, str] | None = None,
+    metrics_token: str = "",
+) -> MagicMock:
+    """Create a mock Request with metrics_token settings and headers."""
+    from pydantic import SecretStr
+
+    request = MagicMock()
+    request.app.state.settings.metrics_token = SecretStr(metrics_token)
+    request.headers = headers or {}
+    return request
+
+
+class TestRequireMetricsToken:
+    async def test_no_token_configured_allows_all(self) -> None:
+        request = _make_metrics_request(metrics_token="")
+        await require_metrics_token(request)  # Should not raise
+
+    async def test_bearer_token_valid(self) -> None:
+        request = _make_metrics_request(
+            headers={"authorization": "Bearer scrape-secret"},
+            metrics_token="scrape-secret",  # noqa: S106
+        )
+        await require_metrics_token(request)
+
+    async def test_missing_token_raises_401(self) -> None:
+        request = _make_metrics_request(metrics_token="scrape-secret")  # noqa: S106
+        with pytest.raises(HTTPException) as exc:
+            await require_metrics_token(request)
+        assert exc.value.status_code == 401  # noqa: PLR2004
+
+    async def test_wrong_token_raises_401(self) -> None:
+        request = _make_metrics_request(
+            headers={"authorization": "Bearer wrong"},
+            metrics_token="scrape-secret",  # noqa: S106
+        )
+        with pytest.raises(HTTPException) as exc:
+            await require_metrics_token(request)
+        assert exc.value.status_code == 401  # noqa: PLR2004
+
+    async def test_x_api_key_header_not_accepted(self) -> None:
+        """Only Bearer is accepted. Prometheus' scrape `authorization`
+        sends Bearer, and /metrics has no human callers — so the
+        X-API-Key path require_api_key allows is deliberately not
+        mirrored here. An X-API-Key-only request must 401."""
+        request = _make_metrics_request(
+            headers={"x-api-key": "scrape-secret"},
+            metrics_token="scrape-secret",  # noqa: S106
+        )
+        with pytest.raises(HTTPException) as exc:
+            await require_metrics_token(request)
         assert exc.value.status_code == 401  # noqa: PLR2004
 
 

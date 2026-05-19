@@ -85,3 +85,29 @@ async def require_api_key(request: Request) -> None:
         return
 
     raise HTTPException(status_code=401, detail="Invalid or missing API key")
+
+
+async def require_metrics_token(request: Request) -> None:
+    """Gate the /metrics endpoint with a bearer token.
+
+    The API process serves /metrics on the public :8000 (the worker's
+    metrics port is localhost-only). If ARCHIVER_METRICS_TOKEN is set,
+    a scraper must send `Authorization: Bearer <token>`; empty leaves
+    the endpoint open. Only Bearer is accepted — Prometheus' scrape
+    `authorization` config sends exactly that, and the endpoint has no
+    human callers, so the X-API-Key path require_api_key allows is
+    deliberately not mirrored. hmac.compare_digest avoids leaking the
+    token via response-timing.
+    """
+    settings = request.app.state.settings
+    token = settings.metrics_token.get_secret_value()
+    if not token:
+        return  # Auth disabled
+
+    auth = request.headers.get("authorization", "")
+    if auth.startswith("Bearer ") and hmac.compare_digest(auth[7:], token):
+        return
+
+    raise HTTPException(
+        status_code=401, detail="Invalid or missing metrics token"
+    )

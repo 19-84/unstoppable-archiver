@@ -15,6 +15,7 @@ from archiver.captcha import generate_altcha_challenge
 from archiver.captcha import verify as verify_captcha
 from archiver.deps import get_client_ip_hash, get_db, get_settings
 from archiver.enums import ReportReason
+from archiver.metrics import reports_total
 from archiver.models import ReportCreate
 from archiver.rate_limit import enforce_limit
 from archiver.repository import (
@@ -117,6 +118,7 @@ async def submit_report(  # noqa: PLR0913
         conn, archive_id, report_data,
         reporter_ip_hash=get_client_ip_hash(request),
     )
+    reports_total.labels(reason=parsed_reason.value).inc()
 
     return templates.TemplateResponse(
         request,

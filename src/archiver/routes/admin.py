@@ -18,6 +18,7 @@ from archiver.blocklist import load_blocklist
 from archiver.config import Settings
 from archiver.deps import get_client_ip_hash, get_db, get_settings
 from archiver.enums import AuditAction, ReportStatus
+from archiver.metrics import admin_logins_total
 from archiver.rate_limit import enforce_limit
 from archiver.repository import (
     ArchiveRepository,
@@ -83,6 +84,7 @@ async def login_submit(
         await _audit_repo.log(
             conn, AuditAction.ADMIN_LOGIN, admin_user="admin", ip_address_hash=ip
         )
+        admin_logins_total.labels(outcome="success").inc()
         # Prevent open-redirect: only allow relative paths
         target = next if next.startswith("/") and not next.startswith("//") else "/admin/"
         return RedirectResponse(url=target, status_code=303)
@@ -90,6 +92,7 @@ async def login_submit(
     await _audit_repo.log(
         conn, AuditAction.ADMIN_LOGIN_FAILED, admin_user="admin", ip_address_hash=ip
     )
+    admin_logins_total.labels(outcome="failure").inc()
     return templates.TemplateResponse(
         request,
         "admin/login.html",

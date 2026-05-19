@@ -38,6 +38,11 @@ services:
       ARCHIVER_ARTIFACTS_DIR: /data/archives
       ARCHIVER_LOG_FORMAT: console
       ARCHIVER_LOG_LEVEL: INFO
+      # Guards the public /metrics endpoint. Empty (the default) leaves
+      # /metrics open. To lock it down, set ARCHIVER_METRICS_TOKEN in a
+      # gitignored .env file and add a matching credential to
+      # deploy/prometheus/prometheus.yml — never commit the token.
+      ARCHIVER_METRICS_TOKEN: ${ARCHIVER_METRICS_TOKEN:-}
     depends_on:
       postgres:
         condition: service_healthy

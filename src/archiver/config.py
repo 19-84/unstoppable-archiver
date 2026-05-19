@@ -59,6 +59,12 @@ class Settings(BaseSettings):
     recapture_interval_seconds: int = 3600
     # Prometheus metrics scrape port for the worker process. 0 disables.
     worker_metrics_port: int = 9090
+    # Bearer token guarding the API process's /metrics endpoint. Unlike
+    # the worker's localhost-only metrics port, the API serves /metrics
+    # on the public :8000, so a token keeps operational counters off
+    # the open web. Empty = no auth (endpoint stays public); when set,
+    # scrapers must send `Authorization: Bearer <token>`.
+    metrics_token: SecretStr = SecretStr("")
 
     # Proxy — custom proxies for CAMOUFOX_PROXY tier (tier 3 of 5).
     # `proxy_list` accepts: comma-separated endpoints, or a path to a

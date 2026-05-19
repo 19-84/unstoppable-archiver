@@ -9,7 +9,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import Response
 
-from archiver.deps import get_db
+from archiver.deps import get_db, require_metrics_token
 from archiver.metrics import jobs_queued, prometheus_text
 from archiver.repository import PgConnection
 
@@ -31,7 +31,11 @@ async def health_deep(
     return {"status": "ok", "database": "connected"}
 
 
-@router.get("/metrics", include_in_schema=False)
+@router.get(
+    "/metrics",
+    include_in_schema=False,
+    dependencies=[Depends(require_metrics_token)],
+)
 async def metrics(
     request: Request,
     conn: Annotated[PgConnection, Depends(get_db)],
