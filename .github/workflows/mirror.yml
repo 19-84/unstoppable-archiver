@@ -13,6 +13,13 @@ jobs:
     name: Mirror to Forgejo
     runs-on: ubuntu-latest
     if: ${{ github.repository == '19-84/unstoppable-archiver' }}
+    # Secrets are hoisted to env because the `secrets` context is not
+    # available in step-level `if` — referencing it there is a workflow
+    # parse error. The push step skips cleanly until the mirror secrets
+    # are configured, so the workflow stays green before setup.
+    env:
+      FORGEJO_URL: ${{ secrets.FORGEJO_MIRROR_URL }}
+      FORGEJO_TOKEN: ${{ secrets.FORGEJO_MIRROR_TOKEN }}
 
     steps:
       - uses: actions/checkout@v6
@@ -20,12 +27,7 @@ jobs:
           fetch-depth: 0
 
       - name: Push to Forgejo
-        # Skips cleanly until the mirror secrets are configured, so the
-        # workflow stays green on forks / before setup.
-        if: ${{ secrets.FORGEJO_MIRROR_URL != '' }}
-        env:
-          FORGEJO_URL: ${{ secrets.FORGEJO_MIRROR_URL }}
-          FORGEJO_TOKEN: ${{ secrets.FORGEJO_MIRROR_TOKEN }}
+        if: env.FORGEJO_URL != ''
         run: |
           git push --force --prune \
             "https://token:${FORGEJO_TOKEN}@${FORGEJO_URL#https://}" \
@@ -36,6 +38,9 @@ jobs:
     name: Mirror to GitLab
     runs-on: ubuntu-latest
     if: ${{ github.repository == '19-84/unstoppable-archiver' }}
+    env:
+      GITLAB_URL: ${{ secrets.GITLAB_MIRROR_URL }}
+      GITLAB_TOKEN: ${{ secrets.GITLAB_MIRROR_TOKEN }}
 
     steps:
       - uses: actions/checkout@v6
@@ -43,10 +48,7 @@ jobs:
           fetch-depth: 0
 
       - name: Push to GitLab
-        if: ${{ secrets.GITLAB_MIRROR_URL != '' }}
-        env:
-          GITLAB_URL: ${{ secrets.GITLAB_MIRROR_URL }}
-          GITLAB_TOKEN: ${{ secrets.GITLAB_MIRROR_TOKEN }}
+        if: env.GITLAB_URL != ''
         run: |
           git push --force --prune \
             "https://token:${GITLAB_TOKEN}@${GITLAB_URL#https://}" \
