@@ -40,7 +40,7 @@ async def client(
 ) -> AsyncIterator[AsyncClient]:
     from archiver.blocklist import DomainBlocklist
 
-    settings = Settings(db_url=DB_URL, log_format="console")
+    settings = Settings(db_url=DB_URL, log_format="console")  # type: ignore[arg-type]
     app = create_app(settings)
     app.state.pool = pool
     app.state.blocklist = DomainBlocklist()
@@ -691,7 +691,7 @@ class TestFriendly404:
         app = client._transport.app  # type: ignore[attr-defined]
 
         @app.get("/_test_rate_limit_probe")
-        async def _probe() -> None:
+        async def probe() -> None:  # pyright: ignore[reportUnusedFunction]
             raise HTTPException(
                 status_code=429,
                 detail="Rate limit exceeded (60/hour). Retry in 35s.",

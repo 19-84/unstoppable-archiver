@@ -40,7 +40,7 @@ async def client(
 ) -> AsyncIterator[AsyncClient]:
     from archiver.blocklist import DomainBlocklist
 
-    settings = Settings(db_url=DB_URL, log_format="console")
+    settings = Settings(db_url=DB_URL, log_format="console")  # type: ignore[arg-type]
     app = create_app(settings)
     # Inject the already-created pool so lifespan doesn't create a second one
     app.state.pool = pool

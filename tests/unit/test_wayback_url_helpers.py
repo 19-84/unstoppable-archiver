@@ -6,7 +6,6 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-import pytest
 import time_machine
 
 from archiver.routes.pages import _pad_timestamp, _wayback_url
@@ -57,9 +56,3 @@ class TestWaybackUrlFilter:
         assert _wayback_url(SimpleNamespace()) == ""
         assert _wayback_url(SimpleNamespace(url="x")) == ""
         assert _wayback_url(SimpleNamespace(created_at=None, url="x")) == ""
-
-
-@pytest.fixture(autouse=False)
-def _noop() -> None:
-    """Keep the file importable even if time_machine isn't pre-installed."""
-    return None

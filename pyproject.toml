@@ -132,13 +132,17 @@ exclude = ["**/__pycache__", ".venv", "build"]
 venvPath = "."
 venv = ".venv"
 # Per-path overrides: tests routinely poke _private attrs of the unit
-# under test (mocking _job_repo, asserting on _process_job_inner, etc).
+# under test (mocking _job_repo, asserting on _process_job_inner, etc)
+# and drive it through Mock/patch chains whose members are Unknown by
+# nature — annotating every mock interaction buys noise, not safety.
 # That's the established test pattern in this codebase, not a code
-# smell to fix in src/. Disabling reportPrivateUsage globally would
-# hide real misuse in src/; the executionEnvironments override scopes
-# it to the test tree only.
+# smell to fix in src/. Disabling these rules globally would hide real
+# issues in src/; the executionEnvironments override scopes the
+# relaxation to the test tree only. src/ stays fully strict.
 executionEnvironments = [
-    { root = "tests", reportPrivateUsage = "none" },
+    # extraPaths lets pyright resolve `tests.integration.conftest`
+    # imports the same way pytest's rootdir insertion does.
+    { root = "tests", extraPaths = ["."], reportPrivateUsage = "none", reportUnknownMemberType = "none", reportUnknownVariableType = "none", reportUnknownArgumentType = "none", reportUnknownParameterType = "none", reportUnknownLambdaType = "none", reportMissingParameterType = "none", reportAttributeAccessIssue = "none", reportUntypedFunctionDecorator = "none", reportUnnecessaryTypeIgnoreComment = "none" },
 ]
 strictListInference = true
 strictDictionaryInference = true

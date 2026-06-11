@@ -778,6 +778,7 @@ class TestCaptureViaPrivacyFrontend:
         # Critical: capture_page must have been called WITHOUT a proxy
         # so the direct-Camoufox path actually runs.
         assert mock_capture.await_count == 1
+        assert mock_capture.await_args is not None
         _, kwargs = mock_capture.await_args
         assert kwargs.get("proxy") is None
 

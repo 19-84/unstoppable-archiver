@@ -44,7 +44,7 @@ async def client(
     from archiver.blocklist import DomainBlocklist
 
     settings = Settings(
-        db_url=DB_URL,
+        db_url=DB_URL,  # type: ignore[arg-type]
         log_format="console",
         admin_password_hash=hash_password(ADMIN_PASSWORD),  # type: ignore[arg-type]
         session_secret="test-session-secret-min-32-bytes-xxxxxxx",  # noqa: S106  # type: ignore[arg-type]
@@ -92,7 +92,7 @@ class TestAdminLoginRateLimit:
         _global_limiter._windows.clear()
 
         settings = Settings(
-            db_url=DB_URL,
+            db_url=DB_URL,  # type: ignore[arg-type]
             log_format="console",
             admin_password_hash=hash_password(ADMIN_PASSWORD),  # type: ignore[arg-type]
             session_secret="test-rate-limit-secret-min-32-bytes-xxxx",  # noqa: S106  # type: ignore[arg-type]
@@ -217,7 +217,7 @@ class TestAdminAuth:
         from archiver.blocklist import DomainBlocklist
 
         settings = Settings(
-            db_url=DB_URL,
+            db_url=DB_URL,  # type: ignore[arg-type]
             admin_password_hash="",  # type: ignore[arg-type]
             session_secret="test-secret-xxxxxxxxxxxxxxxxxxxxxxxx",  # noqa: S106  # type: ignore[arg-type]
         )
@@ -269,7 +269,7 @@ class TestCaptchaIntegration:
         from archiver.blocklist import DomainBlocklist
 
         settings = Settings(
-            db_url=DB_URL,
+            db_url=DB_URL,  # type: ignore[arg-type]
             captcha_provider="altcha",  # type: ignore[arg-type]
             altcha_hmac_key="test-hmac-key-at-least-32-bytes-123",  # type: ignore[arg-type]
         )

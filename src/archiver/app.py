@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -90,7 +90,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:  # noqa: C901
     # handler runs, then strips the response body to keep the wire
     # behaviour RFC-compliant (HEAD responses must not have a body).
     @app.middleware("http")
-    async def _head_as_get(request: Request, call_next):
+    async def _head_as_get(
+        request: Request,
+        call_next: Callable[[Request], Awaitable[Response]],
+    ) -> Response:
         if request.method != "HEAD":
             return await call_next(request)
         request.scope["method"] = "GET"
@@ -139,7 +142,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:  # noqa: C901
     )
 
     @app.middleware("http")
-    async def _security_headers(request: Request, call_next):
+    async def _security_headers(
+        request: Request,
+        call_next: Callable[[Request], Awaitable[Response]],
+    ) -> Response:
         response = await call_next(request)
         # Skip on the snapshot route — it sets its own CSP-sandbox and
         # we don't want to clobber it with a less-restrictive header.
@@ -240,9 +246,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:  # noqa: C901
             # Retry-After is set by the rate-limit path; surface it
             # so the user knows when to try again.
             retry_after: str | None = None
-            headers = getattr(exc, "headers", None) or {}
-            if headers and "Retry-After" in headers:
-                retry_after = str(headers["Retry-After"])
+            headers: dict[str, str] = dict(exc.headers or {})
+            if "Retry-After" in headers:
+                retry_after = headers["Retry-After"]
             return _templates.TemplateResponse(
                 request,
                 "error_404.html",
@@ -259,7 +265,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:  # noqa: C901
         return JSONResponse(
             status_code=exc.status_code,
             content={"detail": exc.detail},
-            headers=getattr(exc, "headers", None) or {},
+            headers=dict(exc.headers or {}),
         )
 
     return app

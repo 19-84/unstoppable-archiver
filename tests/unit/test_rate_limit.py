@@ -90,4 +90,5 @@ class TestEnforceLimit:
         with pytest.raises(HTTPException) as exc_info:
             enforce_limit(request, limit=1)  # type: ignore[arg-type]
         assert exc_info.value.status_code == 429  # noqa: PLR2004
+        assert exc_info.value.headers is not None
         assert "Retry-After" in exc_info.value.headers
