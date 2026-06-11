@@ -12,6 +12,9 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   gates:
     runs-on: ubuntu-latest
@@ -32,7 +35,10 @@ jobs:
           --health-retries 5
 
     env:
-      ARCHIVER_DB_URL: postgresql://archiver:archiver@localhost:5432/archiver
+      # Integration tests read ARCHIVER_TEST_DB_URL and their conftest
+      # refuses any database whose name doesn't end in _test/_ci/_tmp
+      # (they drop tables on teardown).
+      ARCHIVER_TEST_DB_URL: postgresql://archiver:archiver@localhost:5432/archiver_test
 
     steps:
       - uses: actions/checkout@v4
@@ -44,6 +50,9 @@ jobs:
 
       - name: Install dependencies
         run: uv sync --frozen --extra dev --extra test
+
+      - name: Create test database
+        run: PGPASSWORD=archiver createdb -h localhost -U archiver archiver_test
 
       - name: Lint (ruff)
         run: uv run ruff check .
