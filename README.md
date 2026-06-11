@@ -20,7 +20,7 @@ journalism, or preserving links before they rot.
 **Setup:**
 
 ```bash
-git clone <this-repo>
+git clone https://github.com/19-84/unstoppable-archiver.git
 cd archiver
 make setup-selfhosted   # copies .env.example.selfhosted → .env
 # (optional) edit .env to set a DB password
@@ -61,37 +61,34 @@ admin moderates abuse reports, soft-delete + audit log for accountability.
 
 **Requirements:**
 - Linux host with Docker + Docker Compose
-- Public domain with DNS pointing at your host
-- Reverse proxy for TLS (Caddy recommended)
+- Public domain with DNS pointing at your host (ports 80/443 reachable)
 
 **Setup:**
 
 ```bash
-git clone <this-repo>
+git clone https://github.com/19-84/unstoppable-archiver.git
 cd archiver
 ./scripts/setup-public.sh   # interactive: prompts for admin password, generates secrets
 ```
 
 This creates `.env` with:
+- Your public domain + ACME contact email (for the bundled Caddy proxy)
 - A bcrypt admin password hash
 - Random session secret
 - Random strong DB password
 - StevenBlack porn blocklist enabled (optional, prompted)
 
-**Start the stack (bound to 127.0.0.1:8000 for reverse proxy):**
+**Start the stack:**
 
 ```bash
 make run-public
 ```
 
-**Set up HTTPS reverse proxy.** See `deploy/Caddyfile.example` for
-a ready-to-use Caddy config with automatic Let's Encrypt:
-
-```bash
-sudo cp deploy/Caddyfile.example /etc/caddy/Caddyfile
-# edit: replace archive.example.com with your domain
-sudo systemctl reload caddy
-```
+This includes a bundled Caddy reverse proxy that auto-provisions
+Let's Encrypt TLS for your domain — HTTPS works out of the box, no
+host-level proxy needed. To run behind your own external proxy
+instead, override the `caddy` service in `docker-compose.public.yml`
+(its config lives at `deploy/Caddyfile`).
 
 **Verify:**
 - Visit `https://your-domain/` — home page with capture form
