@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from unittest.mock import patch
 
@@ -11,6 +12,17 @@ import pytest
 from pydantic import ValidationError
 
 from archiver.config import Settings
+
+
+@pytest.fixture(autouse=True)
+def _clean_archiver_env(monkeypatch: pytest.MonkeyPatch) -> None:  # pyright: ignore[reportUnusedFunction]
+    """Settings reads ARCHIVER_* from the environment. The dev/CI
+    containers set several (log format, DB URL), which would leak into
+    tests that assert on defaults — strip them so these tests see the
+    same blank slate everywhere."""
+    for var in list(os.environ):
+        if var.startswith("ARCHIVER_"):
+            monkeypatch.delenv(var)
 
 
 class TestSettings:
@@ -67,6 +79,18 @@ class TestSettings:
         with pytest.raises(ValidationError, match="ARCHIVER_SESSION_SECRET"):
             Settings(
                 admin_password_hash="$2b$12$abcdefghijklmnopqrstuv",  # type: ignore[arg-type] # noqa: S106
+            )
+
+    def test_admin_enabled_rejects_selfhosted_compose_placeholder(self) -> None:
+        """The selfhosted compose overlay ships its own well-known
+        default secret. It's 37 chars, so the length check alone
+        passes it — it must be rejected by name like the source-tree
+        placeholder, or an operator who enables admin but forgets the
+        secret runs with a publicly-known signing key."""
+        with pytest.raises(ValidationError, match="ARCHIVER_SESSION_SECRET"):
+            Settings(
+                admin_password_hash="$2b$12$abcdefghijklmnopqrstuv",  # type: ignore[arg-type] # noqa: S106
+                session_secret="selfhosted-default-insecure-change-me",  # type: ignore[arg-type] # noqa: S106
             )
 
     def test_admin_enabled_rejects_short_secret(self) -> None:

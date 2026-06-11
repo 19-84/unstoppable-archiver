@@ -66,7 +66,7 @@ class Settings(BaseSettings):
     # scrapers must send `Authorization: Bearer <token>`.
     metrics_token: SecretStr = SecretStr("")
 
-    # Proxy — custom proxies for CAMOUFOX_PROXY tier (tier 3 of 5).
+    # Proxy — custom proxies for the CAMOUFOX_PROXY tier.
     # `proxy_list` accepts: comma-separated endpoints, or a path to a
     # newline-separated file. Each endpoint is protocol://host:port.
     proxy_list: str = ""
@@ -197,9 +197,12 @@ class Settings(BaseSettings):
         unguessable entropy if random."""
         if not self.admin_enabled:
             return self
-        placeholder = "change-me-in-production-via-env-var"
+        placeholders = {
+            "change-me-in-production-via-env-var",
+            "selfhosted-default-insecure-change-me",
+        }
         secret_value = self.session_secret.get_secret_value()
-        if secret_value == placeholder:
+        if secret_value in placeholders:
             msg = (
                 "session_secret is the default placeholder — set "
                 "ARCHIVER_SESSION_SECRET to a long random string "
