@@ -12,8 +12,11 @@ services:
       POSTGRES_PASSWORD: ${ARCHIVER_DB_PASSWORD:-archiver}
 
   app:
-    # Bind to localhost only — no external network exposure
-    ports:
+    # Bind to localhost only — no external network exposure.
+    # !override matters: without it compose MERGES this list with the
+    # base file's binding instead of replacing it, and the app ends up
+    # listening on all interfaces too.
+    ports: !override
       - "127.0.0.1:8000:8000"
     environment:
       ARCHIVER_MODE: self-hosted

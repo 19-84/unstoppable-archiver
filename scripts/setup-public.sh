@@ -24,7 +24,12 @@ echo
 [[ "$ADMIN_PW" == "$ADMIN_PW_CONFIRM" ]] || { echo "error: passwords do not match" >&2; exit 1; }
 
 echo "Generating bcrypt hash..."
-ADMIN_HASH=$(echo -n "$ADMIN_PW" | docker compose run --rm -T app uv run python scripts/hash_password.py | tail -1)
+# --no-deps: hash_password.py needs no database, and letting compose
+# start postgres here would initialize the pgdata volume with the dev
+# password from the base file — .env with the real password doesn't
+# exist yet, and postgres only applies POSTGRES_PASSWORD on first init.
+# printf over echo -n: echo mangles passwords containing backslashes.
+ADMIN_HASH=$(printf '%s' "$ADMIN_PW" | docker compose run --rm -T --no-deps app uv run python scripts/hash_password.py | tail -1)
 
 # Secrets
 echo "Generating session secret..."
@@ -32,6 +37,9 @@ SESSION_SECRET=$(openssl rand -hex 32)
 
 echo "Generating DB password..."
 DB_PASSWORD=$(openssl rand -hex 24)
+
+echo "Generating API key (destructive operations, e.g. archive deletion)..."
+API_KEY=$(openssl rand -hex 32)
 
 # Public domain + ACME contact email — required for the bundled Caddy
 # service to provision Let's Encrypt TLS. DNS for $PUBLIC_DOMAIN must
@@ -58,6 +66,7 @@ cat > .env <<EOF
 ARCHIVER_DB_PASSWORD=$DB_PASSWORD
 ARCHIVER_ADMIN_PASSWORD_HASH=$ADMIN_HASH
 ARCHIVER_SESSION_SECRET=$SESSION_SECRET
+ARCHIVER_API_KEY=$API_KEY
 ARCHIVER_PUBLIC_DOMAIN=$PUBLIC_DOMAIN
 ARCHIVER_ACME_EMAIL=$ACME_EMAIL
 ARCHIVER_BLOCKLIST_URLS=$BLOCKLIST_URL
@@ -71,6 +80,17 @@ chmod 600 .env
 echo
 echo "=== Setup complete ==="
 echo "Wrote .env (mode 600)"
+
+# Postgres applies POSTGRES_PASSWORD only when it initializes a fresh
+# volume. If the stack ever ran with the dev defaults, the existing
+# volume keeps the old password and app/worker will fail to auth.
+if docker volume inspect archiver_pgdata >/dev/null 2>&1; then
+    echo
+    echo "WARNING: existing database volume 'archiver_pgdata' found."
+    echo "If this stack previously ran with dev credentials, the new DB"
+    echo "password will NOT apply. To start fresh (DELETES archived data):"
+    echo "    docker compose down && docker volume rm archiver_pgdata"
+fi
 echo
 echo "Next steps:"
 echo "  1. Point DNS A/AAAA for $PUBLIC_DOMAIN at this host"

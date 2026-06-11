@@ -1,10 +1,10 @@
 # Caddyfile for the bundled `caddy` compose service (public deployment).
 #
 # This file is the template the container loads. To customise:
-#   1. Copy to `Caddyfile.local`, edit, and reference that via
-#      CADDY_CONFIG_FILE in your .env, OR
-#   2. Edit this file directly and rebuild (it's bind-mounted read-only
-#      so a `docker compose restart caddy` picks up changes).
+#   1. Copy it, edit, and point the `caddy` service's volume mount at
+#      your copy in a compose override file (see docs/tls.md), OR
+#   2. Edit this file directly (it's bind-mounted read-only, so a
+#      `docker compose restart caddy` picks up changes).
 #
 # The site domain is taken from the env var $ARCHIVER_PUBLIC_DOMAIN
 # (set in .env). Caddy auto-provisions Let's Encrypt TLS for it on
@@ -55,4 +55,14 @@
 		path /wp-admin* /wp-login* /phpmyadmin* /.env /.git* /.aws*
 	}
 	respond @scanners 404
+
+	# Keep operational metrics off the open web. The bundled Prometheus
+	# scrapes app:8000 inside the compose network, so it never crosses
+	# this edge. If you replace Caddy with your own proxy, either block
+	# these paths there too or set ARCHIVER_METRICS_TOKEN (see
+	# docs/observability.md).
+	@metrics {
+		path /metrics /metrics/* /api/metrics /api/metrics/*
+	}
+	respond @metrics 404
 }

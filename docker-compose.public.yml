@@ -16,7 +16,11 @@ services:
     # DB not exposed to host — inter-container only
     ports: !override []
     environment:
-      POSTGRES_PASSWORD: ${ARCHIVER_DB_PASSWORD}  # required — no default
+      # ${VAR:?msg} makes compose refuse to start when the var is unset
+      # or empty — a plain ${VAR} silently becomes "" with only a
+      # warning, which here would mean a passwordless-looking config
+      # that fails in confusing ways later.
+      POSTGRES_PASSWORD: ${ARCHIVER_DB_PASSWORD:?missing — run scripts/setup-public.sh}
     restart: always
 
   app:
@@ -27,10 +31,13 @@ services:
       ARCHIVER_MODE: public
       ARCHIVER_LOG_FORMAT: json
       ARCHIVER_LOG_LEVEL: INFO
-      ARCHIVER_DB_URL: postgresql://archiver:${ARCHIVER_DB_PASSWORD}@postgres:5432/archiver
+      ARCHIVER_DB_URL: postgresql://archiver:${ARCHIVER_DB_PASSWORD:?missing — run scripts/setup-public.sh}@postgres:5432/archiver
       # Required — admin moderation is mandatory in public mode
-      ARCHIVER_ADMIN_PASSWORD_HASH: ${ARCHIVER_ADMIN_PASSWORD_HASH}
-      ARCHIVER_SESSION_SECRET: ${ARCHIVER_SESSION_SECRET}
+      ARCHIVER_ADMIN_PASSWORD_HASH: ${ARCHIVER_ADMIN_PASSWORD_HASH:?missing — run scripts/setup-public.sh}
+      ARCHIVER_SESSION_SECRET: ${ARCHIVER_SESSION_SECRET:?missing — run scripts/setup-public.sh}
+      # Required — without it the destructive DELETE API is open to
+      # anyone (require_api_key is a no-op on an empty key)
+      ARCHIVER_API_KEY: ${ARCHIVER_API_KEY:?missing — run scripts/setup-public.sh}
       # Trust X-Forwarded-For from reverse proxy for accurate submitter IP
       ARCHIVER_TRUSTED_PROXIES: "true"
       # Domain blocklist / allowlist (empty is allowed but recommended to configure)
@@ -57,7 +64,7 @@ services:
     environment:
       ARCHIVER_LOG_FORMAT: json
       ARCHIVER_LOG_LEVEL: INFO
-      ARCHIVER_DB_URL: postgresql://archiver:${ARCHIVER_DB_PASSWORD}@postgres:5432/archiver
+      ARCHIVER_DB_URL: postgresql://archiver:${ARCHIVER_DB_PASSWORD:?missing — run scripts/setup-public.sh}@postgres:5432/archiver
     restart: always
 
   caddy:
@@ -74,8 +81,8 @@ services:
       # DNS for this domain MUST point here before stack starts; ACME
       # HTTP-01 needs port 80 to resolve back to this host or the cert
       # request fails and Caddy retries with exponential backoff.
-      ARCHIVER_PUBLIC_DOMAIN: ${ARCHIVER_PUBLIC_DOMAIN}
-      ARCHIVER_ACME_EMAIL: ${ARCHIVER_ACME_EMAIL}
+      ARCHIVER_PUBLIC_DOMAIN: ${ARCHIVER_PUBLIC_DOMAIN:?missing — run scripts/setup-public.sh}
+      ARCHIVER_ACME_EMAIL: ${ARCHIVER_ACME_EMAIL:?missing — run scripts/setup-public.sh}
     depends_on:
       app:
         condition: service_healthy
