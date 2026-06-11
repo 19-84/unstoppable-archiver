@@ -28,8 +28,11 @@ concerns:
   env vars/secrets, never baked into images. Report any leak path.
 - **Stored content** — captured pages are attacker-influenced HTML. They are
   served from the viewer; report stored-XSS or sandbox-escape vectors.
-- **Destructive API** — `DELETE` and admin actions require `ARCHIVER_API_KEY` /
-  admin auth. Report any auth bypass.
+- **Destructive API** — admin actions require admin auth; `DELETE` requires
+  `ARCHIVER_API_KEY` when set. The public deployment generates and requires
+  the key (`setup-public.sh` + compose enforcement); self-hosted instances
+  may leave it empty, which disables the check on the assumption that the
+  app is reachable only from localhost. Report any auth bypass.
 
 Out of scope: the behavior of upstream services the archiver fetches from
 (Wayback, archive.today, Common Crawl, privacy frontends), and denial-of-service

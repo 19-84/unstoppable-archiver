@@ -2,9 +2,11 @@
 
 Self-hosted web archiver with multi-tier anti-bot capture. Captures pages
 as self-contained HTML (SingleFile) + WARC + screenshot, with automatic
-escalation across six tiers: Playwright Chromium → Camoufox stealth
-Firefox → Camoufox-over-proxy → Wayback Machine → archive.today →
-Common Crawl (both recent crawls and a full-history deep scan back to 2014).
+escalation across eight tiers: Playwright Chromium → Camoufox stealth
+Firefox → Camoufox-over-proxy → privacy frontends (Scribe, Redlib,
+xcancel, …) → Wayback Machine → archive.today → Common Crawl (recent
+crawls plus a full-history deep scan back to 2014) → archive.today
+submission as the last-resort write.
 
 Two deployment modes:
 - **Self-hosted** — single user, local machine, no admin auth required
@@ -21,7 +23,7 @@ journalism, or preserving links before they rot.
 
 ```bash
 git clone https://github.com/19-84/unstoppable-archiver.git
-cd archiver
+cd unstoppable-archiver
 make setup-selfhosted   # copies .env.example.selfhosted → .env
 # (optional) edit .env to set a DB password
 make run-selfhosted
@@ -35,11 +37,15 @@ machine, e.g. family server):
 
 ```bash
 # Generate a bcrypt password hash (minimum 8 chars)
-docker compose run --rm app uv run python scripts/hash_password.py
+docker compose run --rm --no-deps app uv run python scripts/hash_password.py
 
-# Add to .env:
+# Generate a session secret
+openssl rand -hex 32
+
+# Add both to .env (paste the literal values — .env files don't run
+# shell commands):
 #   ARCHIVER_ADMIN_PASSWORD_HASH=$2b$12$...
-#   ARCHIVER_SESSION_SECRET=$(openssl rand -hex 32)
+#   ARCHIVER_SESSION_SECRET=<output of openssl rand>
 
 make run-selfhosted   # restarts with admin enabled
 ```
@@ -67,7 +73,7 @@ admin moderates abuse reports, soft-delete + audit log for accountability.
 
 ```bash
 git clone https://github.com/19-84/unstoppable-archiver.git
-cd archiver
+cd unstoppable-archiver
 ./scripts/setup-public.sh   # interactive: prompts for admin password, generates secrets
 ```
 
@@ -102,7 +108,7 @@ instead, override the `caddy` service in `docker-compose.public.yml`
 - Public "Report this archive" form on every archive detail page
 - Admin dashboard with moderation queue + audit log
 - Soft delete (preserves data for audit defense)
-- Submitter IP logging (30-day retention, then hashed)
+- Submitter IPs hashed on receipt (HMAC-SHA256) — raw IPs are never stored
 - HTTPS-only session cookies (requires reverse proxy)
 
 **Optional add-ons:**
@@ -137,7 +143,7 @@ Restart after env changes: `make stop-public && make run-public`.
 | URL submission (anonymous) | ✓ | ✓ |
 | Full-text search | ✓ | ✓ |
 | Pagination | ✓ | ✓ |
-| Multi-tier capture (Chromium → Camoufox → Proxy → Wayback → archive.today → Common Crawl) | ✓ | ✓ |
+| Multi-tier capture (Chromium → Camoufox → Proxy → Privacy frontends → Wayback → archive.today → Common Crawl → archive.today submit) | ✓ | ✓ |
 | Common Crawl deep-scan fallback (2014–present) | ✓ | ✓ |
 | Rotating User-Agent pool (daily refresh, never identifies as archiver) | ✓ | ✓ |
 | playwright-stealth + cf_clearance cache | ✓ | ✓ |
@@ -153,7 +159,7 @@ Restart after env changes: `make stop-public && make run-public`.
 | Captcha | off | optional (altcha or hcaptcha) |
 | Soft delete with takedown reason | ✓ | ✓ |
 | Audit log | ✓ | ✓ |
-| Submitter IP logging | captured | captured, 30-day retention |
+| Submitter IP handling | hashed on receipt | hashed on receipt |
 
 ---
 
@@ -182,7 +188,7 @@ See `CLAUDE.md` for the full overview. Key components:
 - **SingleFile** for self-contained HTML snapshots — JS injection first,
   CLI subprocess fallback for strict-CSP sites, `page.content()` as
   ultimate safety net
-- **Common Crawl** as the final fallback tier — CDX lookup + WARC
+- **Common Crawl** as the final read-only fallback tier — CDX lookup + WARC
   range-fetch from `data.commoncrawl.org`, with deep-scan of all ~122
   crawls back to 2014 when recent crawls miss
 - Rotating **User-Agent pool** refreshed daily from jnrbsn/user-agents

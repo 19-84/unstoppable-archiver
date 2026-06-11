@@ -48,7 +48,7 @@ technology) outside this stack.
 The restore path verifies integrity before touching the target DB:
 
 ```
-docker compose exec backup /app/scripts/restore.sh \
+docker compose --profile backup exec backup /app/scripts/restore.sh \
     /data/backups/db_20260514_030000.sql.gz \
     /data/backups/artifacts_20260514_030000.tar.gz \
     --target-db postgresql://archiver:.../archiver_restored \

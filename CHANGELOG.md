@@ -31,6 +31,10 @@ First public-ready state. Pre-1.0: interfaces may change.
 - SSRF protection on submitted URLs (scheme allowlist, private/loopback IP and
   Docker-internal hostname blocking).
 - Admin auth via bcrypt; secrets injected at runtime, never baked into images.
+- Public mode requires generated secrets (`setup-public.sh`), including an
+  `ARCHIVER_API_KEY` guarding destructive DELETE operations — the compose
+  overlay refuses to start without them.
+- Operational `/metrics` blocked at the Caddy edge in the public deployment.
 - Patched 11 known CVEs in transitive dependencies (aiohttp, urllib3, starlette,
   lxml, idna, python-multipart).
 

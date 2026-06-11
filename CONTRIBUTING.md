@@ -24,8 +24,10 @@ make all          # lint + typecheck + test
 make fmt          # auto-format (run before committing)
 ```
 
-These run against your live working tree (the `make` targets bind-mount the
-source), so edits are reflected without a rebuild.
+These run against your live working tree — the gate targets bind-mount
+`./src`, `./tests`, `./scripts`, and `pyproject.toml` into the container,
+so code and tool-config edits are reflected without a rebuild. Dependency
+changes do need a `make build` first (the venv is baked into the image).
 
 Standards:
 

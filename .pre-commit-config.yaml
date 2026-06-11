@@ -1,3 +1,7 @@
+# commit-msg must be listed or `pre-commit install` only installs the
+# pre-commit stage and the conventional-commit check never runs.
+default_install_hook_types: [pre-commit, commit-msg]
+
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.8.6
