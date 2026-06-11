@@ -317,9 +317,14 @@ async def admin_hard_delete_archive(
             shutil.rmtree(artifact_path, ignore_errors=True)
 
     await _archive_repo.delete(conn, archive_id)
+    # audit_log.archive_id carries an FK to archives (ON DELETE SET
+    # NULL) — inserting a row that references the just-deleted archive
+    # violates it. Keep the column NULL and preserve the id in details,
+    # which also survives unlike a SET-NULLed column.
     await _audit_repo.log(
-        conn, AuditAction.ARCHIVE_HARD_DELETE, archive_id=archive_id,
+        conn, AuditAction.ARCHIVE_HARD_DELETE,
         admin_user="admin", ip_address_hash=get_client_ip_hash(request),
+        details={"archive_id": archive_id},
     )
     return RedirectResponse(url="/admin/archives", status_code=303)
 

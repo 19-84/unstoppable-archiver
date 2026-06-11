@@ -33,6 +33,14 @@ async def pool() -> AsyncIterator[asyncpg.pool.Pool]:
     """
     p = await create_pool(DB_URL, min_size=1, max_size=2)
     async with p.acquire() as conn:
+        # Drop every table holding an FK to archives, not just jobs:
+        # `DROP ... archives CASCADE` silently strips the FK constraint
+        # from surviving tables, and init_db's CREATE TABLE IF NOT
+        # EXISTS never restores it — leaving the test schema laxer than
+        # production for the rest of the session (this hid a real FK
+        # violation in the hard-delete route).
+        await conn.execute("DROP TABLE IF EXISTS audit_log CASCADE")
+        await conn.execute("DROP TABLE IF EXISTS reports CASCADE")
         await conn.execute("DROP TABLE IF EXISTS jobs CASCADE")
         await conn.execute("DROP TABLE IF EXISTS archives CASCADE")
         await conn.execute("DROP TABLE IF EXISTS schema_migrations CASCADE")
