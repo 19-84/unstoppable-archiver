@@ -8,6 +8,10 @@ services:
       - ./src:/app/src
       - ./tests:/app/tests
       - ./scripts:/app/scripts
+      # Tool config (ruff/pyright/pytest) lives here — mounted so gate
+      # runs pick up config edits without an image rebuild. Dependency
+      # changes still need `make build` (the venv is baked).
+      - ./pyproject.toml:/app/pyproject.toml
       - artifacts:/data
 
   worker:

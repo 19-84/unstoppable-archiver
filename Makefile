@@ -1,28 +1,45 @@
-.PHONY: test test-all lint typecheck fmt all build dev up down clean \
+.PHONY: test test-all test-db lint typecheck fmt all build dev up down clean \
         run-selfhosted run-public stop-selfhosted stop-public \
         setup-selfhosted setup-public bundle-singlefile \
         hs-up hs-down hs-address hs-rotate
 
 COMPOSE := docker compose
-RUN := $(COMPOSE) run --rm app
+
+# Gates run through the dev overlay so ./src, ./tests and ./scripts are
+# bind-mounted — they check the live working tree, not whatever source
+# was baked into the image at the last build. (Dependency or pyproject
+# changes still need a `make build` first.)
+DEV_COMPOSE := $(COMPOSE) -f docker-compose.yml -f docker-compose.dev.yml
+RUN := $(DEV_COMPOSE) run --rm --no-deps app
+
+# Integration tests connect to the compose-network postgres and insist
+# on a disposable *_test database (they drop tables on teardown).
+TEST_DB_URL := postgresql://archiver:archiver@postgres:5432/archiver_test
+RUN_TEST := $(DEV_COMPOSE) run --rm -e ARCHIVER_TEST_DB_URL=$(TEST_DB_URL) app
 
 # -- Quality gates (run inside Docker) --
 
-test:
-	$(RUN) uv run pytest --tb=short -m "not slow"
+test: test-db
+	$(RUN_TEST) uv run --no-sync pytest --tb=short -m "not slow"
 
-test-all:
-	$(RUN) uv run pytest --tb=short
+test-all: test-db
+	$(RUN_TEST) uv run --no-sync pytest --tb=short
+
+# Ensure postgres is up and the test database exists (idempotent).
+test-db:
+	$(DEV_COMPOSE) up -d --wait postgres
+	$(DEV_COMPOSE) exec -T postgres sh -c \
+		"psql -U archiver -d archiver -tc \"SELECT 1 FROM pg_database WHERE datname='archiver_test'\" | grep -q 1 || createdb -U archiver archiver_test"
 
 lint:
-	$(RUN) uv run ruff check .
+	$(RUN) uv run --no-sync ruff check .
 
 typecheck:
-	$(RUN) uv run pyright
+	$(RUN) uv run --no-sync pyright
 
 fmt:
-	$(RUN) uv run ruff format .
-	$(RUN) uv run ruff check --fix .
+	$(RUN) uv run --no-sync ruff format .
+	$(RUN) uv run --no-sync ruff check --fix .
 
 all: lint typecheck test
 
@@ -52,11 +69,13 @@ setup-selfhosted:
 setup-public:
 	./scripts/setup-public.sh
 
+# --build so `git pull && make run-<mode>` actually deploys the pulled
+# code instead of restarting the stale image.
 run-selfhosted:
-	$(COMPOSE) -f docker-compose.yml -f docker-compose.selfhosted.yml up -d
+	$(COMPOSE) -f docker-compose.yml -f docker-compose.selfhosted.yml up -d --build
 
 run-public:
-	$(COMPOSE) -f docker-compose.yml -f docker-compose.public.yml up -d
+	$(COMPOSE) -f docker-compose.yml -f docker-compose.public.yml up -d --build
 
 stop-selfhosted:
 	$(COMPOSE) -f docker-compose.yml -f docker-compose.selfhosted.yml down

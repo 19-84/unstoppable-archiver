@@ -28,7 +28,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && npm install -g single-file-cli \
     && rm -rf /var/lib/apt/lists/*
 
-# TODO: Pin to specific digest in production: ghcr.io/astral-sh/uv:0.6@sha256:<digest>
 COPY --from=ghcr.io/astral-sh/uv:0.6 /uv /usr/local/bin/uv
 
 ENV UV_COMPILE_BYTECODE=1 \
@@ -41,38 +40,30 @@ WORKDIR /app
 # ---------------------------------------------------------------------------
 FROM base AS deps
 
-COPY pyproject.toml ./
+# uv.lock must be present or --frozen can never succeed. No fallback to
+# an unfrozen sync: a stale/broken lockfile should fail the build, not
+# silently resolve different versions than every other environment.
+COPY pyproject.toml uv.lock ./
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-dev --no-install-project 2>/dev/null || \
-    uv sync --no-dev --no-install-project
+    uv sync --frozen --no-dev --no-install-project
 
 # ---------------------------------------------------------------------------
 # Stage: dev — add dev dependencies
 # ---------------------------------------------------------------------------
 FROM base AS dev
 
-COPY pyproject.toml uv.lock* ./
+COPY pyproject.toml uv.lock ./
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --extra dev --extra test --no-install-project 2>/dev/null || \
-    uv sync --extra dev --extra test --no-install-project
+    uv sync --frozen --extra dev --extra test --no-install-project
 
 COPY . .
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --extra dev --extra test 2>/dev/null || uv sync --extra dev --extra test
+    uv sync --frozen --extra dev --extra test
 
 # Install Playwright browsers (Camoufox fetched on first worker run, cached via volume)
 RUN uv run playwright install chromium
 
 EXPOSE 8000
-
-# ---------------------------------------------------------------------------
-# Stage: test — run quality gates
-# ---------------------------------------------------------------------------
-FROM dev AS test
-
-RUN uv run ruff check .
-RUN uv run pyright
-RUN uv run pytest --tb=short -q -m "not slow"
 
 # ---------------------------------------------------------------------------
 # Stage: production — minimal runtime
@@ -81,14 +72,18 @@ FROM deps AS production
 
 COPY . .
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-dev 2>/dev/null || uv sync --no-dev
+    uv sync --frozen --no-dev
 
-# Install browsers (Camoufox fetched on first run in production; mount cache volume)
+# Browsers go to a fixed path outside /root — the install runs as root
+# but the runtime user is `archiver`, and Playwright's default
+# /root/.cache/ms-playwright would be unreadable after USER archiver.
+# (Camoufox is fetched on first run in production; mount a cache volume.)
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 RUN uv run playwright install chromium
 
 # Non-root user for security
 RUN useradd -r -m -d /home/archiver archiver && \
-    mkdir -p /data/archives && chown -R archiver:archiver /data
+    mkdir -p /data/archives && chown -R archiver:archiver /data /ms-playwright
 
 # Credentials must be passed at runtime via env vars or secrets, not baked into image
 ENV ARCHIVER_ARTIFACTS_DIR=/data/archives
