@@ -123,3 +123,38 @@ class TestRequireAdminRedirect:
         with pytest.raises(HTTPException) as exc_info:
             await require_admin_redirect(request, settings)  # type: ignore[arg-type]
         assert exc_info.value.status_code == 404  # noqa: PLR2004
+
+
+class TestSafeNextPath:
+    r"""Post-login redirect targets must stay on this origin. CodeQL
+    flagged the bare startswith checks: /\evil.com passes them but
+    browsers normalize backslashes to slashes, turning it into the
+    scheme-relative //evil.com."""
+
+    def test_plain_path_allowed(self) -> None:
+        from archiver.auth import safe_next_path
+
+        assert safe_next_path("/admin/reports?status=all") == (
+            "/admin/reports?status=all"
+        )
+
+    def test_absolute_url_rejected(self) -> None:
+        from archiver.auth import safe_next_path
+
+        assert safe_next_path("https://evil.example") == "/admin/"
+
+    def test_scheme_relative_rejected(self) -> None:
+        from archiver.auth import safe_next_path
+
+        assert safe_next_path("//evil.example") == "/admin/"
+
+    def test_backslash_rejected(self) -> None:
+        from archiver.auth import safe_next_path
+
+        assert safe_next_path("/\\evil.example") == "/admin/"
+        assert safe_next_path("/admin\\..\\x") == "/admin/"
+
+    def test_empty_rejected(self) -> None:
+        from archiver.auth import safe_next_path
+
+        assert safe_next_path("") == "/admin/"

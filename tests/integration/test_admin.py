@@ -210,6 +210,31 @@ class TestAdminAuth:
         )
         assert resp.status_code == 303  # noqa: PLR2004
 
+    async def test_login_redirect_rejects_offsite_next(
+        self, logged_in_client: AsyncClient
+    ) -> None:
+        """GET /admin/login?next=… with an active session must not
+        become an open redirect — offsite targets clamp to /admin/."""
+        for evil in ("https://evil.example", "//evil.example", "/\\evil.example"):
+            resp = await logged_in_client.get(
+                "/admin/login",
+                params={"next": evil},
+                follow_redirects=False,
+            )
+            assert resp.status_code == 303  # noqa: PLR2004
+            assert resp.headers["location"] == "/admin/"
+
+    async def test_login_submit_rejects_offsite_next(
+        self, client: AsyncClient
+    ) -> None:
+        resp = await client.post(
+            "/admin/login",
+            data={"password": ADMIN_PASSWORD, "next": "/\\evil.example"},
+            follow_redirects=False,
+        )
+        assert resp.status_code == 303  # noqa: PLR2004
+        assert resp.headers["location"] == "/admin/"
+
     async def test_admin_disabled_when_no_password_hash(
         self,
         pool: asyncpg.pool.Pool,

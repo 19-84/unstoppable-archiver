@@ -342,6 +342,16 @@ class TestHtmlHelpers:
         assert "alert" not in text
         assert "Hi" in text
 
+    def test_strip_html_tags_removes_sloppy_end_tags(self) -> None:
+        # Browsers treat </script > (trailing space/attrs) as a
+        # closing tag; the stripper must too or the script body
+        # lands in the search index.
+        text = strip_html_tags(
+            "<html><script>alert('x')</script ><p>Hi</p></html>"
+        )
+        assert "alert" not in text
+        assert "Hi" in text
+
     def test_strip_html_tags_removes_styles(self) -> None:
         text = strip_html_tags(
             "<html><style>body{color:red}</style><p>Hi</p></html>"

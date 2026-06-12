@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 from typing import Annotated
+from urllib.parse import quote
 
 import bcrypt
 import structlog
@@ -39,6 +40,24 @@ def hash_password(plain: str) -> str:
     ).decode("utf-8")
 
 
+@beartype
+def safe_next_path(next_path: str) -> str:
+    """Clamp a post-login redirect target to a local path.
+
+    Rejects anything that isn't a plain same-origin path: absolute
+    URLs, scheme-relative //host, and backslash variants (browsers
+    normalize /\\host to //host, so a bare startswith("//") check is
+    bypassable). Falls back to the dashboard.
+    """
+    if (
+        next_path.startswith("/")
+        and not next_path.startswith("//")
+        and "\\" not in next_path
+    ):
+        return next_path
+    return "/admin/"
+
+
 async def require_admin(
     request: Request,
     settings: Annotated[Settings, Depends(get_settings)],
@@ -53,7 +72,9 @@ async def require_admin(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Login required",
-            headers={"Location": f"/admin/login?next={request.url.path}"},
+            headers={
+                "Location": f"/admin/login?next={quote(request.url.path, safe='/')}"
+            },
         )
     return "admin"
 
@@ -67,6 +88,7 @@ async def require_admin_redirect(
         raise HTTPException(status_code=404)
     if not request.session.get("admin"):
         return RedirectResponse(
-            url=f"/admin/login?next={request.url.path}", status_code=303
+            url=f"/admin/login?next={quote(request.url.path, safe='/')}",
+            status_code=303,
         )
     return "admin"

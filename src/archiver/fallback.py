@@ -377,8 +377,11 @@ def extract_title_from_html(html: str) -> str:
 def strip_html_tags(html: str) -> str:
     """Very-rough tag stripping for search-index text extraction."""
     import re
-    text = re.sub(r"<script[^>]*>[\s\S]*?</script>", " ", html, flags=re.I)
-    text = re.sub(r"<style[^>]*>[\s\S]*?</style>", " ", text, flags=re.I)
+    # Browsers close on end tags with trailing whitespace/attributes
+    # (</script >), so the strict </script> form leaves script bodies
+    # in the extracted text.
+    text = re.sub(r"<script[^>]*>[\s\S]*?</script\b[^>]*>", " ", html, flags=re.I)
+    text = re.sub(r"<style[^>]*>[\s\S]*?</style\b[^>]*>", " ", text, flags=re.I)
     text = re.sub(r"<[^>]+>", " ", text)
     return re.sub(r"\s+", " ", text).strip()[:50_000]
 

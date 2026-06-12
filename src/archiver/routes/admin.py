@@ -13,7 +13,7 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
-from archiver.auth import require_admin_redirect, verify_password
+from archiver.auth import require_admin_redirect, safe_next_path, verify_password
 from archiver.blocklist import load_blocklist
 from archiver.config import Settings
 from archiver.deps import get_client_ip_hash, get_db, get_settings
@@ -49,7 +49,7 @@ async def login_form(
     if not settings.admin_enabled:
         raise HTTPException(status_code=404)
     if request.session.get("admin"):
-        return RedirectResponse(url=next, status_code=303)  # type: ignore[return-value]
+        return RedirectResponse(url=safe_next_path(next), status_code=303)  # type: ignore[return-value]
     return templates.TemplateResponse(
         request, "admin/login.html", {"next": next, "error": None}
     )
@@ -85,9 +85,7 @@ async def login_submit(
             conn, AuditAction.ADMIN_LOGIN, admin_user="admin", ip_address_hash=ip
         )
         admin_logins_total.labels(outcome="success").inc()
-        # Prevent open-redirect: only allow relative paths
-        target = next if next.startswith("/") and not next.startswith("//") else "/admin/"
-        return RedirectResponse(url=target, status_code=303)
+        return RedirectResponse(url=safe_next_path(next), status_code=303)
 
     await _audit_repo.log(
         conn, AuditAction.ADMIN_LOGIN_FAILED, admin_user="admin", ip_address_hash=ip
