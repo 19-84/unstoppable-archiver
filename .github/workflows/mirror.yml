@@ -28,8 +28,13 @@ jobs:
 
       - name: Push to Forgejo
         if: env.FORGEJO_URL != ''
+        # No --prune: a mirror target initialised with a README defaults
+        # to a `master` branch, and remotes refuse to delete a default
+        # branch. Pruning it fails the whole (atomic) push, so `main`
+        # never lands. Mirroring is additive; flip the remote default to
+        # `main` and delete `master` once, in the Forgejo UI.
         run: |
-          git push --force --prune \
+          git push --force \
             "https://token:${FORGEJO_TOKEN}@${FORGEJO_URL#https://}" \
             'refs/heads/*:refs/heads/*' \
             'refs/tags/*:refs/tags/*'
@@ -49,8 +54,13 @@ jobs:
 
       - name: Push to GitLab
         if: env.GITLAB_URL != ''
+        # No --prune: GitLab refuses to delete a project's default branch
+        # (`master` when the project was created with a README), and that
+        # rejection fails the whole atomic push, so `main` never lands.
+        # Mirroring is additive; flip the project default to `main` and
+        # delete `master` once, in the GitLab UI.
         run: |
-          git push --force --prune \
+          git push --force \
             "https://token:${GITLAB_TOKEN}@${GITLAB_URL#https://}" \
             'refs/heads/*:refs/heads/*' \
             'refs/tags/*:refs/tags/*'
