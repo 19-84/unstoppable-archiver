@@ -25,7 +25,7 @@ dependencies = [
     # shipped without socksio in the synced venv more than once.
     "httpx[socks]>=0.28",
     "socksio>=1.0",
-    "python-multipart>=0.0.27",
+    "python-multipart>=0.0.31",
     "python-ulid>=3.1",
     "bcrypt>=4.2",
     "itsdangerous>=2.2",
