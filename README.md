@@ -1,16 +1,128 @@
 # Unstoppable Archive
 
-Self-hosted web archiver with multi-tier anti-bot capture. Captures pages
-as self-contained HTML (SingleFile) + WARC + screenshot, with automatic
-escalation across eight tiers: Playwright Chromium → Camoufox stealth
-Firefox → Camoufox-over-proxy → privacy frontends (Scribe, Redlib,
-xcancel, …) → Wayback Machine → archive.today → Common Crawl (recent
-crawls plus a full-history deep scan back to 2014) → archive.today
-submission as the last-resort write.
+[![License: Unlicense](https://img.shields.io/badge/license-Unlicense-blue.svg)](https://unlicense.org/)
+[![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
+[![PostgreSQL 17](https://img.shields.io/badge/PostgreSQL-17-blue.svg)](https://www.postgresql.org/)
+[![CI](https://github.com/19-84/unstoppable-archiver/actions/workflows/ci.yml/badge.svg)](https://github.com/19-84/unstoppable-archiver/actions/workflows/ci.yml)
+[![pyright strict](https://img.shields.io/badge/pyright-strict-2ea44f.svg)](https://microsoft.github.io/pyright/)
+[![Codeberg Mirror](https://img.shields.io/badge/mirror-Codeberg-2185D0.svg?logo=codeberg)](https://codeberg.org/19-84/unstoppable-archiver)
+[![GitGud Mirror](https://img.shields.io/badge/mirror-GitGud-FC6D26.svg?logo=gitlab)](https://gitgud.io/1984/unstoppable-archiver)
 
-Two deployment modes:
-- **Self-hosted** — single user, local machine, no admin auth required
-- **Public** — archive.today-style open submission, admin-moderated takedowns
+> **Preserve the web before it disappears.** A self-hosted web archiver that
+> captures any page as a self-contained HTML snapshot **+** WARC **+**
+> screenshot, and refuses to take "no" for an answer — when a site blocks the
+> bots, it escalates through eight capture tiers until something gets through.
+
+If you find this useful, consider giving it a star on GitHub — it helps others
+discover the project.
+
+**[Documentation](#documentation)** · [Self-hosted setup](#self-hosted--run-it-for-yourself) · [Public deployment](#public-deployment--run-it-for-others) · [How capture works](#how-capture-works) · [Architecture](#architecture)
+
+---
+
+## Why
+
+Links rot. Communities get banned, paywalls slam shut, articles get quietly
+edited or deleted, and the "just use the Wayback Machine" answer fails the
+moment a site serves Cloudflare's challenge page to anything that looks like a
+crawler. Unstoppable Archive is built for the pages that *don't want* to be
+archived: it presents as a real browser, rotates fingerprints and proxies,
+falls back to public archives, and only gives up after eight escalating
+strategies have all failed.
+
+Every capture produces a **self-contained snapshot** — all CSS inlined, all
+images as data URIs, scripts stripped, no external requests — so the archive
+keeps rendering correctly years after the original is gone.
+
+## Documentation
+
+| | |
+|---|---|
+| **[How capture works](#how-capture-works)** | The eight-tier escalation pipeline |
+| **[Architecture](#architecture)** | Components, data flow, storage |
+| [docs/tls.md](docs/tls.md) | TLS / reverse-proxy setup |
+| [docs/backups.md](docs/backups.md) | Scheduled `pg_dump` + artifact backups |
+| [docs/observability.md](docs/observability.md) | Prometheus + Grafana metrics |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Development workflow and quality gates |
+| [SECURITY.md](SECURITY.md) | Security policy and reporting |
+| [CHANGELOG.md](CHANGELOG.md) | Release notes |
+| [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) | Community guidelines |
+
+---
+
+## Screenshots
+
+### Home
+
+![Home page](docs/screenshots/home-desktop.png)
+
+Paste a URL to archive it, or type anything else to search. Live stats, a
+recent-captures feed, and a drag-to-bookmark-bar "Archive this" bookmarklet.
+
+### The viewer — pixel-perfect, self-contained
+
+![Snapshot viewer](docs/screenshots/viewer-desktop.png)
+
+Archived pages render exactly as captured, from a single self-contained HTML
+file. The toolbar shows the original URL, which tier captured it, the capture
+date, and one-click access to the raw **HTML** and **WARC** artifacts. URLs
+follow the familiar Wayback scheme: `/web/{timestamp}/{original-url}`.
+
+### Full-text search
+
+![Search results](docs/screenshots/search-desktop.png)
+
+PostgreSQL full-text search across titles, content, and URLs — with
+`"exact phrase"`, `-exclude`, and `OR` operators — returning ranked results
+with highlighted excerpts and capture thumbnails.
+
+### Archive detail
+
+![Archive detail](docs/screenshots/detail-desktop.png)
+
+Per-capture metadata, artifact downloads (HTML / WARC / screenshot), the full
+snapshot history for that URL, and a one-click re-capture.
+
+### Mobile
+
+<p align="center">
+  <img src="docs/screenshots/home-mobile.png" width="320" alt="Mobile home page">
+</p>
+
+Responsive htmx + Tailwind UI, no SPA, works without JavaScript.
+
+---
+
+## How capture works
+
+For every clearnet URL, the worker walks an **eight-tier escalation ladder**,
+stopping at the first tier that returns a usable capture
+(`CLEARNET_TIER_ORDER` in [`enums.py`](src/archiver/enums.py)):
+
+| # | Tier | What it does |
+|---|------|--------------|
+| 1 | **chromium** | Playwright Chromium with stealth patches + a `cf_clearance` cookie cache |
+| 2 | **camoufox** | Firefox-based stealth browser with BrowserForge fingerprints |
+| 3 | **camoufox_proxy** | Camoufox routed through a rotating proxy pool |
+| 4 | **privacy_frontend** | Eligible URLs via Scribe / Redlib / xcancel / etc., gated by content-positive probing per `(instance, apex)` |
+| 5 | **wayback** | Check the Wayback Machine; submit via Save Page Now if missing |
+| 6 | **archive_today** | Read-only fetch from archive.today mirrors |
+| 7 | **commoncrawl** | Two-pass CDX lookup — 3 recent crawls first, then a deep scan of all ~122 crawls back to 2014 |
+| 8 | **archive_today_submit** | Last-resort write to archive.today through a gate-passing SOCKS5 pool |
+
+CSP headers are stripped on every response so SingleFile's injected scripts
+survive strict sites. The archiver **never identifies as an archiver**: it
+serves a rotating pool of real User-Agents refreshed daily. Darknet URLs
+(`.onion` / `.i2p`) capture via `camoufox` only, through the configured
+SOCKS/HTTP proxy.
+
+Each successful capture writes:
+
+- **`snapshot.html`** — self-contained SingleFile HTML (in-browser JS first,
+  CLI subprocess fallback for strict-CSP sites, `page.content()` as a final net),
+  zstd-compressed on disk
+- **`archive.warc.gz`** — a standards-compliant WARC of the full exchange
+- **`screenshot.png`** + **`thumbnail.png`** — full-page render and feed thumbnail
 
 ---
 
@@ -18,8 +130,6 @@ Two deployment modes:
 
 Single user, localhost only, no auth required. Perfect for personal research,
 journalism, or preserving links before they rot.
-
-**Setup:**
 
 ```bash
 git clone https://github.com/19-84/unstoppable-archiver.git
@@ -29,11 +139,11 @@ make setup-selfhosted   # copies .env.example.selfhosted → .env
 make run-selfhosted
 ```
 
-Open <http://localhost:8000>. Paste a URL into the search/submit box and
+Open <http://localhost:8000>, paste a URL into the search/submit box, and
 watch it capture.
 
 **Optional: enable the admin UI** (for takedown/moderation on a shared
-machine, e.g. family server):
+machine, e.g. a family server):
 
 ```bash
 # Generate a bcrypt password hash (minimum 8 chars)
@@ -52,24 +162,19 @@ make run-selfhosted   # restarts with admin enabled
 
 Visit `/admin/login` to access moderation features.
 
-**What's off by default:**
-- Rate limiting (no bots expected)
-- Captcha
-- Domain blocklists (you control what you archive)
-- robots.txt respect (not implemented; we preserve pages regardless)
+**What's off by default:** rate limiting, captcha, domain blocklists, and
+robots.txt respect (we preserve pages regardless) — you control what you archive.
 
 ---
 
 ## Public deployment — run it for others
 
-Open submission service like archive.today: anyone can archive URLs,
-admin moderates abuse reports, soft-delete + audit log for accountability.
+An open submission service like archive.today: anyone can archive URLs, an
+admin moderates abuse reports, and soft-delete + an audit log keep you
+accountable.
 
-**Requirements:**
-- Linux host with Docker + Docker Compose
-- Public domain with DNS pointing at your host (ports 80/443 reachable)
-
-**Setup:**
+**Requirements:** a Linux host with Docker + Docker Compose, and a public
+domain with DNS pointing at it (ports 80/443 reachable).
 
 ```bash
 git clone https://github.com/19-84/unstoppable-archiver.git
@@ -77,59 +182,41 @@ cd unstoppable-archiver
 ./scripts/setup-public.sh   # interactive: prompts for admin password, generates secrets
 ```
 
-This creates `.env` with:
-- Your public domain + ACME contact email (for the bundled Caddy proxy)
-- A bcrypt admin password hash
-- Random session secret
-- Random strong DB password
-- StevenBlack porn blocklist enabled (optional, prompted)
-
-**Start the stack:**
+This generates `.env` with your public domain + ACME email, a bcrypt admin
+password hash, a random session secret, a strong random DB password, and
+(optionally) the StevenBlack porn blocklist.
 
 ```bash
 make run-public
 ```
 
-This includes a bundled Caddy reverse proxy that auto-provisions
-Let's Encrypt TLS for your domain — HTTPS works out of the box, no
-host-level proxy needed. To run behind your own external proxy
-instead, override the `caddy` service in `docker-compose.public.yml`
-(its config lives at `deploy/Caddyfile`).
+A bundled Caddy reverse proxy auto-provisions Let's Encrypt TLS for your
+domain — HTTPS works out of the box, no host-level proxy needed. To front it
+with your own proxy instead, override the `caddy` service in
+`docker-compose.public.yml` (config lives at `deploy/Caddyfile`).
 
-**Verify:**
-- Visit `https://your-domain/` — home page with capture form
-- Visit `https://your-domain/admin/login` — admin portal
-- Submit a test URL, confirm capture works
-- Try a blocked domain from your blocklist, confirm 400
+**Verify:** visit `https://your-domain/` (capture form), `…/admin/login`
+(admin portal), submit a test URL, and confirm a blocked domain returns 400.
 
-**What's on by default in public mode:**
-- Rate limiting per IP (60 submits/hr, 10 reports/hr)
-- Domain blocklist (from StevenBlack if enabled during setup)
-- Public "Report this archive" form on every archive detail page
-- Admin dashboard with moderation queue + audit log
-- Soft delete (preserves data for audit defense)
-- Submitter IPs hashed on receipt (HMAC-SHA256) — raw IPs are never stored
-- HTTPS-only session cookies (requires reverse proxy)
+**On by default in public mode:** per-IP rate limiting (60 submits/hr, 10
+reports/hr), domain blocklist, a public "Report this archive" form, the admin
+moderation queue + audit log, soft delete, **submitter IPs hashed on receipt**
+(HMAC-SHA256 — raw IPs are never stored), and HTTPS-only session cookies.
 
-**Optional add-ons:**
+**Optional add-ons** — extra blocklists and captcha:
 
-Add extra blocklist sources in `.env`:
-```
-ARCHIVER_BLOCKLIST_URLS=https://raw.githubusercontent.com/StevenBlack/hosts/master/alternates/porn/hosts,https://your-custom-list
-ARCHIVER_BLOCKLIST_DOMAINS=specific-bad-site.example,another.test
+```bash
+# Extra blocklist sources / overrides
+ARCHIVER_BLOCKLIST_URLS=https://raw.githubusercontent.com/StevenBlack/hosts/master/alternates/porn/hosts
+ARCHIVER_BLOCKLIST_DOMAINS=specific-bad-site.example
 ARCHIVER_ALLOWLIST_DOMAINS=false-positive.example
-```
 
-Enable captcha if you get spammed:
-```
-# Self-hosted proof-of-work (no third-party, recommended first):
+# Captcha — self-hosted proof-of-work (no third party, recommended):
 ARCHIVER_CAPTCHA_PROVIDER=altcha
 ARCHIVER_ALTCHA_HMAC_KEY=$(openssl rand -hex 32)
-
-# Or hCaptcha (third-party visual, requires signup at hcaptcha.com):
+# …or hCaptcha:
 # ARCHIVER_CAPTCHA_PROVIDER=hcaptcha
-# ARCHIVER_HCAPTCHA_SITEKEY=...
-# ARCHIVER_HCAPTCHA_SECRET=...
+# ARCHIVER_HCAPTCHA_SITEKEY=... ARCHIVER_HCAPTCHA_SECRET=...
 ```
 
 Restart after env changes: `make stop-public && make run-public`.
@@ -141,64 +228,151 @@ Restart after env changes: `make stop-public && make run-public`.
 | Feature | Self-hosted | Public |
 |---|---|---|
 | URL submission (anonymous) | ✓ | ✓ |
-| Full-text search | ✓ | ✓ |
-| Pagination | ✓ | ✓ |
-| Multi-tier capture (Chromium → Camoufox → Proxy → Privacy frontends → Wayback → archive.today → Common Crawl → archive.today submit) | ✓ | ✓ |
+| Full-text search + operators | ✓ | ✓ |
+| Eight-tier escalation capture | ✓ | ✓ |
 | Common Crawl deep-scan fallback (2014–present) | ✓ | ✓ |
-| Rotating User-Agent pool (daily refresh, never identifies as archiver) | ✓ | ✓ |
-| playwright-stealth + cf_clearance cache | ✓ | ✓ |
+| Rotating User-Agent pool (daily refresh) | ✓ | ✓ |
+| playwright-stealth + `cf_clearance` cache | ✓ | ✓ |
 | CSP-header stripping for robust SingleFile injection | ✓ | ✓ |
 | SingleFile CLI subprocess fallback for strict-CSP sites | ✓ | ✓ |
-| Sandboxed snapshot viewer | ✓ | ✓ |
+| Sandboxed snapshot viewer + Wayback-style URLs | ✓ | ✓ |
 | WARC + screenshot + thumbnail artifacts | ✓ | ✓ |
 | Delete button on archive page | ✓ (user) | hidden |
 | "Report this archive" button | hidden | ✓ |
 | Rate limiting per IP | off (configurable) | on by default |
 | Admin dashboard + moderation | optional | required |
 | Domain blocklist / allowlist | off (configurable) | on via env var |
-| Captcha | off | optional (altcha or hcaptcha) |
-| Soft delete with takedown reason | ✓ | ✓ |
-| Audit log | ✓ | ✓ |
+| Captcha (altcha or hcaptcha) | off | optional |
+| Soft delete + takedown reason + audit log | ✓ | ✓ |
 | Submitter IP handling | hashed on receipt | hashed on receipt |
+| Darknet (`.onion` / `.i2p`) capture | ✓ (profile) | ✓ (profile) |
+
+---
+
+## Use cases
+
+- **Journalists & researchers** — preserve sources before they're edited or
+  pulled, with a WARC of record and a timestamped, citable snapshot URL.
+- **OSINT & investigations** — capture bot-hostile pages that the public
+  Wayback Machine can't reach, including content behind interstitials.
+- **Personal knowledge bases** — archive everything you read; full-text search
+  it later even after the originals 404.
+- **Community archiving** — run a public instance so anyone can preserve links,
+  with moderation and takedown tooling for abuse.
 
 ---
 
 ## Operations
 
-**Backup:** `scripts/backup.sh` dumps Postgres + tars the artifacts
-directory. Set it up as a daily cron on the host.
-
-**Reload blocklist without restart:** POST `/admin/blocklist/reload`
-(requires admin login). Useful when upstream GitHub lists update.
-
-**Upgrade:** `git pull && make run-<mode>` rebuilds images and runs
-schema migrations automatically (idempotent `ALTER TABLE IF EXISTS`).
-
-**Health:** `/api/health` (shallow) and `/api/health/deep` (DB connectivity).
+- **Backup:** `scripts/backup.sh` dumps Postgres + tars the artifacts directory
+  (runs in the `backup` compose service). See [docs/backups.md](docs/backups.md).
+- **Reload blocklist without restart:** `POST /admin/blocklist/reload` (admin).
+- **Upgrade:** `git pull && make run-<mode>` rebuilds images and runs the
+  idempotent schema migrations automatically.
+- **Health:** `/api/health` (shallow) and `/api/health/deep` (DB connectivity).
+- **Metrics:** Prometheus endpoint at `/metrics` (bearer-token gated; bundled
+  Grafana dashboards under the `monitoring` profile). See
+  [docs/observability.md](docs/observability.md).
 
 ---
 
 ## Architecture
 
-See `CLAUDE.md` for the full overview. Key components:
+- **FastAPI** async app — JSON API + htmx-rendered pages
+- **PostgreSQL 17** — tsvector full-text search, JSONB audit log, and a
+  `LISTEN/NOTIFY` job queue (no extra broker)
+- **Worker** — pulls jobs from the queue and runs the eight-tier capture ladder
+- **Playwright Chromium + Camoufox Firefox** for browser automation
+- **SingleFile** for self-contained HTML; **warcio** for WARC writing
+- **htmx + Jinja2 + Tailwind CSS** frontend — all assets vendored locally, no CDN
+- **Docker Compose** overlays for dev / self-hosted / public / Tor hidden-service
 
-- **FastAPI** app (API + htmx-rendered pages)
-- **PostgreSQL 17** with tsvector FTS + JSONB audit log
-- **Playwright** Chromium + **Camoufox** Firefox in the worker
-- **SingleFile** for self-contained HTML snapshots — JS injection first,
-  CLI subprocess fallback for strict-CSP sites, `page.content()` as
-  ultimate safety net
-- **Common Crawl** as the final read-only fallback tier — CDX lookup + WARC
-  range-fetch from `data.commoncrawl.org`, with deep-scan of all ~122
-  crawls back to 2014 when recent crawls miss
-- Rotating **User-Agent pool** refreshed daily from jnrbsn/user-agents
-  (never leaks archiver identity)
-- **Worker** processes a Postgres-backed job queue with LISTEN/NOTIFY
-- **htmx + Tailwind + Jinja2** frontend, all assets vendored locally
+```
+                 ┌────────────┐   LISTEN/NOTIFY   ┌────────────┐
+   submit ─────► │  FastAPI   │ ────────────────► │   Worker   │
+   /search ◄──── │   (app)    │ ◄──── status ──── │ (capture)  │
+                 └─────┬──────┘                   └─────┬──────┘
+                       │                                │ chromium → camoufox →
+                 ┌─────▼──────┐                         │ proxy → frontends →
+                 │ PostgreSQL │ ◄─── artifacts ────────►│ wayback → archive.today →
+                 │  17 (FTS)  │      (HTML/WARC/PNG)     │ commoncrawl → at-submit
+                 └────────────┘                         └────────────┘
+```
+
+See [CLAUDE.md](CLAUDE.md) for the full component overview.
 
 ---
 
+## Development
+
+All development runs inside Docker. The project ships **750+ tests** (pytest +
+hypothesis) at **~96% branch coverage**, with pyright strict mode and a clean
+ruff ruleset enforced in CI.
+
+```bash
+make dev          # start dev environment (hot reload)
+make test         # run tests (excludes slow)
+make test-all     # run all tests including slow
+make lint         # ruff
+make typecheck    # pyright strict
+make fmt          # auto-format
+make all          # lint + typecheck + test
+```
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the full workflow and quality gates.
+
+---
+
+## Contributing
+
+Contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md). Good first
+areas: additional privacy-frontend adapters, capture-tier robustness, and
+documentation. Please keep the quality gates green (`make all`).
+
 ## License
 
-Public domain via [Unlicense](https://unlicense.org). See `LICENSE`.
-Do whatever you want with this.
+Public domain via [The Unlicense](https://unlicense.org). See [LICENSE](LICENSE).
+Do whatever you want with this. You are responsible for complying with
+applicable laws and the terms of service of the sites you archive.
+
+## Contact
+
+- **Issues:** [Report bugs or request features](https://github.com/19-84/unstoppable-archiver/issues)
+- **Discussions:** [Ask questions or share ideas](https://github.com/19-84/unstoppable-archiver/discussions)
+- **Security:** [Report via GitHub Security Advisories](https://github.com/19-84/unstoppable-archiver/security/advisories/new) — see [SECURITY.md](SECURITY.md)
+
+## Support the project
+
+This was built by one person as a labor of love to help preserve the web before
+it disappears. If it's useful to you, a donation helps cover development time
+and infrastructure (servers, storage, bandwidth).
+
+<details>
+<summary><b>Donation addresses (BTC / XMR)</b></summary>
+
+**Bitcoin (BTC)**
+
+```
+bc1q8wpdldnfqt3n9jh2n9qqmhg9awx20hxtz6qdl7
+```
+
+**Monero (XMR)**
+
+```
+42zJZJCqxyW8xhhWngXHjhYftaTXhPdXd9iJ2cMp9kiGGhKPmtHV746EknriN4TNqYR2e8hoaDwrMLfv7h1wXzizMzhkeQi
+```
+
+</details>
+
+Thank you for supporting web preservation.
+
+---
+
+## Star history
+
+[![Star History Chart](https://api.star-history.com/svg?repos=19-84/unstoppable-archiver&type=Date)](https://star-history.com/#19-84/unstoppable-archiver&Date)
+
+---
+
+This software is provided "as is" under the Unlicense. See [LICENSE](LICENSE)
+for details.
