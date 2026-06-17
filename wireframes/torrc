@@ -1,2 +1,0 @@
-HiddenServiceDir /var/lib/tor/hidden_service/
-HiddenServicePort 80 web:8080

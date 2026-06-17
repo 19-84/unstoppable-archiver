@@ -78,7 +78,6 @@ packages = ["src/archiver"]
 [tool.ruff]
 line-length = 88
 src = ["src", "tests"]
-extend-exclude = ["wireframes"]
 
 [tool.ruff.lint]
 select = [

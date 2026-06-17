@@ -13,7 +13,6 @@ dist/
 build/
 .env
 .env.*
-wireframes/
 tests/
 docs/
 specs/

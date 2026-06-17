@@ -1,11 +1,10 @@
 name: "CodeQL Python Configuration"
 
 # Paths to ignore: tests, vendored third-party code (the SingleFile
-# bundle alone is megabytes of upstream JS), design wireframes, and
-# deploy/doc trees with no Python in them.
+# bundle alone is megabytes of upstream JS), and deploy/doc trees with
+# no Python in them.
 paths-ignore:
   - tests
-  - wireframes
   - docs
   - deploy
   - tor

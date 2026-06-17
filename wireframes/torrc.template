@@ -1,3 +1,0 @@
-SocksPort 0
-HiddenServiceDir /var/lib/tor/wireframe_hs/
-HiddenServicePort 80 web:8080
