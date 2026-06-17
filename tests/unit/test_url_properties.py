@@ -12,11 +12,35 @@ from archiver.url import normalize_url, url_hash
 
 pytestmark = pytest.mark.hypothesis
 
-# Strategy: generate plausible HTTP(S) URLs
-_url_strategy = st.from_regex(
-    r"https?://[a-z]{1,10}\.[a-z]{2,4}(/[a-z0-9]{0,10}){0,3}(\?[a-z]=[a-z0-9]{1,5}(&[a-z]=[a-z0-9]{1,5}){0,3})?",
-    fullmatch=True,
+# Strategy: generate plausible HTTP(S) URLs. Composed from cheap text
+# strategies rather than st.from_regex — a fullmatch regex with nested
+# quantifiers is entropy-heavy and slow to draw, which tripped
+# Hypothesis's wall-clock `too_slow` health check intermittently on
+# loaded CI hosts. This builds the same shape (scheme://label.tld with
+# up to 3 path segments and an optional &-joined query) far more cheaply.
+_LOWER = "abcdefghijklmnopqrstuvwxyz"
+_ALNUM = _LOWER + "0123456789"
+_label = st.text(_LOWER, min_size=1, max_size=10)
+_tld = st.text(_LOWER, min_size=2, max_size=4)
+_segments = st.lists(st.text(_ALNUM, max_size=10), max_size=3).map(
+    lambda segs: "".join("/" + s for s in segs)
 )
+_query = st.lists(
+    st.tuples(
+        st.text(_LOWER, min_size=1, max_size=1),
+        st.text(_ALNUM, min_size=1, max_size=5),
+    ),
+    max_size=4,
+).map(lambda ps: ("?" + "&".join(f"{k}={v}" for k, v in ps)) if ps else "")
+
+
+@st.composite
+def _urls(draw: st.DrawFn) -> str:
+    scheme = draw(st.sampled_from(("http", "https")))
+    return f"{scheme}://{draw(_label)}.{draw(_tld)}{draw(_segments)}{draw(_query)}"
+
+
+_url_strategy = _urls()
 
 
 class TestNormalizeUrlProperties:
