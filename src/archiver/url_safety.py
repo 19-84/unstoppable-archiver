@@ -5,8 +5,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import ipaddress
 import socket
+from collections.abc import Sequence
 from urllib.parse import urlparse
 
 from beartype import beartype
@@ -34,6 +36,42 @@ def check_url_safety(
     url: str, blocklist: DomainBlocklist | None = None
 ) -> str | None:
     """Check if a URL is safe to fetch. Returns error message or None if safe."""
+    error = _check_static_rules(url, blocklist)
+    if error:
+        return error
+    return _check_resolved_ips(url)
+
+
+@beartype
+@require(lambda url: len(url) > 0, "URL must not be empty")
+async def check_url_safety_async(
+    url: str, blocklist: DomainBlocklist | None = None
+) -> str | None:
+    """Async variant of `check_url_safety`.
+
+    Resolves DNS on the event loop's executor instead of blocking the
+    loop — `socket.getaddrinfo` can stall for seconds on slow resolvers,
+    which in the sync variant freezes every in-flight request/capture.
+    """
+    error = _check_static_rules(url, blocklist)
+    if error:
+        return error
+
+    hostname = (urlparse(url).hostname or "").lower()
+    loop = asyncio.get_running_loop()
+    try:
+        addr_infos = await loop.getaddrinfo(
+            hostname, None, type=socket.SOCK_STREAM
+        )
+    except socket.gaierror:
+        return None  # Can't resolve — allow (.onion, .i2p via proxy)
+    return _evaluate_addrinfos(addr_infos)
+
+
+def _check_static_rules(
+    url: str, blocklist: DomainBlocklist | None
+) -> str | None:
+    """Run the non-resolving checks: scheme, hostname, blocklist."""
     error = _check_scheme_and_host(url)
     if error:
         return error
@@ -45,7 +83,7 @@ def check_url_safety(
 
             blocklist_hits_total.inc()
             return block_reason
-    return _check_resolved_ips(url)
+    return None
 
 
 def _check_scheme_and_host(url: str) -> str | None:
@@ -76,7 +114,23 @@ def _check_resolved_ips(url: str) -> str | None:
         )
     except socket.gaierror:
         return None  # Can't resolve — allow (.onion, .i2p via proxy)
+    return _evaluate_addrinfos(addr_infos)
 
+
+def _evaluate_addrinfos(
+    addr_infos: Sequence[
+        tuple[
+            int,
+            int,
+            int,
+            str,
+            tuple[str, int]
+            | tuple[str, int, int, int]
+            | tuple[int, bytes],
+        ]
+    ],
+) -> str | None:
+    """Check resolved addresses for private/internal IPs."""
     for _family, _, _, _, sockaddr in addr_infos:
         ip_str = sockaddr[0]
         try:

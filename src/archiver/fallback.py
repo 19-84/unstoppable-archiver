@@ -10,12 +10,19 @@ from datetime import datetime
 from email.utils import parsedate_to_datetime
 from urllib.parse import urlparse, urlunparse
 
-import httpx
 import structlog
 from beartype import beartype
 from playwright.async_api import Page
 
+from archiver.errors import FetchError
+from archiver.http_client import fetch
+
 log = structlog.get_logger()
+
+# Timemaps and availability JSON are small; a response anywhere near
+# these caps is the upstream misbehaving.
+_AVAILABILITY_MAX_BYTES = 1 * 1024 * 1024
+_TIMEMAP_MAX_BYTES = 4 * 1024 * 1024
 
 _WAYBACK_API = "https://archive.org/wayback/available"
 _WAYBACK_SPN_PREFIX = "https://web.archive.org/save/"
@@ -128,37 +135,41 @@ async def check_wayback_availability(url: str) -> str | None:
     Tries URL variants (trailing slash, www prefix) before giving up
     because Wayback's canonicalization doesn't always match ours.
     Returns the snapshot URL if any variant hits, None otherwise.
+
+    Transient failures and rate limits are retried with backoff inside
+    `fetch`; two attempts per variant keeps the worst case (all
+    variants down) bounded.
     """
-    async with httpx.AsyncClient(
-        timeout=10.0,
-        headers={"User-Agent": _ua.pick()},
-    ) as client:
-        for variant in _wayback_url_variants(url):
-            try:
-                resp = await client.get(
-                    _WAYBACK_API, params={"url": variant}
-                )
-            except Exception:
-                log.debug(
-                    "fallback.wayback.availability_check_failed",
-                    url=variant,
-                )
-                continue
-            if resp.status_code != 200:  # noqa: PLR2004
-                continue
-            try:
-                data = resp.json()
-            except Exception:  # noqa: S112
-                # Malformed JSON from Wayback — try next variant.
-                continue
-            snapshot = data.get("archived_snapshots", {}).get("closest")
-            if snapshot and snapshot.get("available"):
-                log.info(
-                    "fallback.wayback.snapshot_found",
-                    variant=variant,
-                    snapshot=snapshot["url"],
-                )
-                return str(snapshot["url"])
+    for variant in _wayback_url_variants(url):
+        try:
+            resp = await fetch(
+                _WAYBACK_API,
+                params={"url": variant},
+                timeout=10.0,
+                attempts=2,
+                max_bytes=_AVAILABILITY_MAX_BYTES,
+            )
+        except FetchError:
+            log.debug(
+                "fallback.wayback.availability_check_failed",
+                url=variant,
+            )
+            continue
+        if resp.status_code != 200:  # noqa: PLR2004
+            continue
+        try:
+            data = resp.json()
+        except Exception:  # noqa: S112
+            # Malformed JSON from Wayback — try next variant.
+            continue
+        snapshot = data.get("archived_snapshots", {}).get("closest")
+        if snapshot and snapshot.get("available"):
+            log.info(
+                "fallback.wayback.snapshot_found",
+                variant=variant,
+                snapshot=snapshot["url"],
+            )
+            return str(snapshot["url"])
     return None
 
 
@@ -278,16 +289,20 @@ async def _timemap_latest_memento(
     Returns the URL of the latest-datetime memento, or None.
     """
     try:
-        async with httpx.AsyncClient(
+        # attempts=1: the parallel mirror fan-out in the caller IS the
+        # retry strategy — re-hitting a rate-limited mirror with
+        # backoff would just delay rotation to a healthy peer.
+        resp = await fetch(
+            f"https://{mirror_host}/timemap/{url}",
             timeout=12.0,
             follow_redirects=True,
             headers={**_stealth_headers(),
                      "Accept": "application/link-format, text/plain, */*"},
             proxy=proxy,
-        ) as client:
-            resp = await client.get(
-                f"https://{mirror_host}/timemap/{url}"
-            )
+            attempts=1,
+            max_bytes=_TIMEMAP_MAX_BYTES,
+            guard_private_ips=True,
+        )
     except Exception as exc:
         log.debug(
             "fallback.archive_today.timemap_error",
@@ -412,15 +427,19 @@ async def fetch_archive_today_snapshot_html(
 async def _try_fetch(
     url: str, timeout: float, proxy: str | None = None
 ) -> str | None:
-    """One httpx attempt; returns HTML on success, None on any failure."""
+    """One fetch attempt; returns HTML on success, None on any failure."""
     try:
-        async with httpx.AsyncClient(
+        # attempts=1: mirror rotation in the caller handles rate limits
+        # and transient failures better than same-mirror retries.
+        resp = await fetch(
+            url,
             timeout=timeout,
             follow_redirects=True,
             headers=_stealth_headers(),
             proxy=proxy,
-        ) as client:
-            resp = await client.get(url)
+            attempts=1,
+            guard_private_ips=True,
+        )
     except Exception as exc:
         log.warning(
             "fallback.archive_today.direct_fetch_error",

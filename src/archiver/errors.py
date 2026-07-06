@@ -37,3 +37,31 @@ class DuplicateCaptureError(AppError):
         self.existing_id = existing_id
 
 
+class FetchError(AppError):
+    """Error during an outbound HTTP fetch (see archiver.http_client)."""
+
+    def __init__(self, message: str, code: str = "FETCH_ERROR") -> None:
+        super().__init__(message, code=code)
+
+
+class UpstreamError(FetchError):
+    """Network-level failure that persisted through all retry attempts."""
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message, code="UPSTREAM_ERROR")
+
+
+class BodyTooLargeError(FetchError):
+    """Response body exceeded the caller's byte budget."""
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message, code="BODY_TOO_LARGE")
+
+
+class UnsafeURLError(FetchError):
+    """Fetch target (or a redirect hop) failed the SSRF safety check."""
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message, code="UNSAFE_URL")
+
+

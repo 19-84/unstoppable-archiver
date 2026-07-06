@@ -12,7 +12,7 @@ import httpx
 import pytest
 import respx
 
-from archiver import commoncrawl
+from archiver import commoncrawl, http_client
 
 
 @pytest.fixture(autouse=True)
@@ -22,6 +22,16 @@ def _reset_collinfo_cache() -> object:  # type: ignore[misc]
     commoncrawl._collinfo_cache = None
     yield
     commoncrawl._collinfo_cache = orig
+
+
+@pytest.fixture(autouse=True)
+def _no_retry_sleep(monkeypatch: pytest.MonkeyPatch) -> None:  # type: ignore[misc]
+    """Retry backoff must not actually sleep in unit tests."""
+
+    async def _instant(_delay: float) -> None:
+        return None
+
+    monkeypatch.setattr(http_client, "_sleep", _instant)
 
 
 def _mock_collinfo(ids: list[str]) -> None:
@@ -132,12 +142,35 @@ class TestFindSnapshot:
 
     @respx.mock
     async def test_rate_limit_treated_as_miss(self) -> None:
+        """A 429 that persists through all retry attempts is a miss."""
         _mock_collinfo(["CC-MAIN-2026-12"])
-        respx.get(
+        route = respx.get(
             "https://index.commoncrawl.org/CC-MAIN-2026-12-index"
         ).mock(return_value=httpx.Response(429))
         snap = await commoncrawl.find_snapshot("https://example.com/")
         assert snap is None
+        assert route.call_count == 3  # fetch() retried with backoff  # noqa: PLR2004
+
+    @respx.mock
+    async def test_rate_limit_retried_then_hit(self) -> None:
+        """429 followed by a 200 recovers within one query — the
+        backoff the module docstring promises actually happens."""
+        _mock_collinfo(["CC-MAIN-2026-12"])
+        route = respx.get(
+            "https://index.commoncrawl.org/CC-MAIN-2026-12-index"
+        )
+        route.side_effect = [
+            httpx.Response(429, headers={"Retry-After": "1"}),
+            httpx.Response(
+                200,
+                text=json.dumps(
+                    _cdx_response("https://example.com/", "CC-MAIN-2026-12")
+                ),
+            ),
+        ]
+        snap = await commoncrawl.find_snapshot("https://example.com/")
+        assert snap is not None
+        assert route.call_count == 2  # noqa: PLR2004
 
     @respx.mock
     async def test_non_200_status_ignored(self) -> None:

@@ -4,7 +4,7 @@
 
 from __future__ import annotations
 
-from archiver.url_safety import check_url_safety
+from archiver.url_safety import check_url_safety, check_url_safety_async
 
 
 class TestCheckUrlSafety:
@@ -79,6 +79,47 @@ class TestCheckUrlSafety:
 
         bl = DomainBlocklist(blocked={"evil.example.com"})
         result = check_url_safety(
+            "https://evil.example.com/", blocklist=bl
+        )
+        assert result is not None
+        assert "evil.example.com" in result
+
+
+class TestCheckUrlSafetyAsync:
+    """Async variant — same rules, DNS resolution off the event loop."""
+
+    async def test_allows_normal_https(self) -> None:
+        assert await check_url_safety_async("https://example.com") is None
+
+    async def test_blocks_file_scheme(self) -> None:
+        result = await check_url_safety_async("file:///etc/passwd")
+        assert result is not None
+        assert "scheme" in result.lower()
+
+    async def test_blocks_docker_hostname(self) -> None:
+        result = await check_url_safety_async("http://postgres:5432/")
+        assert result is not None
+
+    async def test_blocks_loopback_ip(self) -> None:
+        result = await check_url_safety_async("http://127.0.0.1/")
+        assert result is not None
+        assert "private" in result.lower() or "Blocked" in result
+
+    async def test_blocks_metadata_ip(self) -> None:
+        result = await check_url_safety_async("http://169.254.169.254/")
+        assert result is not None
+
+    async def test_allows_onion(self) -> None:
+        result = await check_url_safety_async(
+            "http://expyuzz4wqqyqhjn.onion/"
+        )
+        assert result is None
+
+    async def test_domain_blocklist_hit_reported(self) -> None:
+        from archiver.blocklist import DomainBlocklist
+
+        bl = DomainBlocklist(blocked={"evil.example.com"})
+        result = await check_url_safety_async(
             "https://evil.example.com/", blocklist=bl
         )
         assert result is not None

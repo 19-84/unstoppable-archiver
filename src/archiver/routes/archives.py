@@ -43,9 +43,11 @@ async def create_archive(
     """Submit a URL for archiving."""
     settings = request.app.state.settings
     enforce_limit(request, settings.rate_limit_submit_per_hour)
-    from archiver.url_safety import check_url_safety
+    from archiver.url_safety import check_url_safety_async
 
-    safety_error = check_url_safety(str(body.url), blocklist=blocklist)
+    safety_error = await check_url_safety_async(
+        str(body.url), blocklist=blocklist
+    )
     if safety_error:
         raise HTTPException(status_code=400, detail=safety_error)
 

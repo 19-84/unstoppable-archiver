@@ -7,9 +7,11 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, MagicMock
 
 import httpx
+import pytest
 import respx
 from playwright.async_api import Page
 
+from archiver import http_client
 from archiver.fallback import (
     ARCHIVE_TODAY_MIRRORS,
     ARCHIVE_TODAY_STRIP_SELECTORS,
@@ -26,6 +28,20 @@ from archiver.fallback import (
     save_to_wayback,
     strip_html_tags,
 )
+
+
+@pytest.fixture(autouse=True)
+def _fast_and_offline(monkeypatch: pytest.MonkeyPatch) -> None:  # type: ignore[misc]
+    """No real backoff sleeps, no real DNS from the SSRF guard."""
+
+    async def _instant(_delay: float) -> None:
+        return None
+
+    monkeypatch.setattr(http_client, "_sleep", _instant)
+    monkeypatch.setattr(
+        "archiver.http_client.check_url_safety_async",
+        AsyncMock(return_value=None),
+    )
 
 
 def _mock_page() -> MagicMock:

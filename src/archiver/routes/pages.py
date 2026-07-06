@@ -306,9 +306,9 @@ async def submit_form(
             url=f"/search?q={quote(url, safe='')}", status_code=303
         )
 
-    from archiver.url_safety import check_url_safety
+    from archiver.url_safety import check_url_safety_async
 
-    safety_error = check_url_safety(url, blocklist=blocklist)
+    safety_error = await check_url_safety_async(url, blocklist=blocklist)
     if safety_error:
         return _submit_error(safety_error)
 
