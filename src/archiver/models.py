@@ -52,6 +52,11 @@ class ArchiveRecord(BaseModel):
     revisit_of: str | None = None
     snapshot_size: int | None = None
     warc_size: int | None = None
+    # Upstream snapshot/crawl time when the capture came from a
+    # historical source (wayback / archive.today / commoncrawl).
+    # completed_at is when WE stored it; for a 2015 Common Crawl
+    # record the two differ by a decade. None for direct captures.
+    snapshot_timestamp: datetime | None = None
     created_at: datetime
     completed_at: datetime | None = None
     removed_at: datetime | None = None
@@ -174,3 +179,8 @@ class CaptureResult:
     # leave it None — for those archive.url IS what was captured.
     # Stored in archives.metadata.source_url for provenance.
     source_url: str | None = None
+    # Original snapshot/crawl time reported by the historical source
+    # (parsed from the memento URL or CDX record). None when unknown
+    # or when the capture is direct. Stored in
+    # archives.snapshot_timestamp.
+    snapshot_timestamp: datetime | None = None

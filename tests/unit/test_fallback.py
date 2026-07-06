@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import httpx
@@ -24,6 +25,8 @@ from archiver.fallback import (
     extract_title_from_html,
     fetch_archive_today_snapshot_html,
     find_archive_today_snapshot,
+    memento_timestamp_from_url,
+    parse_snapshot_timestamp,
     save_to_archive_today,
     save_to_wayback,
     strip_html_tags,
@@ -67,6 +70,43 @@ def _mock_page() -> MagicMock:
     locator_chain.first.wait_for = AsyncMock()
     page.locator = MagicMock(return_value=locator_chain)
     return page
+
+
+class TestSnapshotTimestamps:
+    def test_parse_valid_stamp(self) -> None:
+        assert parse_snapshot_timestamp("20240101123045") == datetime(
+            2024, 1, 1, 12, 30, 45, tzinfo=UTC
+        )
+
+    def test_parse_rejects_garbage(self) -> None:
+        assert parse_snapshot_timestamp("not-a-stamp") is None
+        assert parse_snapshot_timestamp("2024010112304") is None  # 13 digits
+
+    def test_parse_rejects_impossible_date(self) -> None:
+        assert parse_snapshot_timestamp("20241301000000") is None  # month 13
+
+    def test_wayback_memento_url(self) -> None:
+        ts = memento_timestamp_from_url(
+            "https://web.archive.org/web/20240101123045/https://example.com/"
+        )
+        assert ts == datetime(2024, 1, 1, 12, 30, 45, tzinfo=UTC)
+
+    def test_archive_today_memento_url(self) -> None:
+        ts = memento_timestamp_from_url(
+            "https://archive.today/20150607080910/http://example.com/page"
+        )
+        assert ts == datetime(2015, 6, 7, 8, 9, 10, tzinfo=UTC)
+
+    def test_short_id_url_has_no_stamp(self) -> None:
+        assert memento_timestamp_from_url(
+            "https://archive.today/abc123"
+        ) is None
+
+    def test_longer_digit_run_not_half_matched(self) -> None:
+        # 16 digits is not a valid stamp; must not match its prefix.
+        assert memento_timestamp_from_url(
+            "https://example.com/2024010112304567/x"
+        ) is None
 
 
 class TestFallbackConstants:

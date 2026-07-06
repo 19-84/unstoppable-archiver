@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime
 from typing import Any
 
 import asyncpg
@@ -46,6 +47,8 @@ from archiver.fallback import (
     extract_title_from_html,
     fetch_archive_today_snapshot_html,
     find_archive_today_snapshot,
+    memento_timestamp_from_url,
+    parse_snapshot_timestamp,
     save_to_archive_today,
     save_to_wayback,
     strip_html_tags,
@@ -502,6 +505,7 @@ class Worker:
                         screenshot_hash=result.screenshot_hash,
                         snapshot_size=len(result.snapshot_html),
                         warc_size=result.warc_size,
+                        snapshot_timestamp=result.snapshot_timestamp,
                         source=source.value,
                         metadata=metadata_json,
                     )
@@ -710,7 +714,11 @@ class Worker:
             warc_original_url=url,
         )
         from dataclasses import replace
-        return replace(result, source_url=snapshot_url)
+        return replace(
+            result,
+            source_url=snapshot_url,
+            snapshot_timestamp=memento_timestamp_from_url(snapshot_url),
+        )
 
     async def _capture_via_commoncrawl(self, url: str) -> CaptureResult:
         """Last-tier fallback: fetch a cached version from Common Crawl.
@@ -751,7 +759,13 @@ class Worker:
             crawl=snapshot.crawl_id,
             timestamp=snapshot.timestamp,
         )
-        return self._capture_result_from_html(html_str, snapshot.url)
+        return self._capture_result_from_html(
+            html_str,
+            snapshot.url,
+            snapshot_timestamp=parse_snapshot_timestamp(
+                snapshot.timestamp
+            ),
+        )
 
     async def _capture_via_archive_today(self, url: str) -> CaptureResult:
         """Capture a page via archive.today fallback.
@@ -786,7 +800,11 @@ class Worker:
         )
         if raw_html is not None:
             return self._capture_result_from_html(
-                raw_html, snapshot_url
+                raw_html,
+                snapshot_url,
+                snapshot_timestamp=memento_timestamp_from_url(
+                    snapshot_url
+                ),
             )
 
         # Fallback: full Camoufox render against the memento URL.
@@ -810,7 +828,11 @@ class Worker:
         # The detail page's 'Captured from' block would then disappear
         # for the exact subset of archive.today captures that needed a
         # full render to bypass CF.
-        return replace(result, source_url=snapshot_url)
+        return replace(
+            result,
+            source_url=snapshot_url,
+            snapshot_timestamp=memento_timestamp_from_url(snapshot_url),
+        )
 
     async def _capture_via_archive_today_submit(
         self, url: str
@@ -882,7 +904,11 @@ class Worker:
                 "archive.today submit succeeded but memento fetch failed: "
                 f"{snapshot_url}"
             )
-        return self._capture_result_from_html(raw_html, snapshot_url)
+        return self._capture_result_from_html(
+            raw_html,
+            snapshot_url,
+            snapshot_timestamp=memento_timestamp_from_url(snapshot_url),
+        )
 
     async def _capture_via_privacy_frontend(
         self, url: str
@@ -1009,13 +1035,19 @@ class Worker:
         )
 
     def _capture_result_from_html(
-        self, html: str, source_url: str
+        self,
+        html: str,
+        source_url: str,
+        snapshot_timestamp: datetime | None = None,
     ) -> CaptureResult:
         """Build a CaptureResult from raw HTML (direct-fetch path).
 
         No screenshot, no WARC — direct-fetch doesn't go through a
         browser. We substitute a placeholder PNG so the artifact layout
         stays consistent and the UI doesn't 404 on missing images.
+
+        `snapshot_timestamp` is the upstream snapshot/crawl datetime
+        when the source reports one (memento URL stamp, CDX record).
         """
         import hashlib
 
@@ -1037,6 +1069,7 @@ class Worker:
             # browser-render-of-memento) feed source_url through so
             # the archive metadata records exactly where the bytes came from.
             source_url=source_url,
+            snapshot_timestamp=snapshot_timestamp,
         )
 
     @beartype

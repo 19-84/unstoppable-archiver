@@ -68,6 +68,7 @@ def _record_to_archive(row: asyncpg.Record) -> ArchiveRecord:
         revisit_of=row["revisit_of"],
         snapshot_size=row["snapshot_size"],
         warc_size=row["warc_size"],
+        snapshot_timestamp=row.get("snapshot_timestamp"),
         created_at=row["created_at"],
         completed_at=row["completed_at"],
         removed_at=row.get("removed_at"),
@@ -98,8 +99,8 @@ def _record_to_job(row: asyncpg.Record) -> JobRecord:
 _ARCHIVE_COLS = (
     "id, url, url_hash, title, text_content, status, tier, source, "
     "error_message, artifact_dir, content_hash, screenshot_hash, "
-    "revisit_of, snapshot_size, warc_size, created_at, completed_at, "
-    "removed_at, removed_reason, metadata"
+    "revisit_of, snapshot_size, warc_size, snapshot_timestamp, "
+    "created_at, completed_at, removed_at, removed_reason, metadata"
 )
 
 _JOB_COLS = (
@@ -389,8 +390,8 @@ class ArchiveRepository:
         allowed_fields = {
             "title", "text_content", "error_message", "artifact_dir",
             "content_hash", "screenshot_hash", "revisit_of",
-            "snapshot_size", "warc_size", "completed_at", "tier",
-            "source", "metadata",
+            "snapshot_size", "warc_size", "snapshot_timestamp",
+            "completed_at", "tier", "source", "metadata",
         }
 
         for key, value in kwargs.items():

@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import asyncio
 import re
-from datetime import datetime
+from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 from urllib.parse import urlparse, urlunparse
 
@@ -374,6 +374,49 @@ def _extract_attr(block: str, name: str) -> str:
     if end == -1:
         return ""
     return block[start:end]
+
+
+# 14-digit YYYYMMDDHHMMSS runs, as used by Wayback, archive.today, and
+# CDX indexes. Lookarounds keep a 15+-digit number from half-matching.
+_SNAPSHOT_TS_RE = re.compile(r"(?<!\d)(\d{14})(?!\d)")
+
+
+@beartype
+def parse_snapshot_timestamp(value: str) -> datetime | None:
+    """Parse a 14-digit YYYYMMDDHHMMSS archive timestamp to aware UTC.
+
+    The format is shared by Wayback paths, archive.today mementos, and
+    Common Crawl CDX records. Returns None on anything malformed.
+    """
+    # strptime is lenient (matches 1-digit %S etc.), so a 13-digit
+    # string would silently parse to the wrong time — require exactly
+    # the 14-digit form up front.
+    if not _SNAPSHOT_TS_RE.fullmatch(value):
+        return None
+    try:
+        return datetime.strptime(value, "%Y%m%d%H%M%S").replace(
+            tzinfo=UTC
+        )
+    except ValueError:
+        return None
+
+
+@beartype
+def memento_timestamp_from_url(url: str) -> datetime | None:
+    """Extract the snapshot datetime embedded in a memento URL path.
+
+    Handles ``web.archive.org/web/20240101123045/...`` and
+    ``archive.today/20240101123045/...`` forms. Returns None when the
+    path has no timestamp (e.g. archive.today short-id URLs).
+    """
+    try:
+        path = urlparse(url).path
+    except Exception:
+        return None
+    match = _SNAPSHOT_TS_RE.search(path)
+    if not match:
+        return None
+    return parse_snapshot_timestamp(match.group(1))
 
 
 def extract_title_from_html(html: str) -> str:

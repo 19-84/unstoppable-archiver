@@ -754,6 +754,13 @@ class TestCommonCrawlSuccessSource:
             c.kwargs.get("source") == CaptureSource.COMMONCRAWL.value
             for c in complete_calls
         )
+        # The CDX record's crawl time must be persisted structurally,
+        # not just buried inside metadata.source_url.
+        assert any(
+            c.kwargs.get("snapshot_timestamp")
+            == datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
+            for c in complete_calls
+        )
 
 
 class TestCaptureViaArchiveTodaySubmit:

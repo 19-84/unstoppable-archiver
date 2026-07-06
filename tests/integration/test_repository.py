@@ -116,6 +116,38 @@ class TestArchiveRepository:
             assert updated.title == "Example"
             assert updated.text_content == "Hello world"
 
+    async def test_update_status_snapshot_timestamp_roundtrip(
+        self,
+        pool: asyncpg.pool.Pool,
+        archive_repo: ArchiveRepository,
+    ) -> None:
+        """snapshot_timestamp persists through UPDATE and SELECT paths.
+
+        Historical-source captures (wayback / archive.today / CC)
+        record the upstream snapshot time here; completed_at only says
+        when we stored the copy.
+        """
+        from datetime import UTC, datetime
+
+        ts = datetime(2015, 6, 7, 8, 9, 10, tzinfo=UTC)
+        async with pool.acquire() as conn:
+            archive = await archive_repo.create(
+                conn, "https://example.com/old-page"
+            )
+            updated = await archive_repo.update_status(
+                conn,
+                archive.id,
+                ArchiveStatus.COMPLETE,
+                snapshot_timestamp=ts,
+            )
+            assert updated is not None
+            assert updated.snapshot_timestamp == ts
+            fetched = await archive_repo.get_by_id(conn, archive.id)
+            assert fetched is not None
+            assert fetched.snapshot_timestamp == ts
+            # completed_at is our storage time — must not be conflated.
+            assert fetched.completed_at != ts
+
     async def test_update_status_with_metadata(
         self,
         pool: asyncpg.pool.Pool,
