@@ -523,7 +523,7 @@ async def probe_archive_gate(
     """
     from typing import Any as _Any
 
-    from camoufox.async_api import AsyncCamoufox  # type: ignore[import-untyped]
+    from camoufox.async_api import AsyncCamoufox
 
     try:
         async with AsyncCamoufox(

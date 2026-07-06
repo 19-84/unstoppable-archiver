@@ -477,7 +477,7 @@ async def probe_frontend_instance(
     Returns False on any exception — a dead instance is a failed
     probe, same bucket as a challenge-gated one.
     """
-    from camoufox.async_api import (  # type: ignore[import-untyped]
+    from camoufox.async_api import (
         AsyncCamoufox,
     )
 

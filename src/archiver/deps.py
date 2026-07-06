@@ -25,12 +25,12 @@ async def get_db(request: Request) -> AsyncIterator[PgConnection]:
 
 def get_settings(request: Request) -> Settings:
     """Return the app-wide Settings instance."""
-    return request.app.state.settings  # type: ignore[no-any-return]
+    return request.app.state.settings
 
 
 def get_blocklist(request: Request) -> DomainBlocklist:
     """Return the app-wide DomainBlocklist instance."""
-    return request.app.state.blocklist  # type: ignore[no-any-return]
+    return request.app.state.blocklist
 
 
 def get_client_ip_hash(request: Request) -> str:

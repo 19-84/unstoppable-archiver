@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -40,7 +40,7 @@ log = structlog.get_logger()
 
 
 @asynccontextmanager
-async def _lifespan(app: FastAPI) -> AsyncIterator[None]:  # pragma: no cover
+async def _lifespan(app: FastAPI) -> AsyncGenerator[None]:  # pragma: no cover
     """Manage DB pool + blocklist lifecycle."""
     settings: Settings = app.state.settings
     pool = await create_pool(settings.db_url.get_secret_value(), min_size=2, max_size=10)

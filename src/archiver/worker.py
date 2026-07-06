@@ -898,7 +898,7 @@ class Worker:
 
         # One-shot Camoufox bound to the gate-passer. Can't reuse the
         # browser_pool's shared Camoufox — proxy is a launch-time arg.
-        from camoufox.async_api import (  # type: ignore[import-untyped]
+        from camoufox.async_api import (
             AsyncCamoufox,
         )
 
