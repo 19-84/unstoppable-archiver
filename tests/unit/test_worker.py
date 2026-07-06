@@ -244,21 +244,27 @@ class TestNextTier:
             == CaptureTier.COMMONCRAWL
         )
 
-    def test_commoncrawl_escalates_to_archive_today_submit(self) -> None:
+    def test_commoncrawl_escalates_to_memento(self) -> None:
         assert (
             next_tier(CaptureTier.COMMONCRAWL)
+            == CaptureTier.MEMENTO
+        )
+
+    def test_memento_escalates_to_archive_today_submit(self) -> None:
+        assert (
+            next_tier(CaptureTier.MEMENTO)
             == CaptureTier.ARCHIVE_TODAY_SUBMIT
         )
 
     def test_archive_today_submit_returns_none(self) -> None:
         assert next_tier(CaptureTier.ARCHIVE_TODAY_SUBMIT) is None
 
-    def test_full_chain_has_eight_tiers(self) -> None:
+    def test_full_chain_has_nine_tiers(self) -> None:
         tiers: list[CaptureTier] = [CaptureTier.CHROMIUM]
         tier: CaptureTier | None = CaptureTier.CHROMIUM
         while (tier := next_tier(tier)) is not None:
             tiers.append(tier)
-        total_tiers = 8
+        total_tiers = 9
         assert len(tiers) == total_tiers
 
     def test_unknown_tier_returns_none(self) -> None:
@@ -761,6 +767,80 @@ class TestCommonCrawlSuccessSource:
             == datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
             for c in complete_calls
         )
+
+
+class TestCaptureViaMemento:
+    @patch("archiver.worker.save_artifacts", new_callable=AsyncMock)
+    @patch("archiver.worker.fetch_memento_html", new_callable=AsyncMock)
+    @patch("archiver.worker.find_latest_memento", new_callable=AsyncMock)
+    async def test_memento_success_sets_source_and_timestamp(
+        self,
+        mock_find: AsyncMock,
+        mock_fetch: AsyncMock,
+        mock_save: AsyncMock,
+    ) -> None:
+        from archiver.memento import MementoHit
+
+        worker, _ = _make_worker()
+        job = _make_job(tier=CaptureTier.MEMENTO)
+        worker._archive_repo.get_by_id = AsyncMock(
+            return_value=_make_archive()
+        )
+        ts = datetime(2018, 3, 4, 5, 6, 7, tzinfo=UTC)
+        mock_find.return_value = MementoHit(
+            archive_id="arquivo.pt",
+            memento_url=(
+                "https://arquivo.pt/wayback/20180304050607/"
+                "https://example.com"
+            ),
+            timestamp=ts,
+        )
+        mock_fetch.return_value = "<html>from arquivo</html>"
+        mock_save.return_value = "x/y"
+
+        await worker._process_job(job)
+
+        calls = worker._archive_repo.update_status.call_args_list
+        complete_calls = [
+            c for c in calls
+            if len(c[0]) >= 3 and c[0][2] == ArchiveStatus.COMPLETE  # noqa: PLR2004
+        ]
+        assert any(
+            c.kwargs.get("source") == CaptureSource.MEMENTO.value
+            for c in complete_calls
+        )
+        assert any(
+            c.kwargs.get("snapshot_timestamp") == ts
+            for c in complete_calls
+        )
+        assert any(
+            "arquivo.pt" in (c.kwargs.get("metadata") or "")
+            for c in complete_calls
+        )
+
+    @patch("archiver.worker.find_latest_memento", new_callable=AsyncMock)
+    async def test_no_memento_raises(self, mock_find: AsyncMock) -> None:
+        worker, _ = _make_worker()
+        mock_find.return_value = None
+        with pytest.raises(CaptureError, match="No memento"):
+            await worker._capture_via_memento("https://example.com/")
+
+    @patch("archiver.worker.fetch_memento_html", new_callable=AsyncMock)
+    @patch("archiver.worker.find_latest_memento", new_callable=AsyncMock)
+    async def test_memento_fetch_failure_raises(
+        self, mock_find: AsyncMock, mock_fetch: AsyncMock
+    ) -> None:
+        from archiver.memento import MementoHit
+
+        worker, _ = _make_worker()
+        mock_find.return_value = MementoHit(
+            archive_id="ukwa",
+            memento_url="https://www.webarchive.org.uk/wayback/x",
+            timestamp=None,
+        )
+        mock_fetch.return_value = None
+        with pytest.raises(CaptureError, match="fetch failed"):
+            await worker._capture_via_memento("https://example.com/")
 
 
 class TestCaptureViaArchiveTodaySubmit:

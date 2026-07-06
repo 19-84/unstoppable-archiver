@@ -1,6 +1,6 @@
 # Unstoppable Archive
 
-Self-hosted web archiver with multi-tier anti-bot capture. Captures web pages in multiple formats (SingleFile HTML + WARC + screenshot) with automatic escalation through eight tiers: Playwright Chromium → Camoufox stealth Firefox → Camoufox-over-proxy → privacy frontends → Wayback Machine → archive.today → Common Crawl → archive.today submission.
+Self-hosted web archiver with multi-tier anti-bot capture. Captures web pages in multiple formats (SingleFile HTML + WARC + screenshot) with automatic escalation through nine tiers: Playwright Chromium → Camoufox stealth Firefox → Camoufox-over-proxy → privacy frontends → Wayback Machine → archive.today → Common Crawl → federated Memento archives → archive.today submission.
 
 ## Development
 
@@ -44,7 +44,8 @@ Tiered escalation for clearnet URLs (see `CLEARNET_TIER_ORDER` in `enums.py`):
 5. **wayback** — Check Wayback Machine, submit via Save Page Now if missing
 6. **archive_today** — Read-only: direct-fetch from archive.today mirrors
 7. **commoncrawl** — Two-pass CDX lookup: fast (3 recent crawls, parallel) then deep-scan all ~122 crawls back to 2014
-8. **archive_today_submit** — Last-resort write to archive.today through a gate-passing SOCKS5 pool
+8. **memento** — Federated Memento (RFC 7089) timemap lookup across national/institutional web archives (arquivo.pt, Archive-It, Australian Web Archive, Library and Archives Canada, ...); newest memento across all archives wins (roster: `MEMENTO_ARCHIVES` in `memento.py`)
+9. **archive_today_submit** — Last-resort write to archive.today through a gate-passing SOCKS5 pool
 
 CSP headers are stripped on every response via `context.route` so SingleFile's injected scripts survive strict sites. Darknet URLs (onion/i2p) use `camoufox` only (see `DARKNET_TIER_ORDER`) through the configured SOCKS/HTTP proxy.
 

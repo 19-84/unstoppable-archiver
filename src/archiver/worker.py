@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Awaitable, Callable
 from datetime import datetime
 from typing import Any
 
@@ -53,6 +54,11 @@ from archiver.fallback import (
     save_to_wayback,
     strip_html_tags,
 )
+from archiver.memento import (
+    MEMENTO_ARCHIVES,
+    fetch_memento_html,
+    find_latest_memento,
+)
 from archiver.metrics import (
     artifacts_dir_bytes_free,
     artifacts_dir_bytes_total,
@@ -93,6 +99,32 @@ _DIRECT_NAVIGATION_TIERS: frozenset[CaptureTier] = frozenset({
     CaptureTier.CAMOUFOX,
     CaptureTier.CAMOUFOX_PROXY,
 })
+
+# Provenance label persisted with a completed archive. Tiers not listed
+# here captured the live site directly (CaptureSource.DIRECT).
+_TIER_SOURCES: dict[CaptureTier, CaptureSource] = {
+    CaptureTier.WAYBACK: CaptureSource.WAYBACK,
+    CaptureTier.ARCHIVE_TODAY: CaptureSource.ARCHIVE_TODAY,
+    CaptureTier.ARCHIVE_TODAY_SUBMIT: CaptureSource.ARCHIVE_TODAY,
+    CaptureTier.COMMONCRAWL: CaptureSource.COMMONCRAWL,
+    CaptureTier.MEMENTO: CaptureSource.MEMENTO,
+    CaptureTier.PRIVACY_FRONTEND: CaptureSource.PRIVACY_FRONTEND,
+}
+
+# Non-browser fallback tiers dispatch to these Worker methods. Adding a
+# new snapshot source = a CaptureTier enum member, a slot in
+# CLEARNET_TIER_ORDER, one method-name entry here, and a _TIER_SOURCES
+# label. Browser tiers stay out: they need the per-job proxy/browser
+# plumbing in _dispatch. Resolved via getattr at dispatch time so tests
+# can stub the method on a Worker instance.
+_FALLBACK_HANDLERS: dict[CaptureTier, str] = {
+    CaptureTier.WAYBACK: "_capture_via_wayback",
+    CaptureTier.ARCHIVE_TODAY: "_capture_via_archive_today",
+    CaptureTier.COMMONCRAWL: "_capture_via_commoncrawl",
+    CaptureTier.MEMENTO: "_capture_via_memento",
+    CaptureTier.ARCHIVE_TODAY_SUBMIT: "_capture_via_archive_today_submit",
+    CaptureTier.PRIVACY_FRONTEND: "_capture_via_privacy_frontend",
+}
 
 # Minimal valid 1x1 transparent PNG for direct-fetch fallback snapshots
 # that skip the browser entirely and so have no real screenshot.
@@ -337,7 +369,7 @@ class Worker:
                 ).inc()
 
     @beartype
-    async def _process_job_inner(self, job: JobRecord) -> str:  # noqa: C901, PLR0911, PLR0915
+    async def _process_job_inner(self, job: JobRecord) -> str:  # noqa: C901, PLR0911
         """Inner job processing; returns outcome label for metrics."""
         assert self._pool is not None  # noqa: S101
         apex = ""  # bound for the except handlers; set properly once archive is fetched
@@ -421,27 +453,13 @@ class Worker:
                     # surfaces as TimeoutError (caught below, marked as
                     # this tier's failure, escalated to the next tier)
                     # instead of wedging the worker.
-                    async def _dispatch() -> CaptureResult:  # noqa: PLR0911
-                        if job.tier == CaptureTier.WAYBACK:
-                            return await self._capture_via_wayback(
-                                archive.url,
-                            )
-                        if job.tier == CaptureTier.ARCHIVE_TODAY:
-                            return await self._capture_via_archive_today(
-                                archive.url,
-                            )
-                        if job.tier == CaptureTier.COMMONCRAWL:
-                            return await self._capture_via_commoncrawl(
-                                archive.url,
-                            )
-                        if job.tier == CaptureTier.ARCHIVE_TODAY_SUBMIT:
-                            return await self._capture_via_archive_today_submit(
-                                archive.url,
-                            )
-                        if job.tier == CaptureTier.PRIVACY_FRONTEND:
-                            return await self._capture_via_privacy_frontend(
-                                archive.url,
-                            )
+                    async def _dispatch() -> CaptureResult:
+                        handler_name = _FALLBACK_HANDLERS.get(job.tier)
+                        if handler_name is not None:
+                            handler: Callable[
+                                [str], Awaitable[CaptureResult]
+                            ] = getattr(self, handler_name)
+                            return await handler(archive.url)
                         browser = await self._browser_pool.get_browser(
                             job.tier,
                         )
@@ -471,18 +489,9 @@ class Worker:
                         self._settings.artifacts_dir,
                     )
 
-                    source = CaptureSource.DIRECT
-                    if job.tier == CaptureTier.WAYBACK:
-                        source = CaptureSource.WAYBACK
-                    elif job.tier in (
-                        CaptureTier.ARCHIVE_TODAY,
-                        CaptureTier.ARCHIVE_TODAY_SUBMIT,
-                    ):
-                        source = CaptureSource.ARCHIVE_TODAY
-                    elif job.tier == CaptureTier.COMMONCRAWL:
-                        source = CaptureSource.COMMONCRAWL
-                    elif job.tier == CaptureTier.PRIVACY_FRONTEND:
-                        source = CaptureSource.PRIVACY_FRONTEND
+                    source = _TIER_SOURCES.get(
+                        job.tier, CaptureSource.DIRECT
+                    )
 
                     # source_url provenance — recorded in metadata
                     # so the UI can show "captured from <instance>"
@@ -765,6 +774,40 @@ class Worker:
             snapshot_timestamp=parse_snapshot_timestamp(
                 snapshot.timestamp
             ),
+        )
+
+    async def _capture_via_memento(self, url: str) -> CaptureResult:
+        """Federated Memento lookup across national/institutional archives.
+
+        Queries every roster archive's timemap and captures the newest
+        memento anyone holds. Runs after wayback/archive.today/CC have
+        all missed — these collections are smaller but nationally
+        scoped, so they regularly hold long-tail pages the giants
+        never crawled.
+        """
+        hit = await find_latest_memento(url)
+        if hit is None:
+            raise CaptureError(
+                f"No memento across {len(MEMENTO_ARCHIVES)} federated"
+                f" archives: {url}"
+            )
+        raw_html = await fetch_memento_html(hit.memento_url)
+        if raw_html is None:
+            raise CaptureError(
+                f"Memento found in {hit.archive_id} but fetch failed: "
+                f"{hit.memento_url}"
+            )
+        log.info(
+            "worker.memento.snapshot_used",
+            url=url,
+            archive=hit.archive_id,
+            memento=hit.memento_url,
+        )
+        # Timemap datetime is authoritative; fall back to the 14-digit
+        # stamp in the memento URL when the entry carried none.
+        ts = hit.timestamp or memento_timestamp_from_url(hit.memento_url)
+        return self._capture_result_from_html(
+            raw_html, hit.memento_url, snapshot_timestamp=ts
         )
 
     async def _capture_via_archive_today(self, url: str) -> CaptureResult:

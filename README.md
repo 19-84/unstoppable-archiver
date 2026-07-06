@@ -11,7 +11,7 @@
 > **Preserve the web before it disappears.** A self-hosted web archiver that
 > captures any page as a self-contained HTML snapshot **+** WARC **+**
 > screenshot, and refuses to take "no" for an answer — when a site blocks the
-> bots, it escalates through eight capture tiers until something gets through.
+> bots, it escalates through nine capture tiers until something gets through.
 
 If you find this useful, consider giving it a star on GitHub — it helps others
 discover the project.
@@ -27,7 +27,7 @@ edited or deleted, and the "just use the Wayback Machine" answer fails the
 moment a site serves Cloudflare's challenge page to anything that looks like a
 crawler. Unstoppable Archive is built for the pages that *don't want* to be
 archived: it presents as a real browser, rotates fingerprints and proxies,
-falls back to public archives, and only gives up after eight escalating
+falls back to public archives, and only gives up after nine escalating
 strategies have all failed.
 
 Every capture produces a **self-contained snapshot** — all CSS inlined, all
@@ -38,7 +38,7 @@ keeps rendering correctly years after the original is gone.
 
 | | |
 |---|---|
-| **[How capture works](#how-capture-works)** | The eight-tier escalation pipeline |
+| **[How capture works](#how-capture-works)** | The nine-tier escalation pipeline |
 | **[Architecture](#architecture)** | Components, data flow, storage |
 | [docs/tls.md](docs/tls.md) | TLS / reverse-proxy setup |
 | [docs/backups.md](docs/backups.md) | Scheduled `pg_dump` + artifact backups |
@@ -95,7 +95,7 @@ Responsive htmx + Tailwind UI, no SPA, works without JavaScript.
 
 ## How capture works
 
-For every clearnet URL, the worker walks an **eight-tier escalation ladder**,
+For every clearnet URL, the worker walks a **nine-tier escalation ladder**,
 stopping at the first tier that returns a usable capture
 (`CLEARNET_TIER_ORDER` in [`enums.py`](src/archiver/enums.py)):
 
@@ -108,7 +108,8 @@ stopping at the first tier that returns a usable capture
 | 5 | **wayback** | Check the Wayback Machine; submit via Save Page Now if missing |
 | 6 | **archive_today** | Read-only fetch from archive.today mirrors |
 | 7 | **commoncrawl** | Two-pass CDX lookup — 3 recent crawls first, then a deep scan of all ~122 crawls back to 2014 |
-| 8 | **archive_today_submit** | Last-resort write to archive.today through a gate-passing SOCKS5 pool |
+| 8 | **memento** | Federated Memento (RFC 7089) lookup across national web archives (arquivo.pt, Archive-It, Australian Web Archive, ...) — newest memento wins |
+| 9 | **archive_today_submit** | Last-resort write to archive.today through a gate-passing SOCKS5 pool |
 
 CSP headers are stripped on every response so SingleFile's injected scripts
 survive strict sites. The archiver **never identifies as an archiver**: it
@@ -281,7 +282,7 @@ Restart after env changes: `make stop-public && make run-public`.
 - **FastAPI** async app — JSON API + htmx-rendered pages
 - **PostgreSQL 17** — tsvector full-text search, JSONB audit log, and a
   `LISTEN/NOTIFY` job queue (no extra broker)
-- **Worker** — pulls jobs from the queue and runs the eight-tier capture ladder
+- **Worker** — pulls jobs from the queue and runs the nine-tier capture ladder
 - **Playwright Chromium + Camoufox Firefox** for browser automation
 - **SingleFile** for self-contained HTML; **warcio** for WARC writing
 - **htmx + Jinja2 + Tailwind CSS** frontend — all assets vendored locally, no CDN

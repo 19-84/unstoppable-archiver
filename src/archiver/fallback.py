@@ -318,7 +318,22 @@ async def _timemap_latest_memento(
             status=resp.status_code,
         )
         return None
-    body = resp.text
+    parsed = latest_memento_from_timemap(resp.text)
+    return parsed[0] if parsed else None
+
+
+@beartype
+def latest_memento_from_timemap(
+    body: str,
+) -> tuple[str, datetime | None] | None:
+    """Parse an RFC 7089 link-format timemap; return the newest memento.
+
+    Shared by the archive.today tier and the federated Memento tier —
+    every Memento-compliant archive serves this format. Returns
+    ``(memento_url, memento_datetime)``; the datetime is None when the
+    winning entry had no parseable ``datetime`` attribute. Returns None
+    when the timemap has no ``rel="memento"`` entries at all.
+    """
     if 'rel="memento"' not in body:
         return None
 
@@ -351,7 +366,9 @@ async def _timemap_latest_memento(
         if latest_dt is None or memento_dt >= latest_dt:
             latest_dt = memento_dt
             latest_url = memento_url
-    return latest_url
+    if latest_url is None:
+        return None
+    return (latest_url, latest_dt)
 
 
 def _extract_angle_url(block: str) -> str | None:
