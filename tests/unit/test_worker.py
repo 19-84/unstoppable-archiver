@@ -110,6 +110,103 @@ def _make_worker() -> tuple[Worker, AsyncMock]:
     return worker, mock_conn
 
 
+@pytest.fixture(autouse=True)
+def _capture_time_safety_allows(  # type: ignore[misc]
+    monkeypatch: pytest.MonkeyPatch,
+) -> AsyncMock:
+    """Stub the capture-time SSRF re-check so unit tests never resolve DNS.
+
+    Individual tests override the return value to exercise the block path.
+    """
+    mock = AsyncMock(return_value=None)
+    monkeypatch.setattr(
+        "archiver.worker.check_url_safety_async", mock
+    )
+    return mock
+
+
+class TestCaptureTimeSafety:
+    @patch("archiver.worker.capture_page", new_callable=AsyncMock)
+    async def test_unsafe_url_fails_without_escalation(
+        self,
+        mock_capture: AsyncMock,
+        _capture_time_safety_allows: AsyncMock,
+    ) -> None:
+        worker, _conn = _make_worker()
+        job = _make_job(tier=CaptureTier.CHROMIUM)
+        worker._archive_repo.get_by_id = AsyncMock(
+            return_value=_make_archive()
+        )
+        _capture_time_safety_allows.return_value = (
+            "Blocked private/internal IP: 10.0.0.5"
+        )
+
+        await worker._process_job(job)
+
+        mock_capture.assert_not_awaited()
+        worker._job_repo.enqueue.assert_not_awaited()
+        fail_kwargs = worker._job_repo.fail.call_args
+        assert fail_kwargs.kwargs.get("retry") is False
+        status_call = worker._archive_repo.update_status.call_args
+        assert status_call[0][2] == ArchiveStatus.FAILED
+        assert "safety check" in status_call.kwargs["error_message"]
+
+    @patch("archiver.worker.capture_page", new_callable=AsyncMock)
+    async def test_safe_url_proceeds_to_capture(
+        self,
+        mock_capture: AsyncMock,
+        _capture_time_safety_allows: AsyncMock,
+    ) -> None:
+        worker, _conn = _make_worker()
+        job = _make_job(tier=CaptureTier.CHROMIUM)
+        worker._archive_repo.get_by_id = AsyncMock(
+            return_value=_make_archive()
+        )
+        mock_capture.return_value = _make_capture_result()
+        worker._browser_pool.get_browser = AsyncMock(
+            return_value=AsyncMock()
+        )
+        with patch(
+            "archiver.worker.save_artifacts",
+            new_callable=AsyncMock,
+            return_value="abc/1",
+        ):
+            await worker._process_job(job)
+
+        _capture_time_safety_allows.assert_awaited_once()
+        worker._job_repo.complete.assert_awaited_once()
+
+    @patch("archiver.worker.check_wayback_availability", new_callable=AsyncMock)
+    @patch("archiver.worker.capture_page", new_callable=AsyncMock)
+    @patch("archiver.worker.save_artifacts", new_callable=AsyncMock, return_value="abc/1")
+    async def test_fallback_tier_skips_recheck(
+        self,
+        _mock_save: AsyncMock,
+        mock_capture: AsyncMock,
+        mock_availability: AsyncMock,
+        _capture_time_safety_allows: AsyncMock,
+    ) -> None:
+        """Wayback fetches from archive.org, not the submitted URL —
+        the capture-time re-check must not run for fallback tiers."""
+        worker, _conn = _make_worker()
+        job = _make_job(tier=CaptureTier.WAYBACK)
+        worker._archive_repo.get_by_id = AsyncMock(
+            return_value=_make_archive()
+        )
+        mock_availability.return_value = (
+            "https://web.archive.org/web/20260101000000/https://example.com"
+        )
+        mock_capture.return_value = _make_capture_result()
+        worker._browser_pool.get_browser = AsyncMock(
+            return_value=AsyncMock()
+        )
+
+        await worker._process_job(job)
+
+        _capture_time_safety_allows.assert_not_awaited()
+        worker._job_repo.complete.assert_awaited_once()
+
+
 class TestNextTier:
     def test_chromium_escalates_to_camoufox(self) -> None:
         assert (

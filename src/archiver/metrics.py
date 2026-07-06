@@ -43,6 +43,11 @@ blocklist_hits_total = Counter(
     "Domain blocklist rejections",
 )
 
+ssrf_blocked_total = Counter(
+    "archiver_ssrf_blocked_total",
+    "Captures refused by the capture-time URL safety re-check",
+)
+
 rate_limit_exceeded_total = Counter(
     "archiver_rate_limit_exceeded_total",
     "Requests rejected by rate limiter",

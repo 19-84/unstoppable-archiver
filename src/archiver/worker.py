@@ -57,6 +57,7 @@ from archiver.metrics import (
     capture_duration_seconds,
     captures_total,
     jobs_running,
+    ssrf_blocked_total,
 )
 from archiver.models import CaptureResult, JobRecord
 from archiver.proxy import (
@@ -77,8 +78,18 @@ from archiver.repository import (
     ProxyStatusRepository,
 )
 from archiver.url import apex_of
+from archiver.url_safety import check_url_safety_async
 
 log = structlog.get_logger()
+
+# Tiers that point a browser at the user-submitted URL itself (rather
+# than at an archive provider) and so need the capture-time SSRF
+# re-check in _process_job_inner.
+_DIRECT_NAVIGATION_TIERS: frozenset[CaptureTier] = frozenset({
+    CaptureTier.CHROMIUM,
+    CaptureTier.CAMOUFOX,
+    CaptureTier.CAMOUFOX_PROXY,
+})
 
 # Minimal valid 1x1 transparent PNG for direct-fetch fallback snapshots
 # that skip the browser entirely and so have no real screenshot.
@@ -359,6 +370,40 @@ class Worker:
                     # can record the per-tier loss even if update_status
                     # or a capture call raises before the happy path.
                     apex = apex_of(archive.url)
+
+                    # Re-validate URL safety for tiers that navigate to
+                    # the submitted URL directly. Submission-time
+                    # validation alone leaves a DNS-rebinding TOCTOU:
+                    # the hostname can be re-pointed at an internal
+                    # address between submit and capture. Fallback
+                    # tiers fetch from archive providers rather than
+                    # the URL itself, so they skip this check (their
+                    # own outbound fetches are guarded in http_client).
+                    if job.tier in _DIRECT_NAVIGATION_TIERS:
+                        safety_error = await check_url_safety_async(
+                            archive.url
+                        )
+                        if safety_error:
+                            ssrf_blocked_total.inc()
+                            log.warning(
+                                "worker.capture_time_safety_block",
+                                job_id=job.id,
+                                url=archive.url,
+                                reason=safety_error,
+                            )
+                            await self._job_repo.fail(
+                                conn, job.id, safety_error, retry=False
+                            )
+                            await self._archive_repo.update_status(
+                                conn,
+                                job.archive_id,
+                                ArchiveStatus.FAILED,
+                                error_message=(
+                                    "Capture-time URL safety check "
+                                    f"failed: {safety_error}"
+                                ),
+                            )
+                            return "failed"
 
                     await self._archive_repo.update_status(
                         conn,
