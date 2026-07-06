@@ -243,7 +243,10 @@ async def capture_page(  # noqa: C901, PLR0912, PLR0913, PLR0915
     header so downstream WARC consumers can recover provenance even
     when they don't have access to our DB metadata.
     """
-    warc_writer = PlaywrightWARCWriter()
+    warc_writer = PlaywrightWARCWriter(
+        max_body_bytes=settings.warc_max_body_bytes,
+        max_total_bytes=settings.warc_max_total_bytes,
+    )
     is_firefox = tier != CaptureTier.CHROMIUM
     # A soft login wall is only worth flagging when this URL has a
     # privacy_frontend fallback to escalate into (see check_anti_bot).
@@ -312,6 +315,15 @@ async def capture_page(  # noqa: C901, PLR0912, PLR0913, PLR0915
         # Collect HTTP exchanges for WARC
         async def _on_response(response: Response) -> None:  # pragma: no cover
             try:
+                # Skip obviously oversized bodies before pulling them
+                # out of the browser — the caps in the writer would
+                # reject them anyway, after the RAM damage was done.
+                declared = response.headers.get("content-length", "")
+                if declared.isdigit() and not warc_writer.accepts_body(
+                    int(declared)
+                ):
+                    warc_writer.record_drop(response.url, int(declared))
+                    return
                 body = await response.body()
                 req = response.request
                 warc_writer.add_exchange(

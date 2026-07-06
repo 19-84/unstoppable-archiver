@@ -39,15 +39,68 @@ class PlaywrightWARCWriter:
 
     Dedup level 4: SHA-256 each response body. If a digest has been
     seen before in this capture, a revisit record is written instead.
+
+    Bodies are buffered in RAM until finalize(), so two caps bound the
+    exposure: `max_body_bytes` per exchange and `max_total_bytes` per
+    capture. Exchanges over either cap are dropped from the WARC
+    (logged + counted in archiver_warc_bodies_dropped_total) rather
+    than truncated — a silently truncated record is worse for archive
+    consumers than an absent one. 0 disables a cap.
     """
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        max_body_bytes: int = 0,
+        max_total_bytes: int = 0,
+    ) -> None:
         self._exchanges: list[CapturedExchange] = []
         self._seen_digests: set[str] = set()
+        self._max_body_bytes = max_body_bytes
+        self._max_total_bytes = max_total_bytes
+        self._total_body_bytes = 0
 
-    def add_exchange(self, exchange: CapturedExchange) -> None:
-        """Record an HTTP exchange for later WARC writing."""
+    def accepts_body(self, size: int) -> bool:
+        """True if a body of `size` bytes fits within both caps.
+
+        Callers can pre-check a declared Content-Length here to avoid
+        pulling an obviously oversized body into memory at all.
+        """
+        if 0 < self._max_body_bytes < size:
+            return False
+        return not (
+            self._max_total_bytes > 0
+            and self._total_body_bytes + size > self._max_total_bytes
+        )
+
+    def record_drop(self, url: str, size: int) -> None:
+        """Log + count an exchange excluded by the size caps.
+
+        Also used by the capture hook for Content-Length prechecks that
+        skip reading the body at all.
+        """
+        from archiver.metrics import warc_bodies_dropped_total
+
+        reason = (
+            "body_too_large"
+            if 0 < self._max_body_bytes < size
+            else "capture_budget_exhausted"
+        )
+        warc_bodies_dropped_total.labels(reason=reason).inc()
+        log.warning(
+            "warc.body_dropped", url=url, size=size, reason=reason,
+        )
+
+    def add_exchange(self, exchange: CapturedExchange) -> bool:
+        """Record an HTTP exchange for later WARC writing.
+
+        Returns False (and drops the exchange) when the body busts a cap.
+        """
+        if not self.accepts_body(len(exchange.body)):
+            self.record_drop(exchange.url, len(exchange.body))
+            return False
+        self._total_body_bytes += len(exchange.body)
         self._exchanges.append(exchange)
+        return True
 
     @beartype
     def finalize(

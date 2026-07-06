@@ -18,10 +18,56 @@ from archiver.warc_writer import (
 )
 
 
+def _exchange(body: bytes) -> CapturedExchange:
+    return CapturedExchange(
+        url="https://example.com",
+        method="GET",
+        request_headers={"Host": "example.com"},
+        status=200,
+        response_headers={"Content-Type": "text/html"},
+        body=body,
+    )
+
+
 class TestPlaywrightWARCWriter:
     def test_empty_writer_has_zero_exchanges(self) -> None:
         writer = PlaywrightWARCWriter()
         assert writer.exchange_count == 0
+
+    def test_body_over_per_exchange_cap_dropped(self) -> None:
+        writer = PlaywrightWARCWriter(max_body_bytes=100)
+        accepted = writer.add_exchange(_exchange(body=b"x" * 101))
+        assert accepted is False
+        assert writer.exchange_count == 0
+
+    def test_body_at_per_exchange_cap_accepted(self) -> None:
+        writer = PlaywrightWARCWriter(max_body_bytes=100)
+        assert writer.add_exchange(_exchange(body=b"x" * 100)) is True
+        assert writer.exchange_count == 1
+
+    def test_capture_budget_exhausts_across_exchanges(self) -> None:
+        writer = PlaywrightWARCWriter(max_total_bytes=250)
+        assert writer.add_exchange(_exchange(body=b"a" * 100)) is True
+        assert writer.add_exchange(_exchange(body=b"b" * 100)) is True
+        # Third would push the total to 300 > 250.
+        assert writer.add_exchange(_exchange(body=b"c" * 100)) is False
+        # But a smaller body still fits in the remaining budget.
+        assert writer.add_exchange(_exchange(body=b"d" * 50)) is True
+        assert writer.exchange_count == 3  # noqa: PLR2004
+
+    def test_zero_caps_disable_limits(self) -> None:
+        writer = PlaywrightWARCWriter()
+        assert writer.add_exchange(_exchange(body=b"x" * 1_000_000))
+        assert writer.accepts_body(10**12)
+
+    def test_accepts_body_precheck_matches_caps(self) -> None:
+        writer = PlaywrightWARCWriter(
+            max_body_bytes=100, max_total_bytes=150
+        )
+        assert writer.accepts_body(100) is True
+        assert writer.accepts_body(101) is False
+        writer.add_exchange(_exchange(body=b"x" * 100))
+        assert writer.accepts_body(51) is False
 
     def test_add_exchange_increments_count(self) -> None:
         writer = PlaywrightWARCWriter()

@@ -48,6 +48,12 @@ ssrf_blocked_total = Counter(
     "Captures refused by the capture-time URL safety re-check",
 )
 
+warc_bodies_dropped_total = Counter(
+    "archiver_warc_bodies_dropped_total",
+    "Response bodies excluded from WARC output by size caps",
+    ["reason"],  # body_too_large, capture_budget_exhausted
+)
+
 rate_limit_exceeded_total = Counter(
     "archiver_rate_limit_exceeded_total",
     "Requests rejected by rate limiter",

@@ -41,6 +41,14 @@ class Settings(BaseSettings):
     max_capture_timeout: int = 300
     thumbnail_width: int = 320
     thumbnail_height: int = 240
+    # WARC memory guards. Response bodies are held in RAM until the
+    # WARC is finalized, so without caps a single huge download (video
+    # stream, hostile endpoint) can OOM the worker. Oversized bodies
+    # are dropped from the WARC (counted in
+    # archiver_warc_bodies_dropped_total); the page capture itself
+    # still succeeds. 25 MiB per response / 250 MiB per capture.
+    warc_max_body_bytes: int = 25 * 1024 * 1024
+    warc_max_total_bytes: int = 250 * 1024 * 1024
     chromium_headless: bool = True
     camoufox_headless: bool | str = "virtual"
 
