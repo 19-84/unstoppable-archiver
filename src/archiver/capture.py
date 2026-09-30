@@ -97,10 +97,10 @@ _CONSENT_CLEANUP_JS = r"""
 # to document.cookie, which caused false negatives.
 _CHALLENGE_TITLE_MARKERS = [
     "making sure you're not a bot",  # Anubis default
-    "just a moment",                   # Cloudflare
-    "attention required",              # Cloudflare + generic WAFs
-    "please enable js",                # FingerprintJS-style
-    "checking your browser",           # various
+    "just a moment",  # Cloudflare
+    "attention required",  # Cloudflare + generic WAFs
+    "please enable js",  # FingerprintJS-style
+    "checking your browser",  # various
 ]
 
 _CHALLENGE_COMPLETE_JS = r"""
@@ -178,7 +178,10 @@ log = structlog.get_logger()
 
 @beartype
 async def close_context_bounded(
-    context: Any, *, url: str, timeout: float = 30.0,
+    context: Any,
+    *,
+    url: str,
+    timeout: float = 30.0,
 ) -> None:
     """Close a Playwright ``BrowserContext`` with a hard wall-clock bound.
 
@@ -211,7 +214,9 @@ async def close_context_bounded(
     if not done:
         close_task.cancel()  # best-effort; do not await — may also hang
         log.warning(
-            "capture.context_close_timeout", url=url, timeout_s=timeout,
+            "capture.context_close_timeout",
+            url=url,
+            timeout_s=timeout,
         )
 
 
@@ -219,6 +224,7 @@ async def capture_page(  # noqa: C901, PLR0912, PLR0913, PLR0915
     url: str,
     browser: Browser,
     settings: Settings,
+    *,
     tier: CaptureTier = CaptureTier.CHROMIUM,
     cookie_cache: CfClearanceCache | None = None,
     strip_selectors: list[str] | None = None,
@@ -273,6 +279,7 @@ async def capture_page(  # noqa: C901, PLR0912, PLR0913, PLR0915
     # BrowserForge but we override to keep the pool consistent across
     # tiers. Never leak the archiver's identity.
     from archiver import user_agents as _ua
+
     context_kwargs: dict[str, Any] = {
         "viewport": {"width": 1920, "height": 1080},
         "java_script_enabled": True,
@@ -319,9 +326,7 @@ async def capture_page(  # noqa: C901, PLR0912, PLR0913, PLR0915
                 # out of the browser — the caps in the writer would
                 # reject them anyway, after the RAM damage was done.
                 declared = response.headers.get("content-length", "")
-                if declared.isdigit() and not warc_writer.accepts_body(
-                    int(declared)
-                ):
+                if declared.isdigit() and not warc_writer.accepts_body(int(declared)):
                     warc_writer.record_drop(response.url, int(declared))
                     return
                 body = await response.body()
@@ -330,13 +335,9 @@ async def capture_page(  # noqa: C901, PLR0912, PLR0913, PLR0915
                     CapturedExchange(
                         url=response.url,
                         method=req.method,
-                        request_headers=dict(
-                            await req.all_headers()
-                        ),
+                        request_headers=dict(await req.all_headers()),
                         status=response.status,
-                        response_headers=dict(
-                            await response.all_headers()
-                        ),
+                        response_headers=dict(await response.all_headers()),
                         body=body,
                     )
                 )
@@ -375,8 +376,7 @@ async def capture_page(  # noqa: C901, PLR0912, PLR0913, PLR0915
             try:
                 page_title = await page.title()
                 body_html = await page.evaluate(
-                    "document.documentElement"
-                    " ? document.documentElement.outerHTML : ''"
+                    "document.documentElement ? document.documentElement.outerHTML : ''"
                 )
             except Exception:
                 log.debug("capture.post_timeout_peek_failed")
@@ -387,9 +387,7 @@ async def capture_page(  # noqa: C901, PLR0912, PLR0913, PLR0915
                     "capture.js_challenge_detected_post_timeout",
                     kind=challenge.kind,
                 )
-                cleared = await _await_challenge_completion(
-                    page, timeout_ms=45000
-                )
+                cleared = await _await_challenge_completion(page, timeout_ms=45000)
                 if cleared:
                     log.info(
                         "capture.js_challenge_cleared_post_timeout",
@@ -432,9 +430,7 @@ async def capture_page(  # noqa: C901, PLR0912, PLR0913, PLR0915
 
         status_code = response.status if response else 0
         page_title = await page.title()
-        body_text = await page.evaluate(
-            "document.body ? document.body.innerText : ''"
-        )
+        body_text = await page.evaluate("document.body ? document.body.innerText : ''")
         body_html = await page.evaluate(
             "document.documentElement ? document.documentElement.outerHTML : ''"
         )
@@ -450,9 +446,7 @@ async def capture_page(  # noqa: C901, PLR0912, PLR0913, PLR0915
                 kind=challenge.kind,
                 reason=challenge.reason,
             )
-            cleared = await _await_challenge_completion(
-                page, timeout_ms=45000
-            )
+            cleared = await _await_challenge_completion(page, timeout_ms=45000)
             if cleared:
                 # Re-read state — the challenge should have navigated or
                 # swapped content. Continue with the (now-real) page.
@@ -461,9 +455,7 @@ async def capture_page(  # noqa: C901, PLR0912, PLR0913, PLR0915
                 body_text = await page.evaluate(
                     "document.body ? document.body.innerText : ''"
                 )
-                log.info(
-                    "capture.js_challenge_cleared", kind=challenge.kind
-                )
+                log.info("capture.js_challenge_cleared", kind=challenge.kind)
             else:
                 # Challenge didn't clear in time — treat as a block so
                 # the tier layer can escalate to a stealthier browser.
@@ -479,9 +471,7 @@ async def capture_page(  # noqa: C901, PLR0912, PLR0913, PLR0915
             has_privacy_frontend=has_privacy_frontend,
         )
         if signal.is_blocked:
-            raise AntiBotDetectedError(
-                f"Blocked: {signal.reason}"
-            )
+            raise AntiBotDetectedError(f"Blocked: {signal.reason}")
 
         # Strip host-archive chrome (Wayback toolbar, archive.today header)
         # before SingleFile so the snapshot contains only the original page.
@@ -494,9 +484,7 @@ async def capture_page(  # noqa: C901, PLR0912, PLR0913, PLR0915
                         selector,
                     )
                 except Exception:
-                    log.debug(
-                        "capture.strip_selector_failed", selector=selector
-                    )
+                    log.debug("capture.strip_selector_failed", selector=selector)
 
         # Pre-SingleFile consent cleanup:
         #   1. Physically remove every element that was being hidden by
@@ -523,9 +511,7 @@ async def capture_page(  # noqa: C901, PLR0912, PLR0913, PLR0915
         sf_options = build_options(url)
         sf_result: dict[str, Any] | None = None
         try:
-            sf_result = await page.evaluate(
-                SINGLEFILE_CAPTURE_JS, sf_options
-            )
+            sf_result = await page.evaluate(SINGLEFILE_CAPTURE_JS, sf_options)
         except Exception as sf_exc:
             if is_firefox and "Xray" in str(sf_exc):
                 log.info("capture.singlefile_xray_fallback")
@@ -602,8 +588,7 @@ async def capture_page(  # noqa: C901, PLR0912, PLR0913, PLR0915
         # against SingleFile returning a string error message.
         if not isinstance(sf_result, dict) or "content" not in sf_result:  # pyright: ignore[reportUnnecessaryIsInstance]
             raise CaptureError(
-                "SingleFile returned unexpected result: "
-                + repr(type(sf_result))
+                "SingleFile returned unexpected result: " + repr(type(sf_result))
             )
         snapshot_html = sf_result["content"].encode("utf-8")
         title = sf_result.get("title") or page_title
@@ -638,18 +623,15 @@ async def capture_page(  # noqa: C901, PLR0912, PLR0913, PLR0915
         warc_path = None
         warc_size = 0
         if warc_writer.exchange_count > 0:
-            warc_path = (
-                settings.artifacts_dir / f"tmp_{uuid.uuid4().hex}.warc.gz"
-            )
+            warc_path = settings.artifacts_dir / f"tmp_{uuid.uuid4().hex}.warc.gz"
             warc_size = warc_writer.finalize(
-                warc_path, original_url=warc_original_url,
+                warc_path,
+                original_url=warc_original_url,
             )
 
         # Content hashes for dedup
         content_hash = hashlib.sha256(snapshot_html).hexdigest()
-        screenshot_hash = hashlib.sha256(
-            screenshot_png
-        ).hexdigest()
+        screenshot_hash = hashlib.sha256(screenshot_png).hexdigest()
 
         # Cache cf_clearance cookie if present
         if cookie_cache:
@@ -677,12 +659,14 @@ async def capture_page(  # noqa: C901, PLR0912, PLR0913, PLR0915
         await close_context_bounded(context, url=url)
 
 
-_CSP_HEADER_NAMES: frozenset[str] = frozenset({
-    "content-security-policy",
-    "content-security-policy-report-only",
-    "x-content-security-policy",  # legacy (pre-standard) MSIE/Firefox
-    "x-webkit-csp",               # legacy Safari/Chrome prefixed
-})
+_CSP_HEADER_NAMES: frozenset[str] = frozenset(
+    {
+        "content-security-policy",
+        "content-security-policy-report-only",
+        "x-content-security-policy",  # legacy (pre-standard) MSIE/Firefox
+        "x-webkit-csp",  # legacy Safari/Chrome prefixed
+    }
+)
 
 
 async def _strip_csp_route(route: Route) -> None:
@@ -709,7 +693,8 @@ async def _strip_csp_route(route: Route) -> None:
             return
         response = await route.fetch()
         headers = {
-            k: v for k, v in response.headers.items()
+            k: v
+            for k, v in response.headers.items()
             if k.lower() not in _CSP_HEADER_NAMES
         }
         await route.fulfill(response=response, headers=headers)
@@ -747,9 +732,7 @@ def _looks_like_block_page(html: str) -> bool:
     return any(m in head for m in markers)
 
 
-async def _await_challenge_completion(
-    page: Any, timeout_ms: int = 45000
-) -> bool:
+async def _await_challenge_completion(page: Any, timeout_ms: int = 45000) -> bool:
     """Wait for a JS challenge page to transition to real content.
 
     Polls `_CHALLENGE_COMPLETE_JS` inside the page until it returns
@@ -762,18 +745,14 @@ async def _await_challenge_completion(
     the document.
     """
     try:
-        await page.wait_for_function(
-            _CHALLENGE_COMPLETE_JS, timeout=timeout_ms
-        )
+        await page.wait_for_function(_CHALLENGE_COMPLETE_JS, timeout=timeout_ms)
         # Small settle so any post-challenge XHRs / redirects finish.
         # networkidle is best-effort — some sites never actually idle.
         with contextlib.suppress(Exception):
             await page.wait_for_load_state("networkidle", timeout=10000)
         return True
     except Exception as exc:
-        log.warning(
-            "capture.challenge_wait_timeout", error=str(exc)[:200]
-        )
+        log.warning("capture.challenge_wait_timeout", error=str(exc)[:200])
         return False
 
 
@@ -802,9 +781,7 @@ async def _capture_singlefile_via_script_tag(
     # script blocked). When this fails, the caller falls through to the
     # CLI subprocess — spending 60s per tier only to bail was wasteful.
     # Successful captures on non-CSP pages typically finish in 3-8 s.
-    await page.wait_for_function(
-        "window.__sf_result !== undefined", timeout=15000
-    )
+    await page.wait_for_function("window.__sf_result !== undefined", timeout=15000)
     result: dict[str, str] = await page.evaluate("window.__sf_result")
     if "error" in result:
         raise CaptureError(f"SingleFile (script tag): {result['error']}")
@@ -827,14 +804,18 @@ async def _inject_cached_cookies(
     """Inject cached cf_clearance cookie into browser context."""
     cookie = cache.get_for_url(url)
     if cookie:
-        await context.add_cookies([{
-            "name": cookie.name,
-            "value": cookie.value,
-            "domain": cookie.domain,
-            "path": cookie.path,
-            "httpOnly": True,
-            "secure": True,
-        }])
+        await context.add_cookies(
+            [
+                {
+                    "name": cookie.name,
+                    "value": cookie.value,
+                    "domain": cookie.domain,
+                    "path": cookie.path,
+                    "httpOnly": True,
+                    "secure": True,
+                }
+            ]
+        )
         log.debug("cookie_cache.injected", domain=cookie.domain)
 
 
