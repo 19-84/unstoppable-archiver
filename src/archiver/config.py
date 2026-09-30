@@ -30,6 +30,9 @@ class Settings(BaseSettings):
     # SingleFile
     singlefile_bundle_path: Path = Path("src/archiver/vendor/single-file-bundle.js")
     singlefile_cli_path: str = "single-file"
+    # Chromium binary for single-file-cli; None probes the Playwright
+    # install paths (see singlefile._CHROMIUM_CANDIDATES).
+    singlefile_chromium_path: str | None = None
 
     # Capture — hard ceiling on a single tier attempt. Bounds hangs
     # (Camoufox stuck in an Anubis challenge, SOCKS5 dropped mid-page,

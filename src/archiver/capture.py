@@ -542,6 +542,7 @@ async def capture_page(  # noqa: C901, PLR0912, PLR0913, PLR0915
                 snapshot_html_str = await capture_via_cli(
                     url,
                     cli_path=settings.singlefile_cli_path,
+                    browser_path=settings.singlefile_chromium_path,
                 )
                 # Sanity: CLI may succeed but produce a block page the
                 # target origin served to its unbranded Chromium. If
