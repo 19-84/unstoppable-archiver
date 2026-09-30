@@ -108,7 +108,7 @@ stopping at the first tier that returns a usable capture
 | 5 | **wayback** | Check the Wayback Machine; submit via Save Page Now if missing |
 | 6 | **archive_today** | Read-only fetch from archive.today mirrors |
 | 7 | **commoncrawl** | Two-pass CDX lookup — 3 recent crawls first, then a deep scan of all ~122 crawls back to 2014 |
-| 8 | **memento** | Federated Memento (RFC 7089) lookup across national web archives (arquivo.pt, Archive-It, Australian Web Archive, ...) — newest memento wins |
+| 8 | **memento** | Federated Memento (RFC 7089) lookup across national web archives (arquivo.pt, Archive-It, Australian Web Archive, ...) — newest memento wins, browser-rendered to a self-contained snapshot |
 | 9 | **archive_today_submit** | Last-resort write to archive.today through a gate-passing SOCKS5 pool |
 
 CSP headers are stripped on every response so SingleFile's injected scripts

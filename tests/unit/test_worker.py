@@ -770,47 +770,69 @@ class TestCommonCrawlSuccessSource:
 
 
 class TestCaptureViaMemento:
+    _MEMENTO_URL = (
+        "https://arquivo.pt/wayback/20180304050607/https://example.com"
+    )
+    _RAW_URL = (
+        "https://arquivo.pt/wayback/20180304050607if_/https://example.com"
+    )
+
+    def _hit(self) -> object:
+        from archiver.memento import MementoHit
+
+        return MementoHit(
+            archive_id="arquivo.pt",
+            memento_url=self._MEMENTO_URL,
+            timestamp=datetime(2018, 3, 4, 5, 6, 7, tzinfo=UTC),
+        )
+
+    @staticmethod
+    def _complete_calls(worker: Worker) -> list[object]:
+        calls = worker._archive_repo.update_status.call_args_list
+        return [
+            c for c in calls
+            if len(c[0]) >= 3 and c[0][2] == ArchiveStatus.COMPLETE  # noqa: PLR2004
+        ]
+
     @patch("archiver.worker.save_artifacts", new_callable=AsyncMock)
+    @patch("archiver.worker.capture_page", new_callable=AsyncMock)
     @patch("archiver.worker.fetch_memento_html", new_callable=AsyncMock)
-    @patch("archiver.worker.find_latest_memento", new_callable=AsyncMock)
-    async def test_memento_success_sets_source_and_timestamp(
+    @patch("archiver.worker.find_memento_candidates", new_callable=AsyncMock)
+    async def test_memento_renders_probed_variant_in_browser(
         self,
         mock_find: AsyncMock,
         mock_fetch: AsyncMock,
+        mock_capture: AsyncMock,
         mock_save: AsyncMock,
     ) -> None:
-        from archiver.memento import MementoHit
+        """Happy path is a full browser render of the `if_` variant the
+        probe resolved, with source/timestamp provenance preserved."""
+        from archiver.memento import MEMENTO_STRIP_SELECTORS
 
         worker, _ = _make_worker()
         job = _make_job(tier=CaptureTier.MEMENTO)
         worker._archive_repo.get_by_id = AsyncMock(
             return_value=_make_archive()
         )
-        ts = datetime(2018, 3, 4, 5, 6, 7, tzinfo=UTC)
-        mock_find.return_value = MementoHit(
-            archive_id="arquivo.pt",
-            memento_url=(
-                "https://arquivo.pt/wayback/20180304050607/"
-                "https://example.com"
-            ),
-            timestamp=ts,
-        )
-        mock_fetch.return_value = "<html>from arquivo</html>"
+        mock_find.return_value = [self._hit()]
+        mock_fetch.return_value = (self._RAW_URL, "<html>probe</html>")
+        mock_capture.return_value = _make_capture_result()
         mock_save.return_value = "x/y"
 
         await worker._process_job(job)
 
-        calls = worker._archive_repo.update_status.call_args_list
-        complete_calls = [
-            c for c in calls
-            if len(c[0]) >= 3 and c[0][2] == ArchiveStatus.COMPLETE  # noqa: PLR2004
-        ]
+        capture_kwargs = mock_capture.call_args.kwargs
+        assert capture_kwargs["url"] == self._RAW_URL
+        assert capture_kwargs["strip_selectors"] == MEMENTO_STRIP_SELECTORS
+        assert capture_kwargs["warc_original_url"] == "https://example.com"
+        complete_calls = self._complete_calls(worker)
         assert any(
             c.kwargs.get("source") == CaptureSource.MEMENTO.value
             for c in complete_calls
         )
         assert any(
-            c.kwargs.get("snapshot_timestamp") == ts
+            c.kwargs.get("snapshot_timestamp")
+            == datetime(2018, 3, 4, 5, 6, 7, tzinfo=UTC)
             for c in complete_calls
         )
         assert any(
@@ -818,29 +840,118 @@ class TestCaptureViaMemento:
             for c in complete_calls
         )
 
-    @patch("archiver.worker.find_latest_memento", new_callable=AsyncMock)
+    @patch("archiver.worker.save_artifacts", new_callable=AsyncMock)
+    @patch("archiver.worker.capture_page", new_callable=AsyncMock)
+    @patch("archiver.worker.fetch_memento_html", new_callable=AsyncMock)
+    @patch("archiver.worker.find_memento_candidates", new_callable=AsyncMock)
+    async def test_render_failure_falls_back_to_probed_html(
+        self,
+        mock_find: AsyncMock,
+        mock_fetch: AsyncMock,
+        mock_capture: AsyncMock,
+        mock_save: AsyncMock,
+    ) -> None:
+        """A broken render must degrade to the probe's HTML, not
+        escalate past the tier — text-only beats the write tier."""
+        worker, _ = _make_worker()
+        job = _make_job(tier=CaptureTier.MEMENTO)
+        worker._archive_repo.get_by_id = AsyncMock(
+            return_value=_make_archive()
+        )
+        mock_find.return_value = [self._hit()]
+        mock_fetch.return_value = (self._RAW_URL, "<html>probe</html>")
+        mock_capture.side_effect = CaptureError("renderer crashed")
+        mock_save.return_value = "x/y"
+
+        await worker._process_job(job)
+
+        mock_capture.assert_awaited_once()
+        complete_calls = self._complete_calls(worker)
+        assert any(
+            c.kwargs.get("source") == CaptureSource.MEMENTO.value
+            for c in complete_calls
+        )
+        assert any(
+            c.kwargs.get("snapshot_timestamp")
+            == datetime(2018, 3, 4, 5, 6, 7, tzinfo=UTC)
+            for c in complete_calls
+        )
+
+    @patch("archiver.worker.save_artifacts", new_callable=AsyncMock)
+    @patch("archiver.worker.capture_page", new_callable=AsyncMock)
+    @patch("archiver.worker.fetch_memento_html", new_callable=AsyncMock)
+    @patch("archiver.worker.find_memento_candidates", new_callable=AsyncMock)
+    async def test_junk_newest_candidate_skipped(
+        self,
+        mock_find: AsyncMock,
+        mock_fetch: AsyncMock,
+        mock_capture: AsyncMock,
+        mock_save: AsyncMock,
+    ) -> None:
+        """The newest memento of a bot-walled site replays the block
+        (empty 202) — the probe rejects it and the next-newest
+        candidate must be used (observed live: publico.pt via
+        arquivo.pt, 2026-07-12)."""
+        from archiver.memento import MementoHit
+
+        worker, _ = _make_worker()
+        job = _make_job(tier=CaptureTier.MEMENTO)
+        worker._archive_repo.get_by_id = AsyncMock(
+            return_value=_make_archive()
+        )
+        junk = MementoHit(
+            archive_id="arquivo.pt",
+            memento_url=(
+                "https://arquivo.pt/wayback/20260624210628mp_/"
+                "https://example.com"
+            ),
+            timestamp=datetime(2026, 6, 24, 21, 6, 28, tzinfo=UTC),
+        )
+        mock_find.return_value = [junk, self._hit()]
+        mock_fetch.side_effect = [
+            None,  # newest candidate: probe rejects (202 / empty)
+            (self._RAW_URL, "<html>probe</html>"),
+        ]
+        mock_capture.return_value = _make_capture_result()
+        mock_save.return_value = "x/y"
+
+        await worker._process_job(job)
+
+        assert mock_fetch.await_count == 2  # noqa: PLR2004
+        complete_calls = self._complete_calls(worker)
+        assert any(
+            c.kwargs.get("snapshot_timestamp")
+            == datetime(2018, 3, 4, 5, 6, 7, tzinfo=UTC)
+            for c in complete_calls
+        )
+
+    @patch("archiver.worker.find_memento_candidates", new_callable=AsyncMock)
     async def test_no_memento_raises(self, mock_find: AsyncMock) -> None:
         worker, _ = _make_worker()
-        mock_find.return_value = None
+        mock_find.return_value = []
         with pytest.raises(CaptureError, match="No memento"):
             await worker._capture_via_memento("https://example.com/")
 
     @patch("archiver.worker.fetch_memento_html", new_callable=AsyncMock)
-    @patch("archiver.worker.find_latest_memento", new_callable=AsyncMock)
-    async def test_memento_fetch_failure_raises(
+    @patch("archiver.worker.find_memento_candidates", new_callable=AsyncMock)
+    async def test_all_candidates_failing_probe_raises(
         self, mock_find: AsyncMock, mock_fetch: AsyncMock
     ) -> None:
         from archiver.memento import MementoHit
 
         worker, _ = _make_worker()
-        mock_find.return_value = MementoHit(
-            archive_id="ukwa",
-            memento_url="https://www.webarchive.org.uk/wayback/x",
-            timestamp=None,
-        )
+        mock_find.return_value = [
+            MementoHit(
+                archive_id="ukwa",
+                memento_url="https://www.webarchive.org.uk/wayback/x",
+                timestamp=None,
+            ),
+            self._hit(),
+        ]
         mock_fetch.return_value = None
-        with pytest.raises(CaptureError, match="fetch failed"):
+        with pytest.raises(CaptureError, match="candidates failed"):
             await worker._capture_via_memento("https://example.com/")
+        assert mock_fetch.await_count == 2  # noqa: PLR2004
 
 
 class TestCaptureViaArchiveTodaySubmit:

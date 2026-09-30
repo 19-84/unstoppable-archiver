@@ -24,7 +24,11 @@ if they recover):
 
 Politeness: one timemap request per archive per job, bounded
 concurrency, no retries — these are volunteer/national services and a
-miss simply escalates to the next tier.
+miss simply escalates to the next tier. Beyond the timemaps, at most
+a handful of newest-first candidate mementos are probed (crawls of
+bot-walled or lapsed domains replay the junk that was crawled —
+CloudFront challenges, parked-domain pages — so the newest memento is
+not always usable), and exactly one gets a browser render.
 """
 
 from __future__ import annotations
@@ -38,7 +42,7 @@ import structlog
 from beartype import beartype
 
 from archiver.errors import FetchError
-from archiver.fallback import latest_memento_from_timemap
+from archiver.fallback import mementos_from_timemap
 from archiver.http_client import fetch
 
 log = structlog.get_logger()
@@ -50,6 +54,11 @@ _MEMENTO_FETCH_TIMEOUT_S = 20.0
 # organizations, so this is one in-flight request per org at most —
 # the bound exists to keep our own socket/latency profile tame.
 _PARALLEL = 4
+# Candidate budget: newest-first fallback depth when probing mementos.
+# Per-archive keeps one archive's dense crawl history from crowding
+# the global list; the global cap bounds worst-case probe traffic.
+_PER_ARCHIVE_CANDIDATES = 3
+_MAX_CANDIDATES = 4
 
 
 @dataclass(frozen=True)
@@ -115,17 +124,26 @@ class MementoHit:
 
 
 @beartype
-async def find_latest_memento(url: str) -> MementoHit | None:
-    """Query every archive's timemap; return the newest memento overall.
+async def find_memento_candidates(
+    url: str, limit: int = _MAX_CANDIDATES
+) -> list[MementoHit]:
+    """Query every archive's timemap; return newest candidates overall.
 
     All archives are consulted (bounded concurrency) rather than
     first-hit-wins: a fast archive with a 2009 copy shouldn't shadow a
     slower one holding last year's. Undated mementos lose to any dated
-    one. None when no archive has the URL.
+    one.
+
+    Returns up to `limit` hits, newest first, rather than the single
+    winner: the newest memento is not always usable — a crawl of a
+    bot-walled site faithfully replays the block itself (empty
+    CloudFront 202 challenges) and a lapsed domain replays the parking
+    page — so callers probe candidates in order. Empty list when no
+    archive has the URL.
     """
     sem = asyncio.Semaphore(_PARALLEL)
 
-    async def _query(archive: MementoArchive) -> MementoHit | None:
+    async def _query(archive: MementoArchive) -> list[MementoHit]:
         async with sem:
             try:
                 resp = await fetch(
@@ -143,47 +161,62 @@ async def find_latest_memento(url: str) -> MementoHit | None:
                     error_type=type(exc).__name__,
                     error=str(exc)[:120],
                 )
-                return None
+                return []
             if resp.status_code != 200:  # noqa: PLR2004
-                return None
-            parsed = latest_memento_from_timemap(resp.text)
-            if parsed is None:
-                return None
-            memento_url, memento_dt = parsed
-            # Timemap datetimes are RFC 1123 GMT per spec, but a
-            # missing zone would arrive naive and poison the
-            # TIMESTAMPTZ write later — pin to UTC.
-            if memento_dt is not None and memento_dt.tzinfo is None:
-                memento_dt = memento_dt.replace(tzinfo=UTC)
-            return MementoHit(
-                archive_id=archive.id,
-                memento_url=memento_url,
-                timestamp=memento_dt,
-            )
+                return []
+            return [
+                MementoHit(
+                    archive_id=archive.id,
+                    memento_url=memento_url,
+                    timestamp=memento_dt,
+                )
+                for memento_url, memento_dt in mementos_from_timemap(
+                    resp.text
+                )[:_PER_ARCHIVE_CANDIDATES]
+            ]
 
     results = await asyncio.gather(
         *(_query(a) for a in MEMENTO_ARCHIVES)
     )
-    hits = [h for h in results if h is not None]
+    hits = [h for per_archive in results for h in per_archive]
     if not hits:
-        return None
+        return []
 
     epoch = datetime.min.replace(tzinfo=UTC)
-    best = max(hits, key=lambda h: h.timestamp or epoch)
+    hits.sort(key=lambda h: h.timestamp or epoch, reverse=True)
+    top = hits[:limit]
     log.info(
-        "memento.snapshot_found",
+        "memento.candidates_found",
         url=url,
-        archive=best.archive_id,
-        memento=best.memento_url,
-        timestamp=str(best.timestamp),
-        archives_with_copies=len(hits),
+        newest=top[0].memento_url,
+        archive=top[0].archive_id,
+        timestamp=str(top[0].timestamp),
+        candidates=len(top),
+        archives_with_copies=sum(1 for r in results if r),
     )
-    return best
+    return top
 
+
+# Replay chrome injected by the wayback-family software the roster
+# archives run (OpenWayback and pywb). Stripped before SingleFile when
+# a memento is browser-rendered, so the stored snapshot is the original
+# page rather than the archive's UI. Selectors that don't match a given
+# archive simply remove nothing.
+MEMENTO_STRIP_SELECTORS: list[str] = [
+    "#wm-ipp",                 # OpenWayback / IA-style toolbar
+    "#wm-ipp-base",
+    "#_wb_frame_top_banner",   # pywb framed-replay banner
+    "#_wb_plain_banner",       # pywb non-framed banner
+    'script[src*="default_banner.js"]',
+    'script[src*="wombat.js"]',  # pywb client-side rewriter, dead weight
+]
 
 # pywb/OpenWayback replay flag: `<ts>if_` serves the bare archived page
-# without the archive's replay banner/toolbar chrome.
-_REPLAY_TS_RE = re.compile(r"/(\d{14})/")
+# without the archive's replay banner/toolbar chrome. Timemaps may hand
+# out memento URLs that already carry a two-letter replay modifier
+# (arquivo.pt embeds `mp_`) — match and replace it too, or the raw
+# variant is never tried exactly where it matters most.
+_REPLAY_TS_RE = re.compile(r"/(\d{14})(?:[a-z]{2}_)?/")
 
 
 def _raw_replay_variants(memento_url: str) -> list[str]:
@@ -202,8 +235,15 @@ def _raw_replay_variants(memento_url: str) -> list[str]:
 @beartype
 async def fetch_memento_html(
     memento_url: str, timeout: float = _MEMENTO_FETCH_TIMEOUT_S
-) -> str | None:
-    """Fetch a memento's HTML, preferring the raw `if_` replay variant."""
+) -> tuple[str, str] | None:
+    """Fetch a memento's HTML, preferring the raw `if_` replay variant.
+
+    Returns ``(resolved_url, html)`` where ``resolved_url`` is the
+    variant that actually served content. Callers that follow up with
+    a browser render should render ``resolved_url``: when the archive
+    supports ``if_`` it is the banner-free (and, on framed pywb,
+    frame-free) form of the page, verified live by this probe.
+    """
     for candidate in _raw_replay_variants(memento_url):
         try:
             resp = await fetch(
@@ -222,5 +262,5 @@ async def fetch_memento_html(
             )
             continue
         if resp.status_code == 200 and resp.content:  # noqa: PLR2004
-            return resp.text
+            return (candidate, resp.text)
     return None

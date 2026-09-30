@@ -323,19 +323,19 @@ async def _timemap_latest_memento(
 
 
 @beartype
-def latest_memento_from_timemap(
+def mementos_from_timemap(
     body: str,
-) -> tuple[str, datetime | None] | None:
-    """Parse an RFC 7089 link-format timemap; return the newest memento.
+) -> list[tuple[str, datetime | None]]:
+    """Parse an RFC 7089 link-format timemap; return mementos newest-first.
 
     Shared by the archive.today tier and the federated Memento tier —
-    every Memento-compliant archive serves this format. Returns
-    ``(memento_url, memento_datetime)``; the datetime is None when the
-    winning entry had no parseable ``datetime`` attribute. Returns None
-    when the timemap has no ``rel="memento"`` entries at all.
+    every Memento-compliant archive serves this format. Entries whose
+    ``datetime`` attribute is missing or unparseable carry ``None`` and
+    sort last: an undated memento should never shadow a dated one.
+    Empty list when the timemap has no ``rel="memento"`` entries.
     """
     if 'rel="memento"' not in body:
-        return None
+        return []
 
     # Split into individual link-format entries. A naive `split(",")`
     # corrupts RFC-822 datetimes like "Sat, 01 Jan 2022 ..." — the
@@ -343,32 +343,40 @@ def latest_memento_from_timemap(
     # start of the next link value.
     entries = re.split(r",\s*(?=<)", body)
 
-    # Parse each entry, pick the latest `rel="memento"` by datetime.
     # Naive string compare on RFC-822 breaks ("Mon" < "Sat" < "Sun"
     # lexicographically), so we parse to real datetimes.
-    latest_url: str | None = None
-    latest_dt: datetime | None = None
+    parsed: list[tuple[str, datetime | None]] = []
     for block in entries:
         if 'rel="memento"' not in block:
             continue
         memento_url = _extract_angle_url(block)
-        memento_dt_str = _extract_attr(block, "datetime")
         if not memento_url:
             continue
         try:
-            memento_dt = parsedate_to_datetime(memento_dt_str)
+            memento_dt = parsedate_to_datetime(
+                _extract_attr(block, "datetime")
+            )
         except (TypeError, ValueError):
-            # Unparseable datetime — keep the entry as a fallback if
-            # nothing else has landed yet.
-            if latest_url is None:
-                latest_url = memento_url
-            continue
-        if latest_dt is None or memento_dt >= latest_dt:
-            latest_dt = memento_dt
-            latest_url = memento_url
-    if latest_url is None:
-        return None
-    return (latest_url, latest_dt)
+            memento_dt = None
+        # RFC 1123 datetimes are GMT per spec, but a missing zone would
+        # arrive naive and break both the sort below (aware vs naive
+        # compare raises) and the TIMESTAMPTZ write later — pin to UTC.
+        if memento_dt is not None and memento_dt.tzinfo is None:
+            memento_dt = memento_dt.replace(tzinfo=UTC)
+        parsed.append((memento_url, memento_dt))
+
+    epoch = datetime.min.replace(tzinfo=UTC)
+    parsed.sort(key=lambda p: p[1] or epoch, reverse=True)
+    return parsed
+
+
+@beartype
+def latest_memento_from_timemap(
+    body: str,
+) -> tuple[str, datetime | None] | None:
+    """Newest memento in a timemap, or None when it lists none."""
+    mementos = mementos_from_timemap(body)
+    return mementos[0] if mementos else None
 
 
 def _extract_angle_url(block: str) -> str | None:
