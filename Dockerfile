@@ -93,6 +93,12 @@ EXPOSE 8000
 
 USER archiver
 
+# The editable build lives only in the BuildKit cache mount, so a runtime
+# `uv run` finds it "uncached", rebuilds it (fetching hatchling from PyPI)
+# and then fails to rewrite the root-owned venv as `archiver`. The venv is
+# complete after the build-time sync, so run against it as-is.
+ENV UV_NO_SYNC=1
+
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
     CMD curl -f http://localhost:8000/api/health || exit 1
 
