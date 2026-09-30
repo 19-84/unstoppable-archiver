@@ -49,35 +49,39 @@ class TestBuildScript:
     def test_empty_assets_yields_comment(self, tmp_path: Path) -> None:
         """When vendor files are missing, return a harmless comment."""
         _reset_caches()
-        with patch.object(consent, "_CSS_PATH", tmp_path / "missing.css"), \
-             patch.object(consent, "_JSON_PATH", tmp_path / "missing.json"):
+        with (
+            patch.object(consent, "_CSS_PATH", tmp_path / "missing.css"),
+            patch.object(consent, "_JSON_PATH", tmp_path / "missing.json"),
+        ):
             _reset_caches()
             script = consent.build_consent_init_script()
             assert script.strip().startswith("/*")
         _reset_caches()
 
-    def test_selectors_with_quotes_survive_encoding(
-        self, tmp_path: Path
-    ) -> None:
+    def test_selectors_with_quotes_survive_encoding(self, tmp_path: Path) -> None:
         """Selectors containing quotes / backslashes must JSON-encode safely."""
         _reset_caches()
         css_file = tmp_path / "filters.css"
-        css_file.write_text(
-            '[data-consent="banner"] { display: none !important; }'
-        )
+        css_file.write_text('[data-consent="banner"] { display: none !important; }')
         json_file = tmp_path / "filters.json"
-        json_file.write_text(json.dumps({
-            "rules": {"example.com": ['[data-x="y"]']},
-            "exceptions": {},
-        }))
-        with patch.object(consent, "_CSS_PATH", css_file), \
-             patch.object(consent, "_JSON_PATH", json_file):
+        json_file.write_text(
+            json.dumps(
+                {
+                    "rules": {"example.com": ['[data-x="y"]']},
+                    "exceptions": {},
+                }
+            )
+        )
+        with (
+            patch.object(consent, "_CSS_PATH", css_file),
+            patch.object(consent, "_JSON_PATH", json_file),
+        ):
             _reset_caches()
             script = consent.build_consent_init_script()
             # Verify the selector round-trips through JSON safely —
             # must not break the host script.
-            assert '[data-consent=' in script
-            assert '[data-x=' in script
+            assert "[data-consent=" in script
+            assert "[data-x=" in script
             # Sanity: braces balance (template substitution didn't leak).
             assert script.count("{") == script.count("}")
         _reset_caches()

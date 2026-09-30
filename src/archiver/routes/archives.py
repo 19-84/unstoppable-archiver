@@ -45,9 +45,7 @@ async def create_archive(
     enforce_limit(request, settings.rate_limit_submit_per_hour)
     from archiver.url_safety import check_url_safety_async
 
-    safety_error = await check_url_safety_async(
-        str(body.url), blocklist=blocklist
-    )
+    safety_error = await check_url_safety_async(str(body.url), blocklist=blocklist)
     if safety_error:
         raise HTTPException(status_code=400, detail=safety_error)
 
@@ -80,11 +78,12 @@ async def list_archives(
     offset: int = Query(default=0, ge=0),
 ) -> ArchiveListResponse:
     """List archives, most recent first."""
-    archives, total = await _archive_repo.list_recent(
-        conn, limit=limit, offset=offset
-    )
+    archives, total = await _archive_repo.list_recent(conn, limit=limit, offset=offset)
     return ArchiveListResponse(
-        archives=archives, total=total, limit=limit, offset=offset,
+        archives=archives,
+        total=total,
+        limit=limit,
+        offset=offset,
     )
 
 
@@ -96,9 +95,7 @@ async def search_archives(
     offset: int = Query(default=0, ge=0),
 ) -> SearchResult:
     """Full-text search across archived pages."""
-    result = await _archive_repo.search(
-        conn, q, limit=limit, offset=offset
-    )
+    result = await _archive_repo.search(conn, q, limit=limit, offset=offset)
     # The repo's SearchResult uses defaults for limit/offset; overwrite
     # with the actual values the caller used so the response is self-
     # describing for paginating API consumers.
@@ -158,9 +155,7 @@ def _get_artifact_path(
     base = settings_artifacts_dir.resolve()
     path = (base / archive.artifact_dir / filename).resolve()
     if not path.is_relative_to(base):
-        raise HTTPException(
-            status_code=400, detail="Invalid artifact path"
-        )
+        raise HTTPException(status_code=400, detail="Invalid artifact path")
     if not path.exists():
         raise HTTPException(
             status_code=404,
@@ -185,8 +180,7 @@ _ARTIFACT_CACHE_CONTROL = "private, max-age=300"
 
 _SNAPSHOT_HEADERS = {
     "Content-Security-Policy": (
-        "sandbox; default-src 'none'; style-src 'unsafe-inline';"
-        " img-src data: blob:"
+        "sandbox; default-src 'none'; style-src 'unsafe-inline'; img-src data: blob:"
     ),
     "X-Content-Type-Options": "nosniff",
     "Cache-Control": _ARTIFACT_CACHE_CONTROL,
@@ -218,7 +212,8 @@ async def get_snapshot(
         raise HTTPException(status_code=404, detail="Archive not found")
     if not archive.artifact_dir:
         raise HTTPException(
-            status_code=404, detail="Archive has no artifacts",
+            status_code=404,
+            detail="Archive has no artifacts",
         )
 
     artifacts_dir: Path = request.app.state.settings.artifacts_dir
@@ -244,6 +239,7 @@ async def get_snapshot(
             )
         # Server-side decompress fallback for old clients
         import zstandard as _zstd
+
         decompressor = _zstd.ZstdDecompressor()
         plain_bytes = decompressor.decompress(zst_path.read_bytes())
         return Response(
@@ -260,7 +256,8 @@ async def get_snapshot(
         )
 
     raise HTTPException(
-        status_code=404, detail="Artifact snapshot.html not found",
+        status_code=404,
+        detail="Artifact snapshot.html not found",
     )
 
 

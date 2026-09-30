@@ -67,10 +67,10 @@ _collinfo_lock = asyncio.Lock()
 class CCSnapshot:
     """Coordinates of a single CC record for a URL, plus its metadata."""
 
-    url: str            # URL as CC stored it (may differ slightly from query)
-    timestamp: str      # YYYYMMDDHHMMSS
-    crawl_id: str       # CC-MAIN-YYYY-WW
-    filename: str       # path under data.commoncrawl.org
+    url: str  # URL as CC stored it (may differ slightly from query)
+    timestamp: str  # YYYYMMDDHHMMSS
+    crawl_id: str  # CC-MAIN-YYYY-WW
+    filename: str  # path under data.commoncrawl.org
     offset: int
     length: int
     status: int
@@ -126,14 +126,17 @@ async def _query_crawl(  # noqa: PLR0911
     except FetchError as exc:
         log.debug(
             "commoncrawl.query_error",
-            crawl=crawl_id, url=url, error=str(exc)[:120],
+            crawl=crawl_id,
+            url=url,
+            error=str(exc)[:120],
         )
         return None
 
     if resp.status_code in (429, 503):
         log.warning(
             "commoncrawl.rate_limited",
-            crawl=crawl_id, status=resp.status_code,
+            crawl=crawl_id,
+            status=resp.status_code,
         )
         return None
     if resp.status_code != 200:  # noqa: PLR2004
@@ -197,7 +200,9 @@ async def find_snapshot(
         if r is not None and r.status == 200:  # noqa: PLR2004
             log.info(
                 "commoncrawl.snapshot_found",
-                url=url, crawl=r.crawl_id, timestamp=r.timestamp,
+                url=url,
+                crawl=r.crawl_id,
+                timestamp=r.timestamp,
             )
             return r
     return None
@@ -246,7 +251,9 @@ async def find_snapshot_full_history(
     if best is not None:
         log.info(
             "commoncrawl.deep_scan_hit",
-            url=url, crawl=best.crawl_id, timestamp=best.timestamp,
+            url=url,
+            crawl=best.crawl_id,
+            timestamp=best.timestamp,
         )
     return best
 
@@ -276,9 +283,7 @@ async def fetch_record_html(snapshot: CCSnapshot) -> bytes:
     # Range requests return 206 on success; 200 means the server
     # ignored the Range header and returned the whole file.
     if resp.status_code not in (200, 206):
-        raise RuntimeError(
-            f"CC data.commoncrawl.org returned {resp.status_code}"
-        )
+        raise RuntimeError(f"CC data.commoncrawl.org returned {resp.status_code}")
     buf = BytesIO(resp.content)
     # warcio ships no type stubs — its records expose rec_type and
     # content_stream() but pyright sees them as Unknown.
@@ -289,5 +294,3 @@ async def fetch_record_html(snapshot: CCSnapshot) -> bytes:
         body: bytes = rec.content_stream().read()
         return body
     raise RuntimeError("No response record found in WARC chunk")
-
-

@@ -34,9 +34,7 @@ class TestProxyRotator:
         assert rotator.next() is None
 
     def test_single_proxy_returns_it(self) -> None:
-        rotator = ProxyRotator(
-            proxies=[ProxyConfig(server="http://p1:8080")]
-        )
+        rotator = ProxyRotator(proxies=[ProxyConfig(server="http://p1:8080")])
         result = rotator.next()
         assert result is not None
         assert result.server == "http://p1:8080"
@@ -102,26 +100,20 @@ class TestParseProxyList:
         assert parse_proxy_list("") == []
 
     def test_comma_separated(self) -> None:
-        result = parse_proxy_list(
-            "http://p1:8080, socks5://p2:1080"
-        )
+        result = parse_proxy_list("http://p1:8080, socks5://p2:1080")
         assert len(result) == 2  # noqa: PLR2004
         assert result[0].server == "http://p1:8080"
         assert result[1].server == "socks5://p2:1080"
 
     def test_from_file(self, tmp_path: Path) -> None:
         proxy_file = tmp_path / "proxies.txt"
-        proxy_file.write_text(
-            "http://p1:8080\nsocks5://p2:1080\n"
-        )
+        proxy_file.write_text("http://p1:8080\nsocks5://p2:1080\n")
         result = parse_proxy_list(str(proxy_file))
         assert len(result) == 2  # noqa: PLR2004
 
     def test_skips_blank_lines(self, tmp_path: Path) -> None:
         proxy_file = tmp_path / "proxies.txt"
-        proxy_file.write_text(
-            "http://p1:8080\n\n\nhttp://p2:8080\n"
-        )
+        proxy_file.write_text("http://p1:8080\n\n\nhttp://p2:8080\n")
         result = parse_proxy_list(str(proxy_file))
         assert len(result) == 2  # noqa: PLR2004
 
@@ -136,9 +128,7 @@ class TestParseProxyList:
         assert len(result) == 1
 
     def test_deduplicates(self) -> None:
-        result = parse_proxy_list(
-            "http://p1:8080,http://p1:8080,http://p2:8080"
-        )
+        result = parse_proxy_list("http://p1:8080,http://p1:8080,http://p2:8080")
         assert len(result) == 2  # noqa: PLR2004
 
     def test_invalid_scheme_skipped(self) -> None:
@@ -157,8 +147,7 @@ class TestNormalizeEntry:
 
     def test_preserves_scheme(self) -> None:
         assert (
-            _normalize_entry("socks5://1.2.3.4:1080", "http")
-            == "socks5://1.2.3.4:1080"
+            _normalize_entry("socks5://1.2.3.4:1080", "http") == "socks5://1.2.3.4:1080"
         )
 
     def test_non_numeric_port_rejected(self) -> None:
@@ -177,24 +166,29 @@ class TestNormalizeEntry:
 
 class TestInferScheme:
     def test_http_txt_filename(self) -> None:
-        assert _infer_scheme_from_url(
-            "https://raw.githubusercontent.com/user/repo/master/http.txt"
-        ) == "http"
+        assert (
+            _infer_scheme_from_url(
+                "https://raw.githubusercontent.com/user/repo/master/http.txt"
+            )
+            == "http"
+        )
 
     def test_socks5_txt_filename(self) -> None:
         assert _infer_scheme_from_url("https://host/proxies/socks5.txt") == "socks5"
 
     def test_socks5_path_segment(self) -> None:
         # proxifly: .../protocols/socks5/data.txt
-        assert _infer_scheme_from_url(
-            "https://host/repo/main/protocols/socks5/data.txt"
-        ) == "socks5"
+        assert (
+            _infer_scheme_from_url("https://host/repo/main/protocols/socks5/data.txt")
+            == "socks5"
+        )
 
     def test_socks5_underscore_dir(self) -> None:
         # hookzof: .../socks5_list/master/proxy.txt
-        assert _infer_scheme_from_url(
-            "https://host/hookzof/socks5_list/master/proxy.txt"
-        ) == "socks5"
+        assert (
+            _infer_scheme_from_url("https://host/hookzof/socks5_list/master/proxy.txt")
+            == "socks5"
+        )
 
     def test_unknown_returns_none(self) -> None:
         assert _infer_scheme_from_url("https://example.com/list") is None
@@ -204,29 +198,21 @@ class TestFetchProxyListUrl:
     @respx.mock
     async def test_fetches_and_parses(self) -> None:
         respx.get("https://host/proxies/socks5.txt").mock(
-            return_value=httpx.Response(
-                200, text="1.2.3.4:1080\n5.6.7.8:1080\n"
-            )
+            return_value=httpx.Response(200, text="1.2.3.4:1080\n5.6.7.8:1080\n")
         )
-        result = await fetch_proxy_list_url(
-            "https://host/proxies/socks5.txt"
-        )
+        result = await fetch_proxy_list_url("https://host/proxies/socks5.txt")
         assert len(result) == 2  # noqa: PLR2004
         assert all(r.server.startswith("socks5://") for r in result)
 
     @respx.mock
     async def test_404_returns_empty(self) -> None:
-        respx.get("https://host/missing.txt").mock(
-            return_value=httpx.Response(404)
-        )
+        respx.get("https://host/missing.txt").mock(return_value=httpx.Response(404))
         result = await fetch_proxy_list_url("https://host/missing.txt")
         assert result == []
 
     @respx.mock
     async def test_network_error_returns_empty(self) -> None:
-        respx.get("https://host/err.txt").mock(
-            side_effect=httpx.ConnectError("boom")
-        )
+        respx.get("https://host/err.txt").mock(side_effect=httpx.ConnectError("boom"))
         result = await fetch_proxy_list_url("https://host/err.txt")
         assert result == []
 
@@ -254,7 +240,8 @@ class TestLoadProxies:
             return_value=httpx.Response(200, text=body)
         )
         result = await load_proxies(
-            proxy_list="", proxy_list_urls="https://host/http.txt",
+            proxy_list="",
+            proxy_list_urls="https://host/http.txt",
             max_count=5,
         )
         assert len(result) == 5  # noqa: PLR2004
@@ -266,7 +253,8 @@ class TestLoadProxies:
             return_value=httpx.Response(200, text=body)
         )
         result = await load_proxies(
-            proxy_list="", proxy_list_urls="https://host/http.txt",
+            proxy_list="",
+            proxy_list_urls="https://host/http.txt",
             max_count=0,
         )
         assert len(result) == 19  # all entries preserved  # noqa: PLR2004
@@ -289,9 +277,7 @@ class TestHealthCheck:
 
     @respx.mock
     async def test_proxy_health_failure(self) -> None:
-        respx.get("https://probe.example/ip").mock(
-            return_value=httpx.Response(502)
-        )
+        respx.get("https://probe.example/ip").mock(return_value=httpx.Response(502))
         ok = await health_check_proxy(
             ProxyConfig(server="http://proxy:8080"),
             "https://probe.example/ip",
@@ -354,9 +340,7 @@ class TestHealthCheck:
         assert len(healthy) == 2  # noqa: PLR2004
 
     async def test_filter_healthy_empty(self) -> None:
-        healthy = await filter_healthy(
-            [], probe_url="https://probe/ip"
-        )
+        healthy = await filter_healthy([], probe_url="https://probe/ip")
         assert healthy == []
 
 
@@ -393,7 +377,8 @@ class TestFilterSocks5:
         ]
         kept = filter_socks5(proxies)
         assert [p.server for p in kept] == [
-            "socks5://h2:1080", "socks5://h5:9050",
+            "socks5://h2:1080",
+            "socks5://h5:9050",
         ]
 
     def test_empty(self) -> None:
@@ -407,11 +392,14 @@ class TestAsnLookup:
     @respx.mock
     async def test_lookup_returns_org_and_country(self) -> None:
         respx.get("https://ipwho.is/1.2.3.4").mock(
-            return_value=httpx.Response(200, json={
-                "success": True,
-                "country_code": "DE",
-                "connection": {"org": "Hetzner Online", "isp": "Hetzner"},
-            })
+            return_value=httpx.Response(
+                200,
+                json={
+                    "success": True,
+                    "country_code": "DE",
+                    "connection": {"org": "Hetzner Online", "isp": "Hetzner"},
+                },
+            )
         )
         info = await lookup_asn("1.2.3.4")
         assert info["org"] == "Hetzner Online"
@@ -423,11 +411,14 @@ class TestAsnLookup:
 
         def responder(_: httpx.Request) -> httpx.Response:
             call_count["n"] += 1
-            return httpx.Response(200, json={
-                "success": True,
-                "country_code": "US",
-                "connection": {"org": "X", "isp": "Y"},
-            })
+            return httpx.Response(
+                200,
+                json={
+                    "success": True,
+                    "country_code": "US",
+                    "connection": {"org": "X", "isp": "Y"},
+                },
+            )
 
         respx.get("https://ipwho.is/5.6.7.8").mock(side_effect=responder)
         await lookup_asn("5.6.7.8")
@@ -443,9 +434,7 @@ class TestAsnLookup:
 
     @respx.mock
     async def test_lookup_http_error_returns_empty(self) -> None:
-        respx.get("https://ipwho.is/8.8.8.8").mock(
-            return_value=httpx.Response(500)
-        )
+        respx.get("https://ipwho.is/8.8.8.8").mock(return_value=httpx.Response(500))
         assert await lookup_asn("8.8.8.8") == {}
 
     @respx.mock
@@ -475,17 +464,14 @@ class TestProbeArchiveGate:
         camoufox.__aexit__ = AsyncMock(return_value=False)
         return camoufox
 
-    async def test_clean_response_passes(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_clean_response_passes(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Response lacking reCAPTCHA markers → gate considered passed."""
         from camoufox import async_api
 
         cx = self._fake_camoufox("<html><body>Welcome to archive.ph</body></html>")
-        monkeypatch.setattr(
-            async_api, "AsyncCamoufox", lambda *a, **kw: cx
-        )
+        monkeypatch.setattr(async_api, "AsyncCamoufox", lambda *a, **kw: cx)
         from archiver.proxy import probe_archive_gate
+
         assert await probe_archive_gate(ProxyConfig(server="socks5://p:1")) is True
 
     async def test_recaptcha_response_fails(
@@ -495,10 +481,9 @@ class TestProbeArchiveGate:
 
         challenge = '<html><div id="g-recaptcha"></div></html>'
         cx = self._fake_camoufox(challenge)
-        monkeypatch.setattr(
-            async_api, "AsyncCamoufox", lambda *a, **kw: cx
-        )
+        monkeypatch.setattr(async_api, "AsyncCamoufox", lambda *a, **kw: cx)
         from archiver.proxy import probe_archive_gate
+
         assert await probe_archive_gate(ProxyConfig(server="socks5://p:1")) is False
 
     async def test_exception_classifies_as_fail(
@@ -511,13 +496,12 @@ class TestProbeArchiveGate:
 
         monkeypatch.setattr(async_api, "AsyncCamoufox", exploder)
         from archiver.proxy import probe_archive_gate
+
         assert await probe_archive_gate(ProxyConfig(server="socks5://p:1")) is False
 
 
 class TestFilterGatePassing:
-    async def test_filters_using_probe(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_filters_using_probe(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """filter_gate_passing should use probe_archive_gate results."""
         results = {
             "socks5://good:1": True,
@@ -529,18 +513,19 @@ class TestFilterGatePassing:
             return results[p.server]
 
         from archiver import proxy as proxy_mod
+
         monkeypatch.setattr(proxy_mod, "probe_archive_gate", fake_probe)
 
-        proxies = [
-            ProxyConfig(server=s) for s in results
-        ]
+        proxies = [ProxyConfig(server=s) for s in results]
         kept = await proxy_mod.filter_gate_passing(proxies, concurrency=3)
         assert sorted(p.server for p in kept) == [
-            "socks5://flaky:1", "socks5://good:1",
+            "socks5://flaky:1",
+            "socks5://good:1",
         ]
 
     async def test_empty(self) -> None:
         from archiver.proxy import filter_gate_passing
+
         assert await filter_gate_passing([]) == []
 
 
@@ -551,25 +536,34 @@ class TestFilterByAsn:
     @respx.mock
     async def test_drops_datacenter_keeps_residential(self) -> None:
         respx.get("https://ipwho.is/1.1.1.1").mock(
-            return_value=httpx.Response(200, json={
-                "success": True,
-                "country_code": "DE",
-                "connection": {"org": "Hetzner Online", "isp": "Hetzner"},
-            })
+            return_value=httpx.Response(
+                200,
+                json={
+                    "success": True,
+                    "country_code": "DE",
+                    "connection": {"org": "Hetzner Online", "isp": "Hetzner"},
+                },
+            )
         )
         respx.get("https://ipwho.is/2.2.2.2").mock(
-            return_value=httpx.Response(200, json={
-                "success": True,
-                "country_code": "RU",
-                "connection": {"org": "MTS PJSC", "isp": "MTS"},
-            })
+            return_value=httpx.Response(
+                200,
+                json={
+                    "success": True,
+                    "country_code": "RU",
+                    "connection": {"org": "MTS PJSC", "isp": "MTS"},
+                },
+            )
         )
         respx.get("https://ipwho.is/3.3.3.3").mock(
-            return_value=httpx.Response(200, json={
-                "success": True,
-                "country_code": "US",
-                "connection": {"org": "Amazon AWS", "isp": "AWS"},
-            })
+            return_value=httpx.Response(
+                200,
+                json={
+                    "success": True,
+                    "country_code": "US",
+                    "connection": {"org": "Amazon AWS", "isp": "AWS"},
+                },
+            )
         )
         proxies = [
             ProxyConfig(server="socks5://1.1.1.1:1080"),

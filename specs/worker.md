@@ -22,7 +22,7 @@ The worker is a standalone async process that:
 ```python
 class Worker:
     def __init__(self, settings: Settings) -> None: ...
-    async def run(self) -> None: ...       # Main loop
+    async def run(self) -> None: ...  # Main loop
     async def shutdown(self) -> None: ...  # Graceful stop
 ```
 

@@ -87,7 +87,10 @@ class PlaywrightWARCWriter:
         )
         warc_bodies_dropped_total.labels(reason=reason).inc()
         log.warning(
-            "warc.body_dropped", url=url, size=size, reason=reason,
+            "warc.body_dropped",
+            url=url,
+            size=size,
+            reason=reason,
         )
 
     def add_exchange(self, exchange: CapturedExchange) -> bool:
@@ -104,7 +107,9 @@ class PlaywrightWARCWriter:
 
     @beartype
     def finalize(
-        self, output_path: Path, original_url: str | None = None,
+        self,
+        output_path: Path,
+        original_url: str | None = None,
     ) -> int:
         """Write all collected exchanges to a .warc.gz file.
 

@@ -14,9 +14,7 @@ from archiver.enums import CaptureTier
 
 
 def _make_settings() -> Settings:
-    return Settings(
-        chromium_headless=True, camoufox_headless="virtual"
-    )
+    return Settings(chromium_headless=True, camoufox_headless="virtual")
 
 
 def _mock_browser() -> MagicMock:
@@ -26,17 +24,11 @@ def _mock_browser() -> MagicMock:
 
 class TestBrowserPoolChromium:
     @patch("archiver.browser_pool.async_playwright")
-    async def test_get_browser_chromium(
-        self, mock_pw_fn: MagicMock
-    ) -> None:
+    async def test_get_browser_chromium(self, mock_pw_fn: MagicMock) -> None:
         mock_browser = _mock_browser()
         mock_pw = AsyncMock()
-        mock_pw.chromium.launch = AsyncMock(
-            return_value=mock_browser
-        )
-        mock_pw_fn.return_value.start = AsyncMock(
-            return_value=mock_pw
-        )
+        mock_pw.chromium.launch = AsyncMock(return_value=mock_browser)
+        mock_pw_fn.return_value.start = AsyncMock(return_value=mock_pw)
 
         pool = BrowserPool(_make_settings())
         browser = await pool.get_browser(CaptureTier.CHROMIUM)
@@ -44,17 +36,11 @@ class TestBrowserPoolChromium:
         assert browser is mock_browser
 
     @patch("archiver.browser_pool.async_playwright")
-    async def test_chromium_lazy_singleton(
-        self, mock_pw_fn: MagicMock
-    ) -> None:
+    async def test_chromium_lazy_singleton(self, mock_pw_fn: MagicMock) -> None:
         mock_browser = _mock_browser()
         mock_pw = AsyncMock()
-        mock_pw.chromium.launch = AsyncMock(
-            return_value=mock_browser
-        )
-        mock_pw_fn.return_value.start = AsyncMock(
-            return_value=mock_pw
-        )
+        mock_pw.chromium.launch = AsyncMock(return_value=mock_browser)
+        mock_pw_fn.return_value.start = AsyncMock(return_value=mock_pw)
 
         pool = BrowserPool(_make_settings())
         b1 = await pool.get_browser(CaptureTier.CHROMIUM)
@@ -66,14 +52,10 @@ class TestBrowserPoolChromium:
 
 class TestBrowserPoolCamoufox:
     @patch("archiver.browser_pool.async_playwright")
-    async def test_get_browser_camoufox(
-        self, mock_pw_fn: MagicMock
-    ) -> None:
+    async def test_get_browser_camoufox(self, mock_pw_fn: MagicMock) -> None:
         mock_browser = _mock_browser()
         mock_ctx = AsyncMock()
-        mock_ctx.__aenter__ = AsyncMock(
-            return_value=mock_browser
-        )
+        mock_ctx.__aenter__ = AsyncMock(return_value=mock_browser)
 
         pool = BrowserPool(_make_settings())
 
@@ -81,20 +63,14 @@ class TestBrowserPoolCamoufox:
             "camoufox.async_api.AsyncCamoufox",
             return_value=mock_ctx,
         ):
-            browser = await pool.get_browser(
-                CaptureTier.CAMOUFOX
-            )
+            browser = await pool.get_browser(CaptureTier.CAMOUFOX)
             assert browser is mock_browser
 
     @patch("archiver.browser_pool.async_playwright")
-    async def test_non_chromium_routes_to_camoufox(
-        self, mock_pw_fn: MagicMock
-    ) -> None:
+    async def test_non_chromium_routes_to_camoufox(self, mock_pw_fn: MagicMock) -> None:
         mock_browser = _mock_browser()
         mock_ctx = AsyncMock()
-        mock_ctx.__aenter__ = AsyncMock(
-            return_value=mock_browser
-        )
+        mock_ctx.__aenter__ = AsyncMock(return_value=mock_browser)
 
         pool = BrowserPool(_make_settings())
 
@@ -102,32 +78,22 @@ class TestBrowserPoolCamoufox:
             "camoufox.async_api.AsyncCamoufox",
             return_value=mock_ctx,
         ):
-            browser = await pool.get_browser(
-                CaptureTier.CAMOUFOX_PROXY
-            )
+            browser = await pool.get_browser(CaptureTier.CAMOUFOX_PROXY)
             assert browser is mock_browser
 
 
 class TestBrowserPoolClose:
     @patch("archiver.browser_pool.async_playwright")
-    async def test_close_all(
-        self, mock_pw_fn: MagicMock
-    ) -> None:
+    async def test_close_all(self, mock_pw_fn: MagicMock) -> None:
         mock_chromium = _mock_browser()
         mock_chromium.close = AsyncMock()
         mock_pw = AsyncMock()
-        mock_pw.chromium.launch = AsyncMock(
-            return_value=mock_chromium
-        )
-        mock_pw_fn.return_value.start = AsyncMock(
-            return_value=mock_pw
-        )
+        mock_pw.chromium.launch = AsyncMock(return_value=mock_chromium)
+        mock_pw_fn.return_value.start = AsyncMock(return_value=mock_pw)
 
         mock_camoufox = _mock_browser()
         mock_camoufox_ctx = AsyncMock()
-        mock_camoufox_ctx.__aenter__ = AsyncMock(
-            return_value=mock_camoufox
-        )
+        mock_camoufox_ctx.__aenter__ = AsyncMock(return_value=mock_camoufox)
         mock_camoufox_ctx.__aexit__ = AsyncMock()
 
         pool = BrowserPool(_make_settings())
@@ -168,9 +134,7 @@ class TestBrowserPoolDisconnectHandlers:
         assert pool._camoufox_ctx is None
 
     @patch("archiver.browser_pool.async_playwright")
-    async def test_stale_chromium_relaunches(
-        self, mock_pw_fn: MagicMock
-    ) -> None:
+    async def test_stale_chromium_relaunches(self, mock_pw_fn: MagicMock) -> None:
         """A disconnected cached browser must be replaced, not returned."""
         stale = _mock_browser()
         stale.is_connected = MagicMock(return_value=False)
@@ -196,8 +160,6 @@ class TestBrowserPoolDisconnectHandlers:
         pool = BrowserPool(_make_settings())
         pool._camoufox = stale
         pool._camoufox_ctx = AsyncMock()
-        with patch(
-            "camoufox.async_api.AsyncCamoufox", return_value=mock_ctx
-        ):
+        with patch("camoufox.async_api.AsyncCamoufox", return_value=mock_ctx):
             browser = await pool.get_browser(CaptureTier.CAMOUFOX)
         assert browser is fresh

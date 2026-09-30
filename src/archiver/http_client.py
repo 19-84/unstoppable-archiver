@@ -62,9 +62,7 @@ DEFAULT_MAX_BYTES = 32 * 1024 * 1024
 _MAX_REDIRECTS = 10
 _STREAM_CHUNK_TARGET = 65_536
 
-_DEFAULT_TIMEOUT = httpx.Timeout(
-    connect=10.0, read=30.0, write=10.0, pool=10.0
-)
+_DEFAULT_TIMEOUT = httpx.Timeout(connect=10.0, read=30.0, write=10.0, pool=10.0)
 _LIMITS = httpx.Limits(max_connections=20, max_keepalive_connections=10)
 
 # Indirection so unit tests can patch delays out without touching the
@@ -222,16 +220,26 @@ async def fetch(  # noqa: PLR0913
             limits=_LIMITS,
         ) as client:
             return await _fetch_with_client(
-                client, method, target,
-                headers=headers, timeout=timeout,
-                follow_redirects=follow_redirects, max_bytes=max_bytes,
-                attempts=attempts, guard_private_ips=guard_private_ips,
+                client,
+                method,
+                target,
+                headers=headers,
+                timeout=timeout,
+                follow_redirects=follow_redirects,
+                max_bytes=max_bytes,
+                attempts=attempts,
+                guard_private_ips=guard_private_ips,
             )
     return await _fetch_with_client(
-        _shared_client(), method, target,
-        headers=headers, timeout=timeout,
-        follow_redirects=follow_redirects, max_bytes=max_bytes,
-        attempts=attempts, guard_private_ips=guard_private_ips,
+        _shared_client(),
+        method,
+        target,
+        headers=headers,
+        timeout=timeout,
+        follow_redirects=follow_redirects,
+        max_bytes=max_bytes,
+        attempts=attempts,
+        guard_private_ips=guard_private_ips,
     )
 
 
@@ -261,9 +269,7 @@ async def _fetch_with_client(  # noqa: PLR0913
         if guard_private_ips:
             error = await check_url_safety_async(current_url)
             if error:
-                raise UnsafeURLError(
-                    f"Refusing to fetch {current_url}: {error}"
-                )
+                raise UnsafeURLError(f"Refusing to fetch {current_url}: {error}")
 
         delay: float | None = None
         try:
@@ -275,20 +281,14 @@ async def _fetch_with_client(  # noqa: PLR0913
             ) as resp:
                 is_last = attempt >= attempts
                 if resp.status_code in RETRY_STATUSES and not is_last:
-                    retry_after = _parse_retry_after(
-                        resp.headers.get("retry-after")
-                    )
+                    retry_after = _parse_retry_after(resp.headers.get("retry-after"))
                     delay = _retry_delay(attempt, retry_after)
                 elif resp.has_redirect_location and follow_redirects:
                     redirects += 1
                     if redirects > _MAX_REDIRECTS:
-                        raise UpstreamError(
-                            f"Too many redirects fetching {url}"
-                        )
+                        raise UpstreamError(f"Too many redirects fetching {url}")
                     current_url = str(
-                        httpx.URL(current_url).join(
-                            resp.headers["location"]
-                        )
+                        httpx.URL(current_url).join(resp.headers["location"])
                     )
                     current_method = "GET"
                     continue

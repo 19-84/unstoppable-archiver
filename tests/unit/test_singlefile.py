@@ -44,9 +44,7 @@ class TestLoadBundle:
 
     def test_strips_es_module_wrapper(self, tmp_path: Path) -> None:
         bundle_file = tmp_path / "esm-bundle.js"
-        bundle_file.write_text(
-            'const script = "var singlefile=1;";export { script };'
-        )
+        bundle_file.write_text('const script = "var singlefile=1;";export { script };')
         _load_bundle_cached.cache_clear()
         result = load_bundle(bundle_file)
         assert "export" not in result
@@ -56,7 +54,9 @@ class TestLoadBundle:
 
 class TestCliAvailable:
     def test_returns_true_when_found(self) -> None:
-        with patch("archiver.singlefile.shutil.which", return_value="/usr/bin/single-file"):
+        with patch(
+            "archiver.singlefile.shutil.which", return_value="/usr/bin/single-file"
+        ):
             assert cli_available() is True
 
     def test_returns_false_when_not_found(self) -> None:
@@ -68,9 +68,7 @@ class TestCaptureViaCli:
     @patch("archiver.singlefile.asyncio.create_subprocess_exec")
     async def test_success(self, mock_exec: MagicMock) -> None:
         proc = AsyncMock()
-        proc.communicate = AsyncMock(
-            return_value=(b"<html>captured</html>", b"")
-        )
+        proc.communicate = AsyncMock(return_value=(b"<html>captured</html>", b""))
         proc.returncode = 0
         mock_exec.return_value = proc
 
@@ -78,22 +76,22 @@ class TestCaptureViaCli:
         # the host filesystem for an installed Chromium and fails in
         # CI / sandboxed test envs that only have the Playwright bundle.
         result = await capture_via_cli(
-            "https://example.com", browser_path="/fake/chromium",
+            "https://example.com",
+            browser_path="/fake/chromium",
         )
         assert result == "<html>captured</html>"
 
     @patch("archiver.singlefile.asyncio.create_subprocess_exec")
     async def test_nonzero_exit_raises(self, mock_exec: MagicMock) -> None:
         proc = AsyncMock()
-        proc.communicate = AsyncMock(
-            return_value=(b"", b"Error: page not found")
-        )
+        proc.communicate = AsyncMock(return_value=(b"", b"Error: page not found"))
         proc.returncode = 1
         mock_exec.return_value = proc
 
         with pytest.raises(CaptureError, match="single-file-cli exit 1"):
             await capture_via_cli(
-                "https://example.com", browser_path="/fake/chromium",
+                "https://example.com",
+                browser_path="/fake/chromium",
             )
 
     @patch("archiver.singlefile.asyncio.create_subprocess_exec")
@@ -121,31 +119,21 @@ class TestCaptureViaCli:
         mock_exec.return_value = proc
 
         with pytest.raises(CaptureError, match="empty output"):
-            await capture_via_cli(
-                "https://example.com", browser_path="/fake/chromium"
-            )
+            await capture_via_cli("https://example.com", browser_path="/fake/chromium")
 
     @patch("archiver.singlefile._discover_chromium_for_cli")
-    async def test_no_chromium_found_raises(
-        self, mock_discover: MagicMock
-    ) -> None:
+    async def test_no_chromium_found_raises(self, mock_discover: MagicMock) -> None:
         mock_discover.return_value = None
         with pytest.raises(CaptureError, match="Chromium binary"):
             await capture_via_cli("https://example.com")
 
     @patch("archiver.singlefile._discover_chromium_for_cli")
-    async def test_discover_returns_path_used(
-        self, mock_discover: MagicMock
-    ) -> None:
+    async def test_discover_returns_path_used(self, mock_discover: MagicMock) -> None:
         """When browser_path is None, discovery is consulted."""
         mock_discover.return_value = "/discovered/chromium"
-        with patch(
-            "archiver.singlefile.asyncio.create_subprocess_exec"
-        ) as mock_exec:
+        with patch("archiver.singlefile.asyncio.create_subprocess_exec") as mock_exec:
             proc = AsyncMock()
-            proc.communicate = AsyncMock(
-                return_value=(b"<html>ok</html>", b"")
-            )
+            proc.communicate = AsyncMock(return_value=(b"<html>ok</html>", b""))
             proc.returncode = 0
             mock_exec.return_value = proc
             result = await capture_via_cli("https://example.com")

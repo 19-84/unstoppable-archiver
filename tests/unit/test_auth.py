@@ -72,6 +72,7 @@ class TestRequireAdmin:
         request = _make_request_with_session(settings, {})
 
         import pytest
+
         with pytest.raises(HTTPException) as exc_info:
             await require_admin(request, settings)  # type: ignore[arg-type]
         assert exc_info.value.status_code == 404  # noqa: PLR2004
@@ -89,6 +90,7 @@ class TestRequireAdmin:
         request = _make_request_with_session(settings, {})
 
         import pytest
+
         with pytest.raises(HTTPException) as exc_info:
             await require_admin(request, settings)  # type: ignore[arg-type]
         assert exc_info.value.status_code == 401  # noqa: PLR2004

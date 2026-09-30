@@ -65,8 +65,8 @@ _MAX_CANDIDATES = 4
 class MementoArchive:
     """One Memento-compliant upstream archive."""
 
-    id: str              # short slug, used in logs and provenance
-    name: str            # human-readable, for docs/UI
+    id: str  # short slug, used in logs and provenance
+    name: str  # human-readable, for docs/UI
     timemap_prefix: str  # timemap URL = prefix + original URL
 
 
@@ -92,8 +92,7 @@ MEMENTO_ARCHIVES: tuple[MementoArchive, ...] = (
         id="lac",
         name="Library and Archives Canada",
         timemap_prefix=(
-            "https://webarchiveweb.wayback.bac-lac.canada.ca"
-            "/web/timemap/link/"
+            "https://webarchiveweb.wayback.bac-lac.canada.ca/web/timemap/link/"
         ),
     ),
     MementoArchive(
@@ -170,14 +169,12 @@ async def find_memento_candidates(
                     memento_url=memento_url,
                     timestamp=memento_dt,
                 )
-                for memento_url, memento_dt in mementos_from_timemap(
-                    resp.text
-                )[:_PER_ARCHIVE_CANDIDATES]
+                for memento_url, memento_dt in mementos_from_timemap(resp.text)[
+                    :_PER_ARCHIVE_CANDIDATES
+                ]
             ]
 
-    results = await asyncio.gather(
-        *(_query(a) for a in MEMENTO_ARCHIVES)
-    )
+    results = await asyncio.gather(*(_query(a) for a in MEMENTO_ARCHIVES))
     hits = [h for per_archive in results for h in per_archive]
     if not hits:
         return []
@@ -203,10 +200,10 @@ async def find_memento_candidates(
 # page rather than the archive's UI. Selectors that don't match a given
 # archive simply remove nothing.
 MEMENTO_STRIP_SELECTORS: list[str] = [
-    "#wm-ipp",                 # OpenWayback / IA-style toolbar
+    "#wm-ipp",  # OpenWayback / IA-style toolbar
     "#wm-ipp-base",
-    "#_wb_frame_top_banner",   # pywb framed-replay banner
-    "#_wb_plain_banner",       # pywb non-framed banner
+    "#_wb_frame_top_banner",  # pywb framed-replay banner
+    "#_wb_plain_banner",  # pywb non-framed banner
     'script[src*="default_banner.js"]',
     'script[src*="wombat.js"]',  # pywb client-side rewriter, dead weight
 ]

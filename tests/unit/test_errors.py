@@ -49,9 +49,7 @@ class TestAntiBotDetectedError:
 
 class TestDuplicateCaptureError:
     def test_existing_id(self) -> None:
-        err = DuplicateCaptureError(
-            "already captured", existing_id="01ABC"
-        )
+        err = DuplicateCaptureError("already captured", existing_id="01ABC")
         assert err.existing_id == "01ABC"
         assert err.code == "DUPLICATE_CAPTURE"
 

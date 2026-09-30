@@ -42,9 +42,7 @@ async def metrics(
 ) -> Response:
     """Prometheus metrics endpoint (text/plain)."""
     # Refresh real-time gauges before serialization
-    queued = await conn.fetchval(
-        "SELECT count(*) FROM jobs WHERE status = 'queued'"
-    )
+    queued = await conn.fetchval("SELECT count(*) FROM jobs WHERE status = 'queued'")
     jobs_queued.set(queued or 0)
     body, content_type = prometheus_text()
     return Response(content=body, media_type=content_type)

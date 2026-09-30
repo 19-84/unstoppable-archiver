@@ -43,7 +43,9 @@ log = structlog.get_logger()
 async def _lifespan(app: FastAPI) -> AsyncGenerator[None]:  # pragma: no cover
     """Manage DB pool + blocklist lifecycle."""
     settings: Settings = app.state.settings
-    pool = await create_pool(settings.db_url.get_secret_value(), min_size=2, max_size=10)
+    pool = await create_pool(
+        settings.db_url.get_secret_value(), min_size=2, max_size=10
+    )
     await init_db(pool)
     app.state.pool = pool
     app.state.blocklist = await load_blocklist(settings)

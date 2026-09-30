@@ -50,7 +50,9 @@ class TestWaybackUrlFilter:
             url="https://example.com/article",
             created_at=datetime(2026, 4, 18, 12, 30, 45, tzinfo=UTC),
         )
-        assert _wayback_url(archive) == "/web/20260418123045/https://example.com/article"
+        assert (
+            _wayback_url(archive) == "/web/20260418123045/https://example.com/article"
+        )
 
     def test_missing_attrs_returns_empty(self) -> None:
         assert _wayback_url(SimpleNamespace()) == ""

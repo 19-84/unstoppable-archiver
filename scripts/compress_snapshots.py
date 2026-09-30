@@ -41,7 +41,9 @@ _DEFAULT_LEVEL = 19
 
 
 def _compress_one(
-    plain: Path, level: int, dry_run: bool,
+    plain: Path,
+    level: int,
+    dry_run: bool,
 ) -> tuple[int, int]:
     """Compress one snapshot.html. Returns (orig_size, zst_size).
 

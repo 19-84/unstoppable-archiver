@@ -38,9 +38,7 @@ def setup_logging(
     ]
 
     if log_format == "console":
-        renderer: structlog.types.Processor = (
-            structlog.dev.ConsoleRenderer()
-        )
+        renderer: structlog.types.Processor = structlog.dev.ConsoleRenderer()
     else:
         renderer = structlog.processors.JSONRenderer()
 
@@ -67,6 +65,4 @@ def setup_logging(
     root_logger = logging.getLogger()
     root_logger.handlers.clear()
     root_logger.addHandler(handler)
-    root_logger.setLevel(
-        getattr(logging, log_level.upper())
-    )
+    root_logger.setLevel(getattr(logging, log_level.upper()))

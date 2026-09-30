@@ -60,9 +60,7 @@ class TestCheckUrlSafety:
 
     def test_allows_onion(self) -> None:
         # .onion can't be resolved via DNS — should pass
-        result = check_url_safety(
-            "http://expyuzz4wqqyqhjn.onion/"
-        )
+        result = check_url_safety("http://expyuzz4wqqyqhjn.onion/")
         assert result is None
 
     def test_blocks_empty_hostname(self) -> None:
@@ -78,9 +76,7 @@ class TestCheckUrlSafety:
         from archiver.blocklist import DomainBlocklist
 
         bl = DomainBlocklist(blocked={"evil.example.com"})
-        result = check_url_safety(
-            "https://evil.example.com/", blocklist=bl
-        )
+        result = check_url_safety("https://evil.example.com/", blocklist=bl)
         assert result is not None
         assert "evil.example.com" in result
 
@@ -110,17 +106,13 @@ class TestCheckUrlSafetyAsync:
         assert result is not None
 
     async def test_allows_onion(self) -> None:
-        result = await check_url_safety_async(
-            "http://expyuzz4wqqyqhjn.onion/"
-        )
+        result = await check_url_safety_async("http://expyuzz4wqqyqhjn.onion/")
         assert result is None
 
     async def test_domain_blocklist_hit_reported(self) -> None:
         from archiver.blocklist import DomainBlocklist
 
         bl = DomainBlocklist(blocked={"evil.example.com"})
-        result = await check_url_safety_async(
-            "https://evil.example.com/", blocklist=bl
-        )
+        result = await check_url_safety_async("https://evil.example.com/", blocklist=bl)
         assert result is not None
         assert "evil.example.com" in result

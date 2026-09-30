@@ -96,18 +96,22 @@ def crawl(
     # the user types a query. /sitemap.xml and /robots.txt are crawler
     # endpoints with no inbound link from the UI but must stay healthy.
     # Seeding all makes the checker resilient to UI state at probe time.
-    queue: deque[str] = deque([
-        base,
-        f"{base}/archives",
-        f"{base}/search?q=test",
-        f"{base}/sitemap.xml",
-        f"{base}/robots.txt",
-    ])
+    queue: deque[str] = deque(
+        [
+            base,
+            f"{base}/archives",
+            f"{base}/search?q=test",
+            f"{base}/sitemap.xml",
+            f"{base}/robots.txt",
+        ]
+    )
     errors: list[str] = []
 
     cookies = {"session": session_cookie} if session_cookie else None
     with httpx.Client(
-        follow_redirects=True, timeout=10.0, cookies=cookies,
+        follow_redirects=True,
+        timeout=10.0,
+        cookies=cookies,
     ) as client:
         while queue and len(visited) < max_pages:
             url = queue.popleft()
@@ -145,10 +149,13 @@ def crawl(
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "base", help="Base URL, e.g. http://localhost:8000",
+        "base",
+        help="Base URL, e.g. http://localhost:8000",
     )
     parser.add_argument(
-        "--max-pages", type=int, default=100,
+        "--max-pages",
+        type=int,
+        default=100,
         help="Hard cap on pages crawled (default: 100)",
     )
     parser.add_argument(
@@ -164,7 +171,9 @@ def main() -> int:
     base = args.base.rstrip("/")
     print(f"Crawling from {base}/")
     visited, errors = crawl(
-        base, max_pages=args.max_pages, session_cookie=args.cookie,
+        base,
+        max_pages=args.max_pages,
+        session_cookie=args.cookie,
     )
     print(f"Visited {len(visited)} pages")
     if errors:

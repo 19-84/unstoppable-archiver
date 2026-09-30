@@ -14,31 +14,35 @@ from icontract import ensure, require
 # script URLs / challenge platform hooks. Prefer these over translated copy,
 # which breaks for non-English CF challenges (e.g. Swedish wsj.com renders
 # "Verifiera enheten" instead of "Just a moment...").
-CLOUDFLARE_MARKERS: frozenset[str] = frozenset({
-    "cf-browser-verification",
-    "cf_chl_opt",
-    "cf-turnstile",
-    "_cf_chl_tk",
-    "challenge-platform",
-    "challenges.cloudflare.com",
-    "cf-mitigated",
-    "__cf_chl_rt_tk",
-    "cf-chl-bypass",
-    "ray id:",
-})
+CLOUDFLARE_MARKERS: frozenset[str] = frozenset(
+    {
+        "cf-browser-verification",
+        "cf_chl_opt",
+        "cf-turnstile",
+        "_cf_chl_tk",
+        "challenge-platform",
+        "challenges.cloudflare.com",
+        "cf-mitigated",
+        "__cf_chl_rt_tk",
+        "cf-chl-bypass",
+        "ray id:",
+    }
+)
 
 # Platform-specific block pages that return 200 OK with apparently-valid
 # content (Reddit especially — their "blocked by network security" page
 # was captured as a successful archive until we added this marker).
-PLATFORM_BLOCK_MARKERS: frozenset[str] = frozenset({
-    "you've been blocked by network security",
-    "you have been blocked",
-    "sorry, you have been blocked",
-    "your ip has been temporarily blocked",
-    "unusual activity detected",
-    "request could not be satisfied",
-    "enable javascript and cookies to continue",
-})
+PLATFORM_BLOCK_MARKERS: frozenset[str] = frozenset(
+    {
+        "you've been blocked by network security",
+        "you have been blocked",
+        "sorry, you have been blocked",
+        "your ip has been temporarily blocked",
+        "unusual activity detected",
+        "request could not be satisfied",
+        "enable javascript and cookies to continue",
+    }
+)
 
 # Soft login/content walls. Some sites — notably X/Twitter — serve a
 # fully-rendered "log in to see this content" page as HTTP 200 with no
@@ -65,55 +69,61 @@ PLATFORM_BLOCK_MARKERS: frozenset[str] = frozenset({
 # approach for Cloudflare titles. Locales are added as captures
 # surface them — guessing translations risks a non-matching string
 # that gives false confidence.
-LOGIN_WALL_MARKERS: frozenset[str] = frozenset({
-    "people on x are the first to know",       # X/Twitter wall (en)
-    "folk på x får reda på allt först",         # X/Twitter wall (sv)
-})
+LOGIN_WALL_MARKERS: frozenset[str] = frozenset(
+    {
+        "people on x are the first to know",  # X/Twitter wall (en)
+        "folk på x får reda på allt först",  # X/Twitter wall (sv)
+    }
+)
 
-GENERIC_BLOCK_MARKERS: frozenset[str] = frozenset({
-    "captcha",
-    "recaptcha",
-    "hcaptcha",
-    "bot detection",
-    "automated access",
-    "please verify",
-    "unusual traffic",
-})
+GENERIC_BLOCK_MARKERS: frozenset[str] = frozenset(
+    {
+        "captcha",
+        "recaptcha",
+        "hcaptcha",
+        "bot detection",
+        "automated access",
+        "please verify",
+        "unusual traffic",
+    }
+)
 
 # Title patterns spanning English, Spanish, French, German, Portuguese,
 # Swedish — Cloudflare and most block pages localize on Accept-Language.
-BLOCK_TITLE_PATTERNS: frozenset[str] = frozenset({
-    # English
-    "access denied",
-    "just a moment",
-    "attention required",
-    "please wait",
-    "checking your browser",
-    "security check",
-    "are you a robot",
-    "blocked",
-    "forbidden",
-    "verify you are human",
-    # Spanish (es)
-    "un momento",
-    "verificando",
-    "acceso denegado",
-    # French (fr)
-    "un instant",
-    "accès refusé",
-    "vérification",
-    # German (de)
-    "einen moment",
-    "zugriff verweigert",
-    "überprüfung",
-    # Portuguese (pt) — "verificando" is shared with Spanish, already above
-    "um momento",
-    "acesso negado",
-    # Swedish (sv) — observed in WSJ Cloudflare challenge
-    "ett ögonblick",
-    "verifiera",
-    "verifiering",
-})
+BLOCK_TITLE_PATTERNS: frozenset[str] = frozenset(
+    {
+        # English
+        "access denied",
+        "just a moment",
+        "attention required",
+        "please wait",
+        "checking your browser",
+        "security check",
+        "are you a robot",
+        "blocked",
+        "forbidden",
+        "verify you are human",
+        # Spanish (es)
+        "un momento",
+        "verificando",
+        "acceso denegado",
+        # French (fr)
+        "un instant",
+        "accès refusé",
+        "vérification",
+        # German (de)
+        "einen moment",
+        "zugriff verweigert",
+        "überprüfung",
+        # Portuguese (pt) — "verificando" is shared with Spanish, already above
+        "um momento",
+        "acesso negado",
+        # Swedish (sv) — observed in WSJ Cloudflare challenge
+        "ett ögonblick",
+        "verifiera",
+        "verifiering",
+    }
+)
 
 _BLOCKED_STATUS_CODES = frozenset({403, 429, 503})
 _MIN_BODY_LENGTH_FOR_BLOCK = 500
@@ -155,12 +165,12 @@ _ANUBIS_MARKERS: tuple[str, ...] = (
 # FingerprintJS BotD-based challenges (xcancel and others using
 # Fingerprint's open-source detector via ua-parser-js + iife.min.js).
 _FINGERPRINTJS_BOTD_MARKERS: tuple[str, ...] = (
-    '/check/ua-parser.min.js',
-    '/check/iife.min.js',
-    '/check/check2.js',
-    'Fingerprint BotD',
-    'var check1',  # the inline script's entry variable
-    'check1.detections',
+    "/check/ua-parser.min.js",
+    "/check/iife.min.js",
+    "/check/check2.js",
+    "Fingerprint BotD",
+    "var check1",  # the inline script's entry variable
+    "check1.detections",
 )
 
 
@@ -225,7 +235,9 @@ class DetectionSignal:
 @beartype
 @require(lambda status_code: status_code >= 0, "Status code must be non-negative")
 @ensure(
-    lambda result: result.reason is not None if result.is_blocked else result.reason is None,
+    lambda result: (
+        result.reason is not None if result.is_blocked else result.reason is None
+    ),
     "Blocked signals must have a reason; non-blocked must not",
 )
 def check_anti_bot(  # noqa: C901, PLR0911, PLR0912
@@ -295,10 +307,10 @@ def check_anti_bot(  # noqa: C901, PLR0911, PLR0912
 
     for marker in GENERIC_BLOCK_MARKERS:
         if marker in body_lower and len(body_text) < _MIN_BODY_LENGTH_FOR_BLOCK:
-                return DetectionSignal(
-                    is_blocked=True,
-                    reason=f"block marker '{marker}' + short body",
-                )
+            return DetectionSignal(
+                is_blocked=True,
+                reason=f"block marker '{marker}' + short body",
+            )
 
     # Density check: a page that is OVERWHELMINGLY captcha boilerplate
     # (e.g. Reuters/WSJ return 20 KB HTML shells with 80+ "captcha"
@@ -317,8 +329,7 @@ def check_anti_bot(  # noqa: C901, PLR0911, PLR0912
                 return DetectionSignal(
                     is_blocked=True,
                     reason=(
-                        f"captcha density: '{marker}' x{count} "
-                        f"in {len(body_text)}B"
+                        f"captcha density: '{marker}' x{count} in {len(body_text)}B"
                     ),
                 )
 

@@ -121,11 +121,11 @@ _SQL_SELECT_ARCHIVE = "SELECT " + _ARCHIVE_COLS + " FROM archives WHERE id = $1"
 # default so a takedown'd archive doesn't keep serving on public
 # routes (detail page, viewer, snapshot route, /web/* URLs).
 _SQL_SELECT_ARCHIVE_NOT_REMOVED = (
-    "SELECT " + _ARCHIVE_COLS + " FROM archives"
-    " WHERE id = $1 AND removed_at IS NULL"
+    "SELECT " + _ARCHIVE_COLS + " FROM archives WHERE id = $1 AND removed_at IS NULL"
 )
 _SQL_SELECT_BY_URL_HASH = (
-    "SELECT " + _ARCHIVE_COLS
+    "SELECT "
+    + _ARCHIVE_COLS
     + " FROM archives WHERE url_hash = $1 ORDER BY created_at DESC"
 )
 _SQL_SELECT_LATEST_COMPLETE = (
@@ -242,8 +242,7 @@ class ArchiveRepository:
         True to look up the row for restore / hard-delete.
         """
         sql = (
-            _SQL_SELECT_ARCHIVE if include_removed
-            else _SQL_SELECT_ARCHIVE_NOT_REMOVED
+            _SQL_SELECT_ARCHIVE if include_removed else _SQL_SELECT_ARCHIVE_NOT_REMOVED
         )
         row = await conn.fetchrow(sql, archive_id)
         return _record_to_archive(row) if row else None
@@ -258,7 +257,10 @@ class ArchiveRepository:
 
     @beartype
     async def get_siblings_info(
-        self, conn: PgConnection, uhash: str, archive_id: str,
+        self,
+        conn: PgConnection,
+        uhash: str,
+        archive_id: str,
     ) -> tuple[int, int, str | None, str | None]:
         """Return ``(position, total, newer_id, older_id)`` for a given
         archive within its URL's non-removed capture timeline.
@@ -296,13 +298,16 @@ class ArchiveRepository:
               (SELECT id FROM ordered WHERE pos = cur.pos + 1) AS older_id
             FROM cur
             """,
-            uhash, archive_id,
+            uhash,
+            archive_id,
         )
         if row is None:
             return (1, 1, None, None)
         return (
-            int(row["pos"]), int(row["total"]),
-            row["newer_id"], row["older_id"],
+            int(row["pos"]),
+            int(row["total"]),
+            row["newer_id"],
+            row["older_id"],
         )
 
     @beartype
@@ -347,7 +352,8 @@ class ArchiveRepository:
               created_at DESC
             LIMIT 1
             """,
-            uhash, target,
+            uhash,
+            target,
         )
         return _record_to_archive(row) if row else None
 
@@ -385,13 +391,23 @@ class ArchiveRepository:
             status in (ArchiveStatus.COMPLETE, ArchiveStatus.FAILED)
             and "completed_at" not in kwargs
         ):
-                set_parts.append("completed_at = now()")
+            set_parts.append("completed_at = now()")
 
         allowed_fields = {
-            "title", "text_content", "error_message", "artifact_dir",
-            "content_hash", "screenshot_hash", "revisit_of",
-            "snapshot_size", "warc_size", "snapshot_timestamp",
-            "completed_at", "tier", "source", "metadata",
+            "title",
+            "text_content",
+            "error_message",
+            "artifact_dir",
+            "content_hash",
+            "screenshot_hash",
+            "revisit_of",
+            "snapshot_size",
+            "warc_size",
+            "snapshot_timestamp",
+            "completed_at",
+            "tier",
+            "source",
+            "metadata",
         }
 
         for key, value in kwargs.items():
@@ -404,8 +420,10 @@ class ArchiveRepository:
 
         set_clause = ", ".join(set_parts)
         sql = (
-            "UPDATE archives SET " + set_clause
-            + " WHERE id = $1 RETURNING " + _ARCHIVE_COLS
+            "UPDATE archives SET "
+            + set_clause
+            + " WHERE id = $1 RETURNING "
+            + _ARCHIVE_COLS
         )
         row = await conn.fetchrow(sql, *params)
         return _record_to_archive(row) if row else None
@@ -501,11 +519,8 @@ class ArchiveRepository:
         )
         return result == "UPDATE 1"
 
-
     @beartype
-    async def restore(
-        self, conn: PgConnection, archive_id: str
-    ) -> bool:
+    async def restore(self, conn: PgConnection, archive_id: str) -> bool:
         """Restore a soft-deleted archive."""
         result = await conn.execute(
             "UPDATE archives SET removed_at = NULL, removed_reason = NULL"
@@ -515,13 +530,9 @@ class ArchiveRepository:
         return result == "UPDATE 1"
 
     @beartype
-    async def delete(
-        self, conn: PgConnection, archive_id: str
-    ) -> bool:
+    async def delete(self, conn: PgConnection, archive_id: str) -> bool:
         """Hard-delete an archive and its jobs (CASCADE)."""
-        result = await conn.execute(
-            "DELETE FROM archives WHERE id = $1", archive_id
-        )
+        result = await conn.execute("DELETE FROM archives WHERE id = $1", archive_id)
         return result == "DELETE 1"
 
 
@@ -560,9 +571,7 @@ class JobRepository:
         return _record_to_job(row)
 
     @beartype
-    async def claim_next(
-        self, conn: PgConnection, worker_id: str
-    ) -> JobRecord | None:
+    async def claim_next(self, conn: PgConnection, worker_id: str) -> JobRecord | None:
         """Atomically claim the next queued job."""
         row = await conn.fetchrow(
             _SQL_CLAIM_NEXT,
@@ -571,20 +580,14 @@ class JobRepository:
             JobStatus.QUEUED.value,
         )
         if row:
-            log.info(
-                "job.claimed", job_id=row["id"], worker_id=worker_id
-            )
+            log.info("job.claimed", job_id=row["id"], worker_id=worker_id)
             return _record_to_job(row)
         return None
 
     @beartype
-    async def complete(
-        self, conn: PgConnection, job_id: str
-    ) -> JobRecord | None:
+    async def complete(self, conn: PgConnection, job_id: str) -> JobRecord | None:
         """Mark a job as complete."""
-        row = await conn.fetchrow(
-            _SQL_COMPLETE_JOB, JobStatus.COMPLETE.value, job_id
-        )
+        row = await conn.fetchrow(_SQL_COMPLETE_JOB, JobStatus.COMPLETE.value, job_id)
         if row:
             log.info("job.completed", job_id=job_id)
             return _record_to_job(row)
@@ -601,9 +604,7 @@ class JobRepository:
     ) -> JobRecord | None:
         """Mark a job as failed, optionally re-queue for retry."""
         status = JobStatus.RETRY if retry else JobStatus.FAILED
-        row = await conn.fetchrow(
-            _SQL_FAIL_JOB, status.value, error, job_id
-        )
+        row = await conn.fetchrow(_SQL_FAIL_JOB, status.value, error, job_id)
         if row and retry:
             job = _record_to_job(row)
             # Guard against infinite retry: count total jobs for this archive
@@ -638,20 +639,15 @@ class JobRepository:
                     " WHERE id = $1"
                     " AND status NOT IN ('complete', 'failed')",
                     job.archive_id,
-                    f"Capture abandoned after {total_jobs} attempts:"
-                    f" {error}",
+                    f"Capture abandoned after {total_jobs} attempts: {error}",
                 )
         if row:
-            log.info(
-                "job.failed", job_id=job_id, retry=retry, error=error
-            )
+            log.info("job.failed", job_id=job_id, retry=retry, error=error)
             return _record_to_job(row)
         return None
 
     @beartype
-    async def reclaim_stale(
-        self, conn: PgConnection, stale_seconds: int = 300
-    ) -> int:
+    async def reclaim_stale(self, conn: PgConnection, stale_seconds: int = 300) -> int:
         """Reclaim jobs locked longer than stale_seconds."""
         result = await conn.execute(
             "UPDATE jobs"
@@ -667,9 +663,7 @@ class JobRepository:
         return count
 
     @beartype
-    async def get_by_id(
-        self, conn: PgConnection, job_id: str
-    ) -> JobRecord | None:
+    async def get_by_id(self, conn: PgConnection, job_id: str) -> JobRecord | None:
         """Fetch a job by ID."""
         row = await conn.fetchrow(_SQL_SELECT_JOB, job_id)
         return _record_to_job(row) if row else None
@@ -691,6 +685,7 @@ class AuditRepository:
     ) -> AuditLogEntry:
         """Record an admin or system action."""
         import json
+
         row = await conn.fetchrow(
             "INSERT INTO audit_log"
             " (id, action, archive_id, admin_user, ip_address_hash, details)"
@@ -725,6 +720,7 @@ class AuditRepository:
     ) -> list[AuditLogEntry]:
         """List recent audit log entries."""
         import json
+
         rows = await conn.fetch(
             "SELECT id, created_at, action, archive_id,"
             " admin_user, ip_address_hash, details FROM audit_log"
@@ -798,7 +794,8 @@ class ReportRepository:
                 " FROM reports"
                 " WHERE archive_id = $1 AND reporter_ip_hash = $2"
                 " LIMIT 1",
-                archive_id, reporter_ip_hash,
+                archive_id,
+                reporter_ip_hash,
             )
             assert existing is not None  # noqa: S101
             return _record_to_report(existing)
@@ -928,7 +925,10 @@ class ProxyStatusRepository:
                 END,
                 last_checked_at = now()
             """,
-            proxy_server, gate_passing, asn_org, country_code,
+            proxy_server,
+            gate_passing,
+            asn_org,
+            country_code,
         )
 
     @beartype
@@ -949,7 +949,10 @@ class ProxyStatusRepository:
 
     @beartype
     async def list_passing_oldest(
-        self, conn: PgConnection, limit: int, max_age_hours: int = 24,
+        self,
+        conn: PgConnection,
+        limit: int,
+        max_age_hours: int = 24,
     ) -> list[str]:
         """Return the `limit` oldest still-passing proxies (about to age out).
 
@@ -968,14 +971,13 @@ class ProxyStatusRepository:
             ORDER BY last_checked_at ASC
             LIMIT $2
             """,
-            max_age_hours, limit,
+            max_age_hours,
+            limit,
         )
         return [r["proxy_server"] for r in rows]
 
     @beartype
-    async def evict_dead(
-        self, conn: PgConnection, failure_threshold: int = 3
-    ) -> int:
+    async def evict_dead(self, conn: PgConnection, failure_threshold: int = 3) -> int:
         """Delete proxies with ≥N consecutive failures. Returns eviction count."""
         result = await conn.execute(
             "DELETE FROM proxy_status WHERE consecutive_failures >= $1",
@@ -1002,7 +1004,8 @@ class CfClearanceRepository:
             WHERE domain = $1 AND proxy_server = $2
               AND expires_at > now()
             """,
-            domain, proxy_server,
+            domain,
+            proxy_server,
         )
         if row is None:
             return None
@@ -1038,7 +1041,12 @@ class CfClearanceRepository:
                 expires_at = now() + make_interval(days => $6),
                 set_at = now()
             """,
-            domain, proxy_server, name, value, path, ttl_days,
+            domain,
+            proxy_server,
+            name,
+            value,
+            path,
+            ttl_days,
         )
 
     @beartype
@@ -1083,7 +1091,9 @@ class FrontendStatusRepository:
                 END,
                 last_checked_at = now()
             """,
-            frontend_base, target_apex, content_verified,
+            frontend_base,
+            target_apex,
+            content_verified,
         )
 
     @beartype
@@ -1107,7 +1117,8 @@ class FrontendStatusRepository:
               AND last_checked_at > now() - make_interval(hours => $2)
             ORDER BY last_checked_at DESC
             """,
-            target_apex, max_age_hours,
+            target_apex,
+            max_age_hours,
         )
         return [r["frontend_base"] for r in rows]
 
@@ -1124,7 +1135,8 @@ class FrontendStatusRepository:
             " last_checked_at, consecutive_failures"
             " FROM frontend_status"
             " WHERE frontend_base = $1 AND target_apex = $2",
-            frontend_base, target_apex,
+            frontend_base,
+            target_apex,
         )
         if row is None:
             return None
@@ -1156,9 +1168,7 @@ class DomainObservationsRepository:
         if not apex:
             return
         column = "tier_wins" if won else "tier_losses"
-        last_winner_sql = (
-            ", last_winning_tier = $2" if won else ""
-        )
+        last_winner_sql = ", last_winning_tier = $2" if won else ""
         # jsonb_set with create_missing=true initializes the key to 0
         # before the increment; coalesce handles the null path.
         await conn.execute(
@@ -1197,6 +1207,7 @@ class DomainObservationsRepository:
         as raw strings otherwise.
         """
         import json as _json
+
         row = await conn.fetchrow(
             "SELECT apex, first_seen_at, last_seen_at, tier_wins,"
             " tier_losses, last_winning_tier"

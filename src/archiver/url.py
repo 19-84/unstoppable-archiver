@@ -19,30 +19,32 @@ _DEFAULT_HTTP_PORT = 80
 _DEFAULT_HTTPS_PORT = 443
 _WWW_PREFIX_LEN = 4
 
-TRACKING_PARAMS: frozenset[str] = frozenset({
-    "utm_source",
-    "utm_medium",
-    "utm_campaign",
-    "utm_term",
-    "utm_content",
-    "utm_id",
-    "fbclid",
-    "gclid",
-    "gclsrc",
-    "dclid",
-    "mc_cid",
-    "mc_eid",
-    "msclkid",
-    "twclid",
-    "igshid",
-    # "ref" deliberately excluded — used legitimately by many sites (Amazon, etc.)
-    "_ga",
-    "_gl",
-    "yclid",
-    "zanpid",
-    "spm",
-    "scm",
-})
+TRACKING_PARAMS: frozenset[str] = frozenset(
+    {
+        "utm_source",
+        "utm_medium",
+        "utm_campaign",
+        "utm_term",
+        "utm_content",
+        "utm_id",
+        "fbclid",
+        "gclid",
+        "gclsrc",
+        "dclid",
+        "mc_cid",
+        "mc_eid",
+        "msclkid",
+        "twclid",
+        "igshid",
+        # "ref" deliberately excluded — used legitimately by many sites (Amazon, etc.)
+        "_ga",
+        "_gl",
+        "yclid",
+        "zanpid",
+        "spm",
+        "scm",
+    }
+)
 
 
 @beartype

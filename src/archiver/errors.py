@@ -32,7 +32,9 @@ class AntiBotDetectedError(CaptureError):
 class DuplicateCaptureError(AppError):
     """URL was recently captured and re-capture interval has not elapsed."""
 
-    def __init__(self, message: str = "URL recently captured", existing_id: str = "") -> None:
+    def __init__(
+        self, message: str = "URL recently captured", existing_id: str = ""
+    ) -> None:
         super().__init__(message, code="DUPLICATE_CAPTURE")
         self.existing_id = existing_id
 
@@ -63,5 +65,3 @@ class UnsafeURLError(FetchError):
 
     def __init__(self, message: str) -> None:
         super().__init__(message, code="UNSAFE_URL")
-
-

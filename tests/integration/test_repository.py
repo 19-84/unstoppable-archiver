@@ -38,7 +38,7 @@ pytestmark = pytest.mark.integration
 async def pool() -> AsyncIterator[asyncpg.pool.Pool]:
     p = await create_pool(DB_URL, min_size=2, max_size=5)
     await init_db(p)
-    await reset_test_db(p)   # clean slate IN, not OUT
+    await reset_test_db(p)  # clean slate IN, not OUT
     yield p
     await close_pool(p)
 
@@ -60,14 +60,10 @@ class TestArchiveRepository:
         archive_repo: ArchiveRepository,
     ) -> None:
         async with pool.acquire() as conn:
-            archive = await archive_repo.create(
-                conn, "https://example.com/page"
-            )
+            archive = await archive_repo.create(conn, "https://example.com/page")
             assert archive.status == ArchiveStatus.PENDING
             assert archive.tier == CaptureTier.CHROMIUM
-            assert archive.url_hash == url_hash(
-                "https://example.com/page"
-            )
+            assert archive.url_hash == url_hash("https://example.com/page")
 
             fetched = await archive_repo.get_by_id(conn, archive.id)
             assert fetched is not None
@@ -101,9 +97,7 @@ class TestArchiveRepository:
         archive_repo: ArchiveRepository,
     ) -> None:
         async with pool.acquire() as conn:
-            archive = await archive_repo.create(
-                conn, "https://example.com"
-            )
+            archive = await archive_repo.create(conn, "https://example.com")
             updated = await archive_repo.update_status(
                 conn,
                 archive.id,
@@ -131,9 +125,7 @@ class TestArchiveRepository:
 
         ts = datetime(2015, 6, 7, 8, 9, 10, tzinfo=UTC)
         async with pool.acquire() as conn:
-            archive = await archive_repo.create(
-                conn, "https://example.com/old-page"
-            )
+            archive = await archive_repo.create(conn, "https://example.com/old-page")
             updated = await archive_repo.update_status(
                 conn,
                 archive.id,
@@ -161,9 +153,11 @@ class TestArchiveRepository:
         submission URL. Verify the column is wired end-to-end.
         """
         import json
+
         async with pool.acquire() as conn:
             archive = await archive_repo.create(
-                conn, "https://twitter.com/jack/status/20",
+                conn,
+                "https://twitter.com/jack/status/20",
             )
             meta = {
                 "source_url": "https://nitter.tiekoetter.com/jack/status/20",
@@ -194,7 +188,9 @@ class TestArchiveRepository:
         async with pool.acquire() as conn:
             archive = await archive_repo.create(conn, "https://e.com/")
             updated = await archive_repo.update_status(
-                conn, archive.id, ArchiveStatus.COMPLETE,
+                conn,
+                archive.id,
+                ArchiveStatus.COMPLETE,
             )
             assert updated is not None
             assert updated.metadata is None
@@ -205,9 +201,7 @@ class TestArchiveRepository:
         archive_repo: ArchiveRepository,
     ) -> None:
         async with pool.acquire() as conn:
-            archive = await archive_repo.create(
-                conn, "https://example.com"
-            )
+            archive = await archive_repo.create(conn, "https://example.com")
             await archive_repo.update_status(
                 conn,
                 archive.id,
@@ -218,9 +212,7 @@ class TestArchiveRepository:
 
             results = await archive_repo.search(conn, "python")
             assert results.total >= 1
-            assert any(
-                a.id == archive.id for a in results.archives
-            )
+            assert any(a.id == archive.id for a in results.archives)
 
     async def test_search_returns_empty(
         self,
@@ -228,9 +220,7 @@ class TestArchiveRepository:
         archive_repo: ArchiveRepository,
     ) -> None:
         async with pool.acquire() as conn:
-            results = await archive_repo.search(
-                conn, "xyznonexistent999"
-            )
+            results = await archive_repo.search(conn, "xyznonexistent999")
             assert results.total == 0
             assert results.archives == []
 
@@ -240,9 +230,7 @@ class TestArchiveRepository:
         archive_repo: ArchiveRepository,
     ) -> None:
         async with pool.acquire() as conn:
-            archive = await archive_repo.create(
-                conn, "https://example.com"
-            )
+            archive = await archive_repo.create(conn, "https://example.com")
             await archive_repo.update_status(
                 conn,
                 archive.id,
@@ -267,16 +255,10 @@ class TestArchiveRepository:
         archive_repo: ArchiveRepository,
     ) -> None:
         async with pool.acquire() as conn:
-            original = await archive_repo.create(
-                conn, "https://example.com"
-            )
-            await archive_repo.update_status(
-                conn, original.id, ArchiveStatus.COMPLETE
-            )
+            original = await archive_repo.create(conn, "https://example.com")
+            await archive_repo.update_status(conn, original.id, ArchiveStatus.COMPLETE)
 
-            dup = await archive_repo.create(
-                conn, "https://example.com"
-            )
+            dup = await archive_repo.create(conn, "https://example.com")
             revisit = await archive_repo.create_revisit(
                 conn, dup.id, original.id, "abc123hash"
             )
@@ -295,9 +277,7 @@ class TestArchiveRepository:
             await archive_repo.create(conn, "https://b.com")
             await archive_repo.create(conn, "https://c.com")
 
-            archives, total = await archive_repo.list_recent(
-                conn, limit=2
-            )
+            archives, total = await archive_repo.list_recent(conn, limit=2)
             assert len(archives) == 2  # noqa: PLR2004
             assert total == 3  # noqa: PLR2004
 
@@ -307,9 +287,7 @@ class TestArchiveRepository:
         archive_repo: ArchiveRepository,
     ) -> None:
         async with pool.acquire() as conn:
-            archive = await archive_repo.create(
-                conn, "https://example.com"
-            )
+            archive = await archive_repo.create(conn, "https://example.com")
             deleted = await archive_repo.delete(conn, archive.id)
             assert deleted is True
 
@@ -334,12 +312,8 @@ class TestJobRepository:
         job_repo: JobRepository,
     ) -> None:
         async with pool.acquire() as conn:
-            archive = await archive_repo.create(
-                conn, "https://example.com"
-            )
-            job = await job_repo.enqueue(
-                conn, archive.id, CaptureTier.CHROMIUM
-            )
+            archive = await archive_repo.create(conn, "https://example.com")
+            job = await job_repo.enqueue(conn, archive.id, CaptureTier.CHROMIUM)
             assert job.status == JobStatus.QUEUED
             assert job.archive_id == archive.id
 
@@ -369,12 +343,8 @@ class TestJobRepository:
             a1 = await archive_repo.create(conn, "https://low.com")
             a2 = await archive_repo.create(conn, "https://high.com")
 
-            await job_repo.enqueue(
-                conn, a1.id, CaptureTier.CHROMIUM, priority=0
-            )
-            await job_repo.enqueue(
-                conn, a2.id, CaptureTier.CHROMIUM, priority=10
-            )
+            await job_repo.enqueue(conn, a1.id, CaptureTier.CHROMIUM, priority=0)
+            await job_repo.enqueue(conn, a2.id, CaptureTier.CHROMIUM, priority=10)
 
             claimed = await job_repo.claim_next(conn, "worker-1")
             assert claimed is not None
@@ -387,12 +357,8 @@ class TestJobRepository:
         job_repo: JobRepository,
     ) -> None:
         async with pool.acquire() as conn:
-            archive = await archive_repo.create(
-                conn, "https://example.com"
-            )
-            job = await job_repo.enqueue(
-                conn, archive.id, CaptureTier.CHROMIUM
-            )
+            archive = await archive_repo.create(conn, "https://example.com")
+            job = await job_repo.enqueue(conn, archive.id, CaptureTier.CHROMIUM)
             await job_repo.claim_next(conn, "worker-1")
 
             completed = await job_repo.complete(conn, job.id)
@@ -407,17 +373,11 @@ class TestJobRepository:
         job_repo: JobRepository,
     ) -> None:
         async with pool.acquire() as conn:
-            archive = await archive_repo.create(
-                conn, "https://example.com"
-            )
-            job = await job_repo.enqueue(
-                conn, archive.id, CaptureTier.CHROMIUM
-            )
+            archive = await archive_repo.create(conn, "https://example.com")
+            job = await job_repo.enqueue(conn, archive.id, CaptureTier.CHROMIUM)
             await job_repo.claim_next(conn, "worker-1")
 
-            failed = await job_repo.fail(
-                conn, job.id, "timeout", retry=False
-            )
+            failed = await job_repo.fail(conn, job.id, "timeout", retry=False)
             assert failed is not None
             assert failed.status == JobStatus.FAILED
             assert failed.error_message == "timeout"
@@ -429,17 +389,11 @@ class TestJobRepository:
         job_repo: JobRepository,
     ) -> None:
         async with pool.acquire() as conn:
-            archive = await archive_repo.create(
-                conn, "https://example.com"
-            )
-            job = await job_repo.enqueue(
-                conn, archive.id, CaptureTier.CHROMIUM
-            )
+            archive = await archive_repo.create(conn, "https://example.com")
+            job = await job_repo.enqueue(conn, archive.id, CaptureTier.CHROMIUM)
             await job_repo.claim_next(conn, "worker-1")
 
-            await job_repo.fail(
-                conn, job.id, "transient error", retry=True
-            )
+            await job_repo.fail(conn, job.id, "transient error", retry=True)
 
             # A new queued job should exist
             new_job = await job_repo.claim_next(conn, "worker-2")
@@ -463,10 +417,13 @@ class TestJobRepository:
         state so the UI shows the failure and offers Retry."""
         async with pool.acquire() as conn:
             archive = await archive_repo.create(
-                conn, "https://example.com/job-cap",
+                conn,
+                "https://example.com/job-cap",
             )
             await archive_repo.update_status(
-                conn, archive.id, ArchiveStatus.CAPTURING,
+                conn,
+                archive.id,
+                ArchiveStatus.CAPTURING,
             )
             # Pile up jobs to the cap. enqueue() doesn't itself cap, so
             # this simulates an archive that churned through retries +
@@ -474,7 +431,9 @@ class TestJobRepository:
             last_job = None
             for _ in range(15):
                 last_job = await job_repo.enqueue(
-                    conn, archive.id, CaptureTier.CHROMIUM,
+                    conn,
+                    archive.id,
+                    CaptureTier.CHROMIUM,
                 )
             assert last_job is not None
             await job_repo.claim_next(conn, "worker-1")
@@ -482,7 +441,10 @@ class TestJobRepository:
             # Failing one more with retry=True is past the cap → no new
             # job, and the archive must be marked failed.
             await job_repo.fail(
-                conn, last_job.id, "exhausted", retry=True,
+                conn,
+                last_job.id,
+                "exhausted",
+                retry=True,
             )
 
             reloaded = await archive_repo.get_by_id(conn, archive.id)
@@ -500,12 +462,8 @@ class TestJobRepository:
         job_repo: JobRepository,
     ) -> None:
         async with pool.acquire() as conn:
-            archive = await archive_repo.create(
-                conn, "https://example.com"
-            )
-            await job_repo.enqueue(
-                conn, archive.id, CaptureTier.CHROMIUM
-            )
+            archive = await archive_repo.create(conn, "https://example.com")
+            await job_repo.enqueue(conn, archive.id, CaptureTier.CHROMIUM)
             await job_repo.claim_next(conn, "worker-1")
 
             # Backdate the lock to simulate staleness
@@ -529,12 +487,8 @@ class TestJobRepository:
         job_repo: JobRepository,
     ) -> None:
         async with pool.acquire() as conn:
-            archive = await archive_repo.create(
-                conn, "https://example.com"
-            )
-            job = await job_repo.enqueue(
-                conn, archive.id, CaptureTier.CHROMIUM
-            )
+            archive = await archive_repo.create(conn, "https://example.com")
+            job = await job_repo.enqueue(conn, archive.id, CaptureTier.CHROMIUM)
 
             fetched = await job_repo.get_by_id(conn, job.id)
             assert fetched is not None
@@ -547,12 +501,8 @@ class TestJobRepository:
         job_repo: JobRepository,
     ) -> None:
         async with pool.acquire() as conn:
-            archive = await archive_repo.create(
-                conn, "https://example.com"
-            )
-            job = await job_repo.enqueue(
-                conn, archive.id, CaptureTier.CHROMIUM
-            )
+            archive = await archive_repo.create(conn, "https://example.com")
+            job = await job_repo.enqueue(conn, archive.id, CaptureTier.CHROMIUM)
 
             await archive_repo.delete(conn, archive.id)
 
@@ -567,9 +517,7 @@ class TestRepositoryEdgeCases:
         archive_repo: ArchiveRepository,
     ) -> None:
         async with pool.acquire() as conn:
-            archive = await archive_repo.create(
-                conn, "https://example.com"
-            )
+            archive = await archive_repo.create(conn, "https://example.com")
             with pytest.raises(ValueError, match="Unknown"):
                 await archive_repo.update_status(
                     conn,
@@ -624,40 +572,36 @@ class TestRepositoryEdgeCases:
         archive_repo: ArchiveRepository,
     ) -> None:
         async with pool.acquire() as conn:
-            a1 = await archive_repo.create(
-                conn, "https://example.com"
-            )
-            await archive_repo.update_status(
-                conn, a1.id, ArchiveStatus.COMPLETE
-            )
+            a1 = await archive_repo.create(conn, "https://example.com")
+            await archive_repo.update_status(conn, a1.id, ArchiveStatus.COMPLETE)
 
-            result = await archive_repo.get_latest_complete(
-                conn, a1.url_hash
-            )
+            result = await archive_repo.get_latest_complete(conn, a1.url_hash)
             assert result is not None
             assert result.id == a1.id
 
 
 class TestProxyStatusRepository:
-    async def test_record_and_list_passing(
-        self, pool: asyncpg.pool.Pool
-    ) -> None:
+    async def test_record_and_list_passing(self, pool: asyncpg.pool.Pool) -> None:
         repo = ProxyStatusRepository()
         async with pool.acquire() as conn:
             await repo.record(
-                conn, "socks5://1.1.1.1:1080",
-                gate_passing=True, asn_org="MTS", country_code="RU",
+                conn,
+                "socks5://1.1.1.1:1080",
+                gate_passing=True,
+                asn_org="MTS",
+                country_code="RU",
             )
             await repo.record(
-                conn, "socks5://2.2.2.2:1080",
-                gate_passing=False, asn_org="Hetzner", country_code="DE",
+                conn,
+                "socks5://2.2.2.2:1080",
+                gate_passing=False,
+                asn_org="Hetzner",
+                country_code="DE",
             )
             passing = await repo.list_passing(conn)
             assert passing == ["socks5://1.1.1.1:1080"]
 
-    async def test_record_updates_on_conflict(
-        self, pool: asyncpg.pool.Pool
-    ) -> None:
+    async def test_record_updates_on_conflict(self, pool: asyncpg.pool.Pool) -> None:
         repo = ProxyStatusRepository()
         async with pool.acquire() as conn:
             await repo.record(conn, "socks5://a:1", gate_passing=False)
@@ -671,9 +615,7 @@ class TestProxyStatusRepository:
             )
             assert fails_after_success == 0
 
-    async def test_evict_dead(
-        self, pool: asyncpg.pool.Pool
-    ) -> None:
+    async def test_evict_dead(self, pool: asyncpg.pool.Pool) -> None:
         repo = ProxyStatusRepository()
         async with pool.acquire() as conn:
             for _ in range(4):
@@ -681,9 +623,7 @@ class TestProxyStatusRepository:
             await repo.record(conn, "socks5://alive:1", gate_passing=True)
             evicted = await repo.evict_dead(conn, failure_threshold=3)
             assert evicted == 1
-            remaining = await conn.fetchval(
-                "SELECT count(*) FROM proxy_status"
-            )
+            remaining = await conn.fetchval("SELECT count(*) FROM proxy_status")
             assert remaining == 1
 
 
@@ -692,21 +632,25 @@ class TestCfClearanceRepository:
         repo = CfClearanceRepository()
         async with pool.acquire() as conn:
             await repo.put(
-                conn, "archive.ph", "cf_clearance", "abc123",
+                conn,
+                "archive.ph",
+                "cf_clearance",
+                "abc123",
                 proxy_server="socks5://p:1",
             )
             got = await repo.get(conn, "archive.ph", "socks5://p:1")
             assert got is not None
             assert got["value"] == "abc123"
 
-    async def test_get_wrong_proxy_returns_none(
-        self, pool: asyncpg.pool.Pool
-    ) -> None:
+    async def test_get_wrong_proxy_returns_none(self, pool: asyncpg.pool.Pool) -> None:
         """Cookie cached for one proxy is not returned for another."""
         repo = CfClearanceRepository()
         async with pool.acquire() as conn:
             await repo.put(
-                conn, "archive.ph", "cf_clearance", "token",
+                conn,
+                "archive.ph",
+                "cf_clearance",
+                "token",
                 proxy_server="socks5://a:1",
             )
             assert await repo.get(conn, "archive.ph", "socks5://b:1") is None
@@ -719,7 +663,10 @@ class TestCfClearanceRepository:
         async with pool.acquire() as conn:
             await repo.put(conn, "archive.ph", "cf_clearance", "direct_tok")
             await repo.put(
-                conn, "archive.ph", "cf_clearance", "proxied_tok",
+                conn,
+                "archive.ph",
+                "cf_clearance",
+                "proxied_tok",
                 proxy_server="socks5://p:1",
             )
             d = await repo.get(conn, "archive.ph", "")
@@ -727,9 +674,7 @@ class TestCfClearanceRepository:
             assert d is not None and d["value"] == "direct_tok"
             assert p is not None and p["value"] == "proxied_tok"
 
-    async def test_update_on_conflict(
-        self, pool: asyncpg.pool.Pool
-    ) -> None:
+    async def test_update_on_conflict(self, pool: asyncpg.pool.Pool) -> None:
         repo = CfClearanceRepository()
         async with pool.acquire() as conn:
             await repo.put(conn, "archive.ph", "cf_clearance", "v1")
@@ -737,9 +682,7 @@ class TestCfClearanceRepository:
             got = await repo.get(conn, "archive.ph", "")
             assert got is not None and got["value"] == "v2"
 
-    async def test_expired_not_returned(
-        self, pool: asyncpg.pool.Pool
-    ) -> None:
+    async def test_expired_not_returned(self, pool: asyncpg.pool.Pool) -> None:
         repo = CfClearanceRepository()
         async with pool.acquire() as conn:
             # Manually insert an already-expired row
@@ -754,9 +697,7 @@ class TestCfClearanceRepository:
             )
             assert await repo.get(conn, "old.example", "") is None
 
-    async def test_purge_expired(
-        self, pool: asyncpg.pool.Pool
-    ) -> None:
+    async def test_purge_expired(self, pool: asyncpg.pool.Pool) -> None:
         repo = CfClearanceRepository()
         async with pool.acquire() as conn:
             await conn.execute(
@@ -775,13 +716,14 @@ class TestCfClearanceRepository:
 
 
 class TestDomainObservationsRepository:
-    async def test_first_win_creates_row(
-        self, pool: asyncpg.pool.Pool
-    ) -> None:
+    async def test_first_win_creates_row(self, pool: asyncpg.pool.Pool) -> None:
         repo = DomainObservationsRepository()
         async with pool.acquire() as conn:
             await repo.record_outcome(
-                conn, "example.com", CaptureTier.CHROMIUM, won=True,
+                conn,
+                "example.com",
+                CaptureTier.CHROMIUM,
+                won=True,
             )
             row = await repo.get(conn, "example.com")
             assert row is not None
@@ -795,7 +737,10 @@ class TestDomainObservationsRepository:
         repo = DomainObservationsRepository()
         async with pool.acquire() as conn:
             await repo.record_outcome(
-                conn, "wsj.com", CaptureTier.CHROMIUM, won=False,
+                conn,
+                "wsj.com",
+                CaptureTier.CHROMIUM,
+                won=False,
             )
             row = await repo.get(conn, "wsj.com")
             assert row is not None
@@ -803,14 +748,15 @@ class TestDomainObservationsRepository:
             assert row["tier_wins"] == {}
             assert row["last_winning_tier"] is None
 
-    async def test_wins_accumulate(
-        self, pool: asyncpg.pool.Pool
-    ) -> None:
+    async def test_wins_accumulate(self, pool: asyncpg.pool.Pool) -> None:
         repo = DomainObservationsRepository()
         async with pool.acquire() as conn:
             for _ in range(3):
                 await repo.record_outcome(
-                    conn, "example.com", CaptureTier.WAYBACK, won=True,
+                    conn,
+                    "example.com",
+                    CaptureTier.WAYBACK,
+                    won=True,
                 )
             row = await repo.get(conn, "example.com")
             assert row is not None
@@ -822,13 +768,22 @@ class TestDomainObservationsRepository:
         repo = DomainObservationsRepository()
         async with pool.acquire() as conn:
             await repo.record_outcome(
-                conn, "nyt.com", CaptureTier.CHROMIUM, won=False,
+                conn,
+                "nyt.com",
+                CaptureTier.CHROMIUM,
+                won=False,
             )
             await repo.record_outcome(
-                conn, "nyt.com", CaptureTier.CAMOUFOX, won=False,
+                conn,
+                "nyt.com",
+                CaptureTier.CAMOUFOX,
+                won=False,
             )
             await repo.record_outcome(
-                conn, "nyt.com", CaptureTier.WAYBACK, won=True,
+                conn,
+                "nyt.com",
+                CaptureTier.WAYBACK,
+                won=True,
             )
             row = await repo.get(conn, "nyt.com")
             assert row is not None
@@ -836,17 +791,21 @@ class TestDomainObservationsRepository:
             assert row["tier_wins"] == {"wayback": 1}
             assert row["last_winning_tier"] == "wayback"
 
-    async def test_last_winning_tier_updates(
-        self, pool: asyncpg.pool.Pool
-    ) -> None:
+    async def test_last_winning_tier_updates(self, pool: asyncpg.pool.Pool) -> None:
         """Win with tier X sets last_winning_tier=X even after prior Y win."""
         repo = DomainObservationsRepository()
         async with pool.acquire() as conn:
             await repo.record_outcome(
-                conn, "ex.com", CaptureTier.CHROMIUM, won=True,
+                conn,
+                "ex.com",
+                CaptureTier.CHROMIUM,
+                won=True,
             )
             await repo.record_outcome(
-                conn, "ex.com", CaptureTier.CAMOUFOX, won=True,
+                conn,
+                "ex.com",
+                CaptureTier.CAMOUFOX,
+                won=True,
             )
             row = await repo.get(conn, "ex.com")
             assert row is not None
@@ -859,46 +818,49 @@ class TestDomainObservationsRepository:
         repo = DomainObservationsRepository()
         async with pool.acquire() as conn:
             await repo.record_outcome(
-                conn, "ex.com", CaptureTier.CHROMIUM, won=True,
+                conn,
+                "ex.com",
+                CaptureTier.CHROMIUM,
+                won=True,
             )
             await repo.record_outcome(
-                conn, "ex.com", CaptureTier.CAMOUFOX, won=False,
+                conn,
+                "ex.com",
+                CaptureTier.CAMOUFOX,
+                won=False,
             )
             row = await repo.get(conn, "ex.com")
             assert row is not None
             assert row["last_winning_tier"] == "chromium"
 
-    async def test_empty_apex_is_noop(
-        self, pool: asyncpg.pool.Pool
-    ) -> None:
+    async def test_empty_apex_is_noop(self, pool: asyncpg.pool.Pool) -> None:
         """Malformed URLs produce empty apex — we silently skip rather
         than creating an empty-string catch-all row."""
         repo = DomainObservationsRepository()
         async with pool.acquire() as conn:
             await repo.record_outcome(
-                conn, "", CaptureTier.CHROMIUM, won=True,
+                conn,
+                "",
+                CaptureTier.CHROMIUM,
+                won=True,
             )
-            count = await conn.fetchval(
-                "SELECT count(*) FROM domain_observations"
-            )
+            count = await conn.fetchval("SELECT count(*) FROM domain_observations")
             assert count == 0
 
-    async def test_get_missing_returns_none(
-        self, pool: asyncpg.pool.Pool
-    ) -> None:
+    async def test_get_missing_returns_none(self, pool: asyncpg.pool.Pool) -> None:
         repo = DomainObservationsRepository()
         async with pool.acquire() as conn:
             assert await repo.get(conn, "never-seen.com") is None
 
 
 class TestFrontendStatusRepository:
-    async def test_record_passing_then_list(
-        self, pool: asyncpg.pool.Pool
-    ) -> None:
+    async def test_record_passing_then_list(self, pool: asyncpg.pool.Pool) -> None:
         repo = FrontendStatusRepository()
         async with pool.acquire() as conn:
             await repo.record(
-                conn, "https://scribe.rip", "medium.com",
+                conn,
+                "https://scribe.rip",
+                "medium.com",
                 content_verified=True,
             )
             passing = await repo.list_passing(conn, "medium.com")
@@ -910,25 +872,33 @@ class TestFrontendStatusRepository:
         repo = FrontendStatusRepository()
         async with pool.acquire() as conn:
             await repo.record(
-                conn, "https://a", "reddit.com", content_verified=True,
+                conn,
+                "https://a",
+                "reddit.com",
+                content_verified=True,
             )
             await repo.record(
-                conn, "https://b", "reddit.com", content_verified=False,
+                conn,
+                "https://b",
+                "reddit.com",
+                content_verified=False,
             )
             passing = await repo.list_passing(conn, "reddit.com")
             assert passing == ["https://a"]
 
-    async def test_list_passing_scoped_by_apex(
-        self, pool: asyncpg.pool.Pool
-    ) -> None:
+    async def test_list_passing_scoped_by_apex(self, pool: asyncpg.pool.Pool) -> None:
         repo = FrontendStatusRepository()
         async with pool.acquire() as conn:
             await repo.record(
-                conn, "https://scribe.rip", "medium.com",
+                conn,
+                "https://scribe.rip",
+                "medium.com",
                 content_verified=True,
             )
             await repo.record(
-                conn, "https://xcancel.com", "twitter.com",
+                conn,
+                "https://xcancel.com",
+                "twitter.com",
                 content_verified=True,
             )
             m = await repo.list_passing(conn, "medium.com")
@@ -936,18 +906,20 @@ class TestFrontendStatusRepository:
             assert m == ["https://scribe.rip"]
             assert t == ["https://xcancel.com"]
 
-    async def test_flip_from_passing_to_failing(
-        self, pool: asyncpg.pool.Pool
-    ) -> None:
+    async def test_flip_from_passing_to_failing(self, pool: asyncpg.pool.Pool) -> None:
         """A pass followed by a fail flips verified off; failure counter bumps."""
         repo = FrontendStatusRepository()
         async with pool.acquire() as conn:
             await repo.record(
-                conn, "https://inst", "reddit.com",
+                conn,
+                "https://inst",
+                "reddit.com",
                 content_verified=True,
             )
             await repo.record(
-                conn, "https://inst", "reddit.com",
+                conn,
+                "https://inst",
+                "reddit.com",
                 content_verified=False,
             )
             row = await repo.get(conn, "https://inst", "reddit.com")
@@ -963,14 +935,18 @@ class TestFrontendStatusRepository:
         async with pool.acquire() as conn:
             for _ in range(3):
                 await repo.record(
-                    conn, "https://inst", "medium.com",
+                    conn,
+                    "https://inst",
+                    "medium.com",
                     content_verified=False,
                 )
             row = await repo.get(conn, "https://inst", "medium.com")
             assert row is not None
             assert row["consecutive_failures"] == 3  # noqa: PLR2004
             await repo.record(
-                conn, "https://inst", "medium.com",
+                conn,
+                "https://inst",
+                "medium.com",
                 content_verified=True,
             )
             row2 = await repo.get(conn, "https://inst", "medium.com")
@@ -984,11 +960,15 @@ class TestFrontendStatusRepository:
         repo = FrontendStatusRepository()
         async with pool.acquire() as conn:
             await repo.record(
-                conn, "https://xcancel.com", "twitter.com",
+                conn,
+                "https://xcancel.com",
+                "twitter.com",
                 content_verified=True,
             )
             await repo.record(
-                conn, "https://xcancel.com", "x.com",
+                conn,
+                "https://xcancel.com",
+                "x.com",
                 content_verified=False,
             )
             t = await repo.get(conn, "https://xcancel.com", "twitter.com")
@@ -996,12 +976,7 @@ class TestFrontendStatusRepository:
             assert t is not None and t["content_verified"] is True
             assert x is not None and x["content_verified"] is False
 
-    async def test_get_missing_returns_none(
-        self, pool: asyncpg.pool.Pool
-    ) -> None:
+    async def test_get_missing_returns_none(self, pool: asyncpg.pool.Pool) -> None:
         repo = FrontendStatusRepository()
         async with pool.acquire() as conn:
-            assert (
-                await repo.get(conn, "https://unseen", "medium.com") is None
-            )
-
+            assert await repo.get(conn, "https://unseen", "medium.com") is None

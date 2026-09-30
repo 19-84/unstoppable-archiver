@@ -32,7 +32,7 @@ ADMIN_PASSWORD = "test-admin-password"  # noqa: S105
 async def pool() -> AsyncIterator[asyncpg.pool.Pool]:
     p = await create_pool(DB_URL, min_size=2, max_size=5)
     await init_db(p)
-    await reset_test_db(p)   # clean slate IN, not OUT
+    await reset_test_db(p)  # clean slate IN, not OUT
     yield p
     await close_pool(p)
 
@@ -53,9 +53,7 @@ async def client(
     app.state.pool = pool
     app.state.blocklist = DomainBlocklist()
     transport = ASGITransport(app=app)  # type: ignore[arg-type]
-    async with AsyncClient(
-        transport=transport, base_url="http://test"
-    ) as c:
+    async with AsyncClient(transport=transport, base_url="http://test") as c:
         yield c
 
 
@@ -88,6 +86,7 @@ class TestAdminLoginRateLimit:
 
         from archiver.blocklist import DomainBlocklist
         from archiver.rate_limit import _global_limiter
+
         # Reset the in-memory limiter so prior tests don't bleed in.
         _global_limiter._windows.clear()
 
@@ -104,7 +103,8 @@ class TestAdminLoginRateLimit:
         app.state.blocklist = DomainBlocklist()
         transport = ASGITransport(app=app)  # type: ignore[arg-type]
         async with AsyncClient(
-            transport=transport, base_url="http://test",
+            transport=transport,
+            base_url="http://test",
         ) as c:
             # First 3 wrong-password attempts return 401 (auth fail).
             for i in range(3):
@@ -134,9 +134,7 @@ class TestAdminLoginRateLimit:
 
 
 class TestAdminAuth:
-    async def test_login_rejects_wrong_password(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_login_rejects_wrong_password(self, client: AsyncClient) -> None:
         resp = await client.post(
             "/admin/login",
             data={"password": "wrong", "next": "/admin/"},
@@ -168,9 +166,7 @@ class TestAdminAuth:
         assert 'id="login-error"' in body
         assert 'aria-describedby="login-error"' in body
 
-    async def test_login_accepts_correct_password(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_login_accepts_correct_password(self, client: AsyncClient) -> None:
         resp = await client.post(
             "/admin/login",
             data={"password": ADMIN_PASSWORD, "next": "/admin/"},
@@ -178,13 +174,9 @@ class TestAdminAuth:
         )
         assert resp.status_code == 303  # noqa: PLR2004
 
-    async def test_dashboard_requires_auth(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_dashboard_requires_auth(self, client: AsyncClient) -> None:
         # require_admin_redirect returns a 303 to /admin/login for HTML routes
-        resp = await client.get(
-            "/admin/", follow_redirects=False
-        )
+        resp = await client.get("/admin/", follow_redirects=False)
         assert resp.status_code == 303  # noqa: PLR2004
         assert "/admin/login" in resp.headers.get("location", "")
 
@@ -195,9 +187,7 @@ class TestAdminAuth:
         assert resp.status_code == 200  # noqa: PLR2004
         assert "Dashboard" in resp.text or "dashboard" in resp.text.lower()
 
-    async def test_login_form_renders(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_login_form_renders(self, client: AsyncClient) -> None:
         resp = await client.get("/admin/login")
         assert resp.status_code == 200  # noqa: PLR2004
         assert "password" in resp.text.lower()
@@ -205,9 +195,7 @@ class TestAdminAuth:
     async def test_already_logged_in_redirects_from_login(
         self, logged_in_client: AsyncClient
     ) -> None:
-        resp = await logged_in_client.get(
-            "/admin/login", follow_redirects=False
-        )
+        resp = await logged_in_client.get("/admin/login", follow_redirects=False)
         assert resp.status_code == 303  # noqa: PLR2004
 
     async def test_login_redirect_rejects_offsite_next(
@@ -224,9 +212,7 @@ class TestAdminAuth:
             assert resp.status_code == 303  # noqa: PLR2004
             assert resp.headers["location"] == "/admin/"
 
-    async def test_login_submit_rejects_offsite_next(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_login_submit_rejects_offsite_next(self, client: AsyncClient) -> None:
         resp = await client.post(
             "/admin/login",
             data={"password": ADMIN_PASSWORD, "next": "/\\evil.example"},
@@ -250,21 +236,13 @@ class TestAdminAuth:
         app.state.pool = pool
         app.state.blocklist = DomainBlocklist()
         transport = ASGITransport(app=app)  # type: ignore[arg-type]
-        async with AsyncClient(
-            transport=transport, base_url="http://test"
-        ) as c:
+        async with AsyncClient(transport=transport, base_url="http://test") as c:
             resp = await c.get("/admin/login")
             assert resp.status_code == 404  # noqa: PLR2004
 
-    async def test_logout_clears_session(
-        self, logged_in_client: AsyncClient
-    ) -> None:
-        await logged_in_client.post(
-            "/admin/logout", follow_redirects=False
-        )
-        resp = await logged_in_client.get(
-            "/admin/", follow_redirects=False
-        )
+    async def test_logout_clears_session(self, logged_in_client: AsyncClient) -> None:
+        await logged_in_client.post("/admin/logout", follow_redirects=False)
+        resp = await logged_in_client.get("/admin/", follow_redirects=False)
         # Redirected to login
         assert resp.status_code == 303  # noqa: PLR2004
 
@@ -279,9 +257,7 @@ class TestCaptchaIntegration:
         )
         return resp.json()["id"]
 
-    async def test_altcha_challenge_requires_config(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_altcha_challenge_requires_config(self, client: AsyncClient) -> None:
         # Default captcha_provider=none; altcha endpoint should 404
         resp = await client.get("/captcha/altcha/challenge")
         assert resp.status_code == 404  # noqa: PLR2004
@@ -302,9 +278,7 @@ class TestCaptchaIntegration:
         app.state.pool = pool
         app.state.blocklist = DomainBlocklist()
         transport = ASGITransport(app=app)  # type: ignore[arg-type]
-        async with AsyncClient(
-            transport=transport, base_url="http://test"
-        ) as c:
+        async with AsyncClient(transport=transport, base_url="http://test") as c:
             resp = await c.get("/captcha/altcha/challenge")
             assert resp.status_code == 200  # noqa: PLR2004
             data = resp.json()
@@ -323,17 +297,13 @@ class TestReportWorkflow:
         assert resp.status_code == 201  # noqa: PLR2004
         return resp.json()["id"]
 
-    async def test_public_can_view_report_form(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_public_can_view_report_form(self, client: AsyncClient) -> None:
         archive_id = await self._create_archive(client)
         resp = await client.get(f"/report/{archive_id}")
         assert resp.status_code == 200  # noqa: PLR2004
         assert "Report" in resp.text
 
-    async def test_public_can_submit_report(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_public_can_submit_report(self, client: AsyncClient) -> None:
         archive_id = await self._create_archive(client)
         resp = await client.post(
             f"/report/{archive_id}",
@@ -347,7 +317,8 @@ class TestReportWorkflow:
         assert "received" in resp.text.lower() or "thank" in resp.text.lower()
 
     async def test_invalid_reason_re_renders_form_with_error(
-        self, client: AsyncClient,
+        self,
+        client: AsyncClient,
     ) -> None:
         """A POST with an unrecognized reason (typo / DevTools edit /
         direct curl) used to return a bare ``{"detail":"Invalid
@@ -409,9 +380,7 @@ class TestReportWorkflow:
             f"/report/{archive_id}",
             data={"reason": "malicious", "details": "test"},
         )
-        resp = await logged_in_client.get(
-            "/admin/reports?status=pending"
-        )
+        resp = await logged_in_client.get("/admin/reports?status=pending")
         assert resp.status_code == 200  # noqa: PLR2004
         assert "malicious" in resp.text
 
@@ -494,8 +463,7 @@ class TestReportWorkflow:
         )
         async with pool.acquire() as conn:
             row = await conn.fetchrow(
-                "SELECT reporter_ip_hash FROM reports"
-                " WHERE archive_id = $1",
+                "SELECT reporter_ip_hash FROM reports WHERE archive_id = $1",
                 archive_id,
             )
             assert row is not None
@@ -537,9 +505,7 @@ class TestAdminArchiveManagement:
             assert row is not None
             assert row["removed_at"] is None
 
-    async def test_audit_log_viewer(
-        self, logged_in_client: AsyncClient
-    ) -> None:
+    async def test_audit_log_viewer(self, logged_in_client: AsyncClient) -> None:
         resp = await logged_in_client.get("/admin/audit")
         assert resp.status_code == 200  # noqa: PLR2004
         # Login action should be in the log
@@ -600,7 +566,8 @@ class TestAdminArchiveManagement:
         async with pool.acquire() as conn:
             await conn.execute(
                 "UPDATE archives SET artifact_dir=$1 WHERE id=$2",
-                rel_dir, archive_id,
+                rel_dir,
+                archive_id,
             )
         await logged_in_client.post(
             f"/admin/archives/{archive_id}/hard-delete",
@@ -609,32 +576,24 @@ class TestAdminArchiveManagement:
         # Artifact dir removed
         assert not artifact_path.exists()
 
-    async def test_blocklist_reload(
-        self, logged_in_client: AsyncClient
-    ) -> None:
+    async def test_blocklist_reload(self, logged_in_client: AsyncClient) -> None:
         resp = await logged_in_client.post(
             "/admin/blocklist/reload", follow_redirects=False
         )
         assert resp.status_code == 303  # noqa: PLR2004
 
-    async def test_report_on_missing_archive(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_report_on_missing_archive(self, client: AsyncClient) -> None:
         resp = await client.post(
             "/report/nonexistent",
             data={"reason": "other"},
         )
         assert resp.status_code == 404  # noqa: PLR2004
 
-    async def test_report_form_for_missing_archive(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_report_form_for_missing_archive(self, client: AsyncClient) -> None:
         resp = await client.get("/report/nonexistent")
         assert resp.status_code == 404  # noqa: PLR2004
 
-    async def test_invalid_reason_rejected(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_invalid_reason_rejected(self, client: AsyncClient) -> None:
         resp = await client.post(
             "/api/archives",
             json={"url": "https://example.com/", "force": True},
@@ -646,9 +605,7 @@ class TestAdminArchiveManagement:
         )
         assert resp.status_code == 400  # noqa: PLR2004
 
-    async def test_resolve_missing_report(
-        self, logged_in_client: AsyncClient
-    ) -> None:
+    async def test_resolve_missing_report(self, logged_in_client: AsyncClient) -> None:
         resp = await logged_in_client.post(
             "/admin/reports/nonexistent/resolve",
             data={"action": "resolve"},
@@ -660,9 +617,7 @@ class TestAdminArchiveManagement:
         self, logged_in_client: AsyncClient
     ) -> None:
         # Invalid status value should fall back to pending
-        resp = await logged_in_client.get(
-            "/admin/reports?status=garbage"
-        )
+        resp = await logged_in_client.get("/admin/reports?status=garbage")
         assert resp.status_code == 200  # noqa: PLR2004
 
     async def test_all_reports_filter(
@@ -680,9 +635,7 @@ class TestAdminArchiveManagement:
             f"/report/{archive_id}",
             data={"reason": "other"},
         )
-        resp = await logged_in_client.get(
-            "/admin/reports?status=all"
-        )
+        resp = await logged_in_client.get("/admin/reports?status=all")
         assert resp.status_code == 200  # noqa: PLR2004
 
     async def test_dismiss_report(
@@ -734,7 +687,8 @@ class TestAdminPagesSmoke:
     """
 
     async def _setup_fixtures(
-        self, client: AsyncClient,
+        self,
+        client: AsyncClient,
     ) -> str:
         """Create one archive + one report so every admin page has
         non-empty data to render."""
@@ -750,7 +704,9 @@ class TestAdminPagesSmoke:
         return archive_id
 
     async def test_dashboard_renders(
-        self, client: AsyncClient, logged_in_client: AsyncClient,
+        self,
+        client: AsyncClient,
+        logged_in_client: AsyncClient,
     ) -> None:
         await self._setup_fixtures(client)
         resp = await logged_in_client.get("/admin/")
@@ -826,8 +782,13 @@ class TestAdminPagesSmoke:
             resp = await logged_in_client.get(path)
             assert resp.status_code == 200  # noqa: PLR2004
             body = resp.text
-            for label in ("direct", "wayback", "archive.today",
-                          "privacy frontend", "common crawl"):
+            for label in (
+                "direct",
+                "wayback",
+                "archive.today",
+                "privacy frontend",
+                "common crawl",
+            ):
                 assert f'title="{label}"' in body, (
                     f"admin path {path} missing source label {label}"
                 )
@@ -857,7 +818,8 @@ class TestAdminPagesSmoke:
         # Trigger an audit-loggable action so the page has at least
         # one entry to render (otherwise we just verify the empty state)
         await logged_in_client.post(
-            "/admin/blocklist/reload", follow_redirects=False,
+            "/admin/blocklist/reload",
+            follow_redirects=False,
         )
         resp = await logged_in_client.get("/admin/audit")
         assert resp.status_code == 200  # noqa: PLR2004
@@ -881,7 +843,8 @@ class TestAdminPagesSmoke:
         reports_page = await logged_in_client.get("/admin/reports")
         # Extract the seeded report id from the page
         import re
-        m = re.search(r'/admin/reports/(\d[A-Z0-9]+)/resolve', reports_page.text)
+
+        m = re.search(r"/admin/reports/(\d[A-Z0-9]+)/resolve", reports_page.text)
         assert m is not None, "no pending report on /admin/reports"
         report_id = m.group(1)
         await logged_in_client.post(

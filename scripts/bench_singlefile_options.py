@@ -92,9 +92,7 @@ async def capture_once(
     return out
 
 
-async def render_and_screenshot(
-    snapshot: Path, out_png: Path
-) -> None:
+async def render_and_screenshot(snapshot: Path, out_png: Path) -> None:
     """Render a local snapshot HTML file and take a full-page screenshot."""
     async with async_playwright() as pw:
         browser = await pw.chromium.launch(
@@ -106,9 +104,7 @@ async def render_and_screenshot(
                 "--no-sandbox",
             ],
         )
-        ctx = await browser.new_context(
-            viewport={"width": 1920, "height": 1080}
-        )
+        ctx = await browser.new_context(viewport={"width": 1920, "height": 1080})
         page = await ctx.new_page()
         await page.goto(
             snapshot.absolute().as_uri(),
@@ -168,15 +164,16 @@ async def main(url: str) -> int:
         else:
             similarity = screenshot_similarity(baseline_png, png)
 
-        results.append({
-            "label": label,
-            "snapshot_size_mb": round(size_mb, 2),
-            "render_png": str(png),
-            "similarity_to_baseline": round(similarity, 4),
-        })
+        results.append(
+            {
+                "label": label,
+                "snapshot_size_mb": round(size_mb, 2),
+                "render_png": str(png),
+                "similarity_to_baseline": round(similarity, 4),
+            }
+        )
         print(
-            f"  size={size_mb:.1f} MB  "
-            f"similarity_to_baseline={similarity:.4f}",
+            f"  size={size_mb:.1f} MB  similarity_to_baseline={similarity:.4f}",
             flush=True,
         )
 

@@ -53,9 +53,7 @@ def _mock_rosters(
         if archive.id in hits:
             memento_url, dt = hits[archive.id]
             route.mock(
-                return_value=httpx.Response(
-                    200, text=_timemap_body(memento_url, dt)
-                )
+                return_value=httpx.Response(200, text=_timemap_body(memento_url, dt))
             )
         else:
             route.mock(return_value=httpx.Response(default_status))
@@ -84,19 +82,21 @@ class TestRoster:
         from archiver.memento import MEMENTO_STRIP_SELECTORS
 
         joined = " ".join(MEMENTO_STRIP_SELECTORS)
-        assert "#wm-ipp" in joined          # OpenWayback
+        assert "#wm-ipp" in joined  # OpenWayback
         assert "_wb_frame_top_banner" in joined  # pywb
 
 
 class TestFindMementoCandidates:
     @respx.mock
     async def test_single_archive_hit(self) -> None:
-        _mock_rosters({
-            "arquivo.pt": (
-                "https://arquivo.pt/wayback/20200101120000/" + _URL,
-                "Wed, 01 Jan 2020 12:00:00 GMT",
-            ),
-        })
+        _mock_rosters(
+            {
+                "arquivo.pt": (
+                    "https://arquivo.pt/wayback/20200101120000/" + _URL,
+                    "Wed, 01 Jan 2020 12:00:00 GMT",
+                ),
+            }
+        )
         hits = await find_memento_candidates(_URL)
         assert len(hits) == 1
         assert hits[0].archive_id == "arquivo.pt"
@@ -106,16 +106,18 @@ class TestFindMementoCandidates:
     async def test_newest_across_archives_first(self) -> None:
         """Candidates interleave archives, newest first — the older
         archive's copy stays available as a fallback candidate."""
-        _mock_rosters({
-            "arquivo.pt": (
-                "https://arquivo.pt/wayback/20150101000000/" + _URL,
-                "Thu, 01 Jan 2015 00:00:00 GMT",
-            ),
-            "awa": (
-                "https://web.archive.org.au/awa/20230601000000/" + _URL,
-                "Thu, 01 Jun 2023 00:00:00 GMT",
-            ),
-        })
+        _mock_rosters(
+            {
+                "arquivo.pt": (
+                    "https://arquivo.pt/wayback/20150101000000/" + _URL,
+                    "Thu, 01 Jan 2015 00:00:00 GMT",
+                ),
+                "awa": (
+                    "https://web.archive.org.au/awa/20230601000000/" + _URL,
+                    "Thu, 01 Jun 2023 00:00:00 GMT",
+                ),
+            }
+        )
         hits = await find_memento_candidates(_URL)
         assert [h.archive_id for h in hits] == ["awa", "arquivo.pt"]
 
@@ -125,20 +127,23 @@ class TestFindMementoCandidates:
             route = respx.get(archive.timemap_prefix + _URL)
             if archive.id == "vefsafn":
                 # Entry with an unparseable datetime attribute.
-                route.mock(return_value=httpx.Response(
-                    200,
-                    text='<https://vefsafn.is/x>; rel="memento";'
-                         ' datetime="not-a-date",\n',
-                ))
+                route.mock(
+                    return_value=httpx.Response(
+                        200,
+                        text='<https://vefsafn.is/x>; rel="memento";'
+                        ' datetime="not-a-date",\n',
+                    )
+                )
             elif archive.id == "banq":
-                route.mock(return_value=httpx.Response(
-                    200,
-                    text=_timemap_body(
-                        "https://waext.banq.qc.ca/wayback/"
-                        "20100101000000/" + _URL,
-                        "Fri, 01 Jan 2010 00:00:00 GMT",
-                    ),
-                ))
+                route.mock(
+                    return_value=httpx.Response(
+                        200,
+                        text=_timemap_body(
+                            "https://waext.banq.qc.ca/wayback/20100101000000/" + _URL,
+                            "Fri, 01 Jan 2010 00:00:00 GMT",
+                        ),
+                    )
+                )
             else:
                 route.mock(return_value=httpx.Response(404))
         hits = await find_memento_candidates(_URL)
@@ -157,14 +162,16 @@ class TestFindMementoCandidates:
             if archive.id == "archive-it":
                 route.mock(side_effect=httpx.ConnectError("down"))
             elif archive.id == "lac":
-                route.mock(return_value=httpx.Response(
-                    200,
-                    text=_timemap_body(
-                        "https://webarchiveweb.wayback.bac-lac.canada.ca"
-                        "/web/20220101000000/" + _URL,
-                        "Sat, 01 Jan 2022 00:00:00 GMT",
-                    ),
-                ))
+                route.mock(
+                    return_value=httpx.Response(
+                        200,
+                        text=_timemap_body(
+                            "https://webarchiveweb.wayback.bac-lac.canada.ca"
+                            "/web/20220101000000/" + _URL,
+                            "Sat, 01 Jan 2022 00:00:00 GMT",
+                        ),
+                    )
+                )
             else:
                 route.mock(return_value=httpx.Response(404))
         hits = await find_memento_candidates(_URL)
@@ -174,9 +181,7 @@ class TestFindMementoCandidates:
     async def test_timemap_without_mementos_is_miss(self) -> None:
         _mock_rosters()
         respx.get(MEMENTO_ARCHIVES[0].timemap_prefix + _URL).mock(
-            return_value=httpx.Response(
-                200, text=f'<{_URL}>; rel="original"\n'
-            )
+            return_value=httpx.Response(200, text=f'<{_URL}>; rel="original"\n')
         )
         assert await find_memento_candidates(_URL) == []
 
@@ -185,16 +190,18 @@ class TestFindMementoCandidates:
         """A dense single-archive history is capped so it can't crowd
         out other archives, and the global limit bounds probe traffic."""
         entries = "".join(
-            f'<https://arquivo.pt/wayback/2024010{d}120000/{_URL}>; '
+            f"<https://arquivo.pt/wayback/2024010{d}120000/{_URL}>; "
             f'rel="memento"; datetime="0{d} Jan 2024 12:00:00 GMT",\n'
             for d in range(1, 6)  # five mementos in one archive
         )
-        _mock_rosters({
-            "awa": (
-                "https://web.archive.org.au/awa/20200101000000/" + _URL,
-                "Wed, 01 Jan 2020 00:00:00 GMT",
-            ),
-        })
+        _mock_rosters(
+            {
+                "awa": (
+                    "https://web.archive.org.au/awa/20200101000000/" + _URL,
+                    "Wed, 01 Jan 2020 00:00:00 GMT",
+                ),
+            }
+        )
         respx.get(
             MEMENTO_ARCHIVES[0].timemap_prefix + _URL  # arquivo.pt
         ).mock(return_value=httpx.Response(200, text=entries))
@@ -204,7 +211,10 @@ class TestFindMementoCandidates:
         assert len(hits) == 4  # global _MAX_CANDIDATES  # noqa: PLR2004
         # Three newest arquivo.pt entries (per-archive cap), then AWA.
         assert [h.archive_id for h in hits] == [
-            "arquivo.pt", "arquivo.pt", "arquivo.pt", "awa",
+            "arquivo.pt",
+            "arquivo.pt",
+            "arquivo.pt",
+            "awa",
         ]
         timestamps = [h.timestamp for h in hits if h.timestamp]
         assert timestamps == sorted(timestamps, reverse=True)
@@ -241,9 +251,7 @@ class TestRawReplayVariants:
         variants = _raw_replay_variants(
             "https://a.example/20200101120000/b/20210101120000/c"
         )
-        assert variants[0] == (
-            "https://a.example/20200101120000if_/b/20210101120000/c"
-        )
+        assert variants[0] == ("https://a.example/20200101120000if_/b/20210101120000/c")
 
 
 class TestFetchMementoHtml:
@@ -267,12 +275,12 @@ class TestFetchMementoHtml:
 
     @respx.mock
     async def test_falls_back_when_raw_unsupported(self) -> None:
-        respx.get(
-            "https://a.example/20200101120000if_/https://x.example/"
-        ).mock(return_value=httpx.Response(404))
-        respx.get(
-            "https://a.example/20200101120000/https://x.example/"
-        ).mock(return_value=httpx.Response(200, text="<html>plain</html>"))
+        respx.get("https://a.example/20200101120000if_/https://x.example/").mock(
+            return_value=httpx.Response(404)
+        )
+        respx.get("https://a.example/20200101120000/https://x.example/").mock(
+            return_value=httpx.Response(200, text="<html>plain</html>")
+        )
         fetched = await fetch_memento_html(
             "https://a.example/20200101120000/https://x.example/"
         )
@@ -283,12 +291,12 @@ class TestFetchMementoHtml:
 
     @respx.mock
     async def test_transport_error_falls_back(self) -> None:
-        respx.get(
-            "https://a.example/20200101120000if_/https://x.example/"
-        ).mock(side_effect=httpx.ConnectError("nope"))
-        respx.get(
-            "https://a.example/20200101120000/https://x.example/"
-        ).mock(return_value=httpx.Response(200, text="<html>ok</html>"))
+        respx.get("https://a.example/20200101120000if_/https://x.example/").mock(
+            side_effect=httpx.ConnectError("nope")
+        )
+        respx.get("https://a.example/20200101120000/https://x.example/").mock(
+            return_value=httpx.Response(200, text="<html>ok</html>")
+        )
         fetched = await fetch_memento_html(
             "https://a.example/20200101120000/https://x.example/"
         )
@@ -299,21 +307,22 @@ class TestFetchMementoHtml:
 
     @respx.mock
     async def test_all_variants_fail_returns_none(self) -> None:
-        respx.get(
-            "https://a.example/20200101120000if_/https://x.example/"
-        ).mock(return_value=httpx.Response(403))
-        respx.get(
-            "https://a.example/20200101120000/https://x.example/"
-        ).mock(return_value=httpx.Response(403))
-        assert await fetch_memento_html(
-            "https://a.example/20200101120000/https://x.example/"
-        ) is None
+        respx.get("https://a.example/20200101120000if_/https://x.example/").mock(
+            return_value=httpx.Response(403)
+        )
+        respx.get("https://a.example/20200101120000/https://x.example/").mock(
+            return_value=httpx.Response(403)
+        )
+        assert (
+            await fetch_memento_html(
+                "https://a.example/20200101120000/https://x.example/"
+            )
+            is None
+        )
 
 
 class TestMementoHitModel:
     def test_hit_is_frozen(self) -> None:
-        hit = MementoHit(
-            archive_id="x", memento_url="https://y", timestamp=None
-        )
+        hit = MementoHit(archive_id="x", memento_url="https://y", timestamp=None)
         with pytest.raises(AttributeError):
             hit.archive_id = "z"  # type: ignore[misc]

@@ -37,9 +37,7 @@ def _no_retry_sleep(monkeypatch: pytest.MonkeyPatch) -> None:  # type: ignore[mi
 def _mock_collinfo(ids: list[str]) -> None:
     """Mock the collinfo.json endpoint."""
     respx.get(commoncrawl._COLLINFO_URL).mock(
-        return_value=httpx.Response(
-            200, json=[{"id": i, "name": i} for i in ids]
-        )
+        return_value=httpx.Response(200, json=[{"id": i, "name": i} for i in ids])
     )
 
 
@@ -110,18 +108,20 @@ class TestFindSnapshot:
     async def test_newest_crawl_hit(self) -> None:
         """First crawl returns a 200; should stop there."""
         _mock_collinfo(["CC-MAIN-2026-12", "CC-MAIN-2026-08", "CC-MAIN-2026-04"])
-        respx.get(
-            "https://index.commoncrawl.org/CC-MAIN-2026-12-index"
-        ).mock(return_value=httpx.Response(
-            200,
-            text=json.dumps(_cdx_response("https://example.com/", "CC-MAIN-2026-12")),
-        ))
-        respx.get(
-            "https://index.commoncrawl.org/CC-MAIN-2026-08-index"
-        ).mock(return_value=httpx.Response(200, text="No Captures found for: ..."))
-        respx.get(
-            "https://index.commoncrawl.org/CC-MAIN-2026-04-index"
-        ).mock(return_value=httpx.Response(200, text="No Captures found for: ..."))
+        respx.get("https://index.commoncrawl.org/CC-MAIN-2026-12-index").mock(
+            return_value=httpx.Response(
+                200,
+                text=json.dumps(
+                    _cdx_response("https://example.com/", "CC-MAIN-2026-12")
+                ),
+            )
+        )
+        respx.get("https://index.commoncrawl.org/CC-MAIN-2026-08-index").mock(
+            return_value=httpx.Response(200, text="No Captures found for: ...")
+        )
+        respx.get("https://index.commoncrawl.org/CC-MAIN-2026-04-index").mock(
+            return_value=httpx.Response(200, text="No Captures found for: ...")
+        )
 
         snap = await commoncrawl.find_snapshot("https://example.com/")
         assert snap is not None
@@ -132,11 +132,9 @@ class TestFindSnapshot:
     async def test_all_crawls_miss_returns_none(self) -> None:
         _mock_collinfo(["CC-MAIN-2026-12", "CC-MAIN-2026-08", "CC-MAIN-2026-04"])
         for crawl in ("CC-MAIN-2026-12", "CC-MAIN-2026-08", "CC-MAIN-2026-04"):
-            respx.get(
-                f"https://index.commoncrawl.org/{crawl}-index"
-            ).mock(return_value=httpx.Response(
-                200, text="No Captures found for: ..."
-            ))
+            respx.get(f"https://index.commoncrawl.org/{crawl}-index").mock(
+                return_value=httpx.Response(200, text="No Captures found for: ...")
+            )
         snap = await commoncrawl.find_snapshot("https://example.com/")
         assert snap is None
 
@@ -144,9 +142,9 @@ class TestFindSnapshot:
     async def test_rate_limit_treated_as_miss(self) -> None:
         """A 429 that persists through all retry attempts is a miss."""
         _mock_collinfo(["CC-MAIN-2026-12"])
-        route = respx.get(
-            "https://index.commoncrawl.org/CC-MAIN-2026-12-index"
-        ).mock(return_value=httpx.Response(429))
+        route = respx.get("https://index.commoncrawl.org/CC-MAIN-2026-12-index").mock(
+            return_value=httpx.Response(429)
+        )
         snap = await commoncrawl.find_snapshot("https://example.com/")
         assert snap is None
         assert route.call_count == 3  # fetch() retried with backoff  # noqa: PLR2004
@@ -156,9 +154,7 @@ class TestFindSnapshot:
         """429 followed by a 200 recovers within one query — the
         backoff the module docstring promises actually happens."""
         _mock_collinfo(["CC-MAIN-2026-12"])
-        route = respx.get(
-            "https://index.commoncrawl.org/CC-MAIN-2026-12-index"
-        )
+        route = respx.get("https://index.commoncrawl.org/CC-MAIN-2026-12-index")
         route.side_effect = [
             httpx.Response(429, headers={"Retry-After": "1"}),
             httpx.Response(
@@ -178,9 +174,9 @@ class TestFindSnapshot:
         considered a hit — we want actual content, not captured errors."""
         _mock_collinfo(["CC-MAIN-2026-12"])
         rec = _cdx_response("https://example.com/", "CC-MAIN-2026-12", status=404)
-        respx.get(
-            "https://index.commoncrawl.org/CC-MAIN-2026-12-index"
-        ).mock(return_value=httpx.Response(200, text=json.dumps(rec)))
+        respx.get("https://index.commoncrawl.org/CC-MAIN-2026-12-index").mock(
+            return_value=httpx.Response(200, text=json.dumps(rec))
+        )
         snap = await commoncrawl.find_snapshot("https://example.com/")
         assert snap is None
 
@@ -201,8 +197,9 @@ class TestFetchRecord:
         )
         respx.get(snap.fetch_url()).mock(
             return_value=httpx.Response(
-                206, content=warc_bytes,
-                headers={"Content-Range": f"bytes 0-{len(warc_bytes)-1}"}
+                206,
+                content=warc_bytes,
+                headers={"Content-Range": f"bytes 0-{len(warc_bytes) - 1}"},
             )
         )
         html = await commoncrawl.fetch_record_html(snap)
@@ -215,11 +212,12 @@ class TestFetchRecord:
             timestamp="20260101120000",
             crawl_id="CC-MAIN-2026-12",
             filename="crawl-data/CC-MAIN-2026-12/foo.warc.gz",
-            offset=0, length=100, status=200, mime="text/html",
+            offset=0,
+            length=100,
+            status=200,
+            mime="text/html",
         )
-        respx.get(snap.fetch_url()).mock(
-            return_value=httpx.Response(500)
-        )
+        respx.get(snap.fetch_url()).mock(return_value=httpx.Response(500))
         with pytest.raises(RuntimeError, match="500"):
             await commoncrawl.fetch_record_html(snap)
 
@@ -245,43 +243,43 @@ class TestQueryCrawlErrors:
     @respx.mock
     async def test_timeout_returns_none(self) -> None:
         _mock_collinfo(["CC-MAIN-2026-12"])
-        respx.get(
-            "https://index.commoncrawl.org/CC-MAIN-2026-12-index"
-        ).mock(side_effect=httpx.TimeoutException("timed out"))
+        respx.get("https://index.commoncrawl.org/CC-MAIN-2026-12-index").mock(
+            side_effect=httpx.TimeoutException("timed out")
+        )
         assert await commoncrawl.find_snapshot("https://example.com/") is None
 
     @respx.mock
     async def test_unexpected_exception_swallowed(self) -> None:
         _mock_collinfo(["CC-MAIN-2026-12"])
-        respx.get(
-            "https://index.commoncrawl.org/CC-MAIN-2026-12-index"
-        ).mock(side_effect=httpx.ConnectError("boom"))
+        respx.get("https://index.commoncrawl.org/CC-MAIN-2026-12-index").mock(
+            side_effect=httpx.ConnectError("boom")
+        )
         assert await commoncrawl.find_snapshot("https://example.com/") is None
 
     @respx.mock
     async def test_non_200_cdx_returns_none(self) -> None:
         _mock_collinfo(["CC-MAIN-2026-12"])
-        respx.get(
-            "https://index.commoncrawl.org/CC-MAIN-2026-12-index"
-        ).mock(return_value=httpx.Response(500))
+        respx.get("https://index.commoncrawl.org/CC-MAIN-2026-12-index").mock(
+            return_value=httpx.Response(500)
+        )
         assert await commoncrawl.find_snapshot("https://example.com/") is None
 
     @respx.mock
     async def test_invalid_json_body_returns_none(self) -> None:
         _mock_collinfo(["CC-MAIN-2026-12"])
-        respx.get(
-            "https://index.commoncrawl.org/CC-MAIN-2026-12-index"
-        ).mock(return_value=httpx.Response(200, text="this is not {json"))
+        respx.get("https://index.commoncrawl.org/CC-MAIN-2026-12-index").mock(
+            return_value=httpx.Response(200, text="this is not {json")
+        )
         assert await commoncrawl.find_snapshot("https://example.com/") is None
 
     @respx.mock
     async def test_malformed_record_missing_keys(self) -> None:
         _mock_collinfo(["CC-MAIN-2026-12"])
-        respx.get(
-            "https://index.commoncrawl.org/CC-MAIN-2026-12-index"
-        ).mock(return_value=httpx.Response(
-            200, text=json.dumps({"url": "https://example.com/"})
-        ))
+        respx.get("https://index.commoncrawl.org/CC-MAIN-2026-12-index").mock(
+            return_value=httpx.Response(
+                200, text=json.dumps({"url": "https://example.com/"})
+            )
+        )
         assert await commoncrawl.find_snapshot("https://example.com/") is None
 
     @respx.mock
@@ -295,15 +293,17 @@ class TestFindSnapshotFullHistory:
     async def test_finds_hit_in_older_crawl(self) -> None:
         """Full-history scan finds a hit even when recent crawls miss."""
         _mock_collinfo(["CC-MAIN-2026-12", "CC-MAIN-2018-22"])
-        respx.get(
-            "https://index.commoncrawl.org/CC-MAIN-2026-12-index"
-        ).mock(return_value=httpx.Response(200, text="No Captures found for: ..."))
-        respx.get(
-            "https://index.commoncrawl.org/CC-MAIN-2018-22-index"
-        ).mock(return_value=httpx.Response(
-            200,
-            text=json.dumps(_cdx_response("https://example.com/", "CC-MAIN-2018-22")),
-        ))
+        respx.get("https://index.commoncrawl.org/CC-MAIN-2026-12-index").mock(
+            return_value=httpx.Response(200, text="No Captures found for: ...")
+        )
+        respx.get("https://index.commoncrawl.org/CC-MAIN-2018-22-index").mock(
+            return_value=httpx.Response(
+                200,
+                text=json.dumps(
+                    _cdx_response("https://example.com/", "CC-MAIN-2018-22")
+                ),
+            )
+        )
         snap = await commoncrawl.find_snapshot_full_history("https://example.com/")
         assert snap is not None
         assert snap.crawl_id == "CC-MAIN-2018-22"
@@ -312,9 +312,9 @@ class TestFindSnapshotFullHistory:
     async def test_all_miss_returns_none(self) -> None:
         _mock_collinfo(["CC-MAIN-2026-12", "CC-MAIN-2018-22"])
         for crawl in ("CC-MAIN-2026-12", "CC-MAIN-2018-22"):
-            respx.get(
-                f"https://index.commoncrawl.org/{crawl}-index"
-            ).mock(return_value=httpx.Response(200, text="No Captures found for: ..."))
+            respx.get(f"https://index.commoncrawl.org/{crawl}-index").mock(
+                return_value=httpx.Response(200, text="No Captures found for: ...")
+            )
         snap = await commoncrawl.find_snapshot_full_history("https://example.com/")
         assert snap is None
 
@@ -322,9 +322,9 @@ class TestFindSnapshotFullHistory:
     async def test_max_crawls_limits_scan(self) -> None:
         """max_crawls truncates the crawl list before scanning."""
         _mock_collinfo(["CC-MAIN-2026-12", "CC-MAIN-2018-22"])
-        respx.get(
-            "https://index.commoncrawl.org/CC-MAIN-2026-12-index"
-        ).mock(return_value=httpx.Response(200, text="No Captures found for: ..."))
+        respx.get("https://index.commoncrawl.org/CC-MAIN-2026-12-index").mock(
+            return_value=httpx.Response(200, text="No Captures found for: ...")
+        )
         # Second crawl deliberately not mocked — if scan reaches it, respx raises.
         snap = await commoncrawl.find_snapshot_full_history(
             "https://example.com/", max_crawls=1
@@ -335,18 +335,22 @@ class TestFindSnapshotFullHistory:
     async def test_continues_after_first_hit_when_not_stopping(self) -> None:
         """stop_on_first=False scans all crawls but still returns first hit."""
         _mock_collinfo(["CC-MAIN-2026-12", "CC-MAIN-2018-22"])
-        respx.get(
-            "https://index.commoncrawl.org/CC-MAIN-2026-12-index"
-        ).mock(return_value=httpx.Response(
-            200,
-            text=json.dumps(_cdx_response("https://example.com/", "CC-MAIN-2026-12")),
-        ))
-        respx.get(
-            "https://index.commoncrawl.org/CC-MAIN-2018-22-index"
-        ).mock(return_value=httpx.Response(
-            200,
-            text=json.dumps(_cdx_response("https://example.com/", "CC-MAIN-2018-22")),
-        ))
+        respx.get("https://index.commoncrawl.org/CC-MAIN-2026-12-index").mock(
+            return_value=httpx.Response(
+                200,
+                text=json.dumps(
+                    _cdx_response("https://example.com/", "CC-MAIN-2026-12")
+                ),
+            )
+        )
+        respx.get("https://index.commoncrawl.org/CC-MAIN-2018-22-index").mock(
+            return_value=httpx.Response(
+                200,
+                text=json.dumps(
+                    _cdx_response("https://example.com/", "CC-MAIN-2018-22")
+                ),
+            )
+        )
         snap = await commoncrawl.find_snapshot_full_history(
             "https://example.com/", stop_on_first=False
         )
@@ -376,15 +380,17 @@ class TestFetchRecordNoResponse:
             timestamp="20260101120000",
             crawl_id="CC-MAIN-2026-12",
             filename="crawl-data/CC-MAIN-2026-12/foo.warc.gz",
-            offset=0, length=len(warc_bytes), status=200, mime="text/html",
+            offset=0,
+            length=len(warc_bytes),
+            status=200,
+            mime="text/html",
         )
         respx.get(snap.fetch_url()).mock(
             return_value=httpx.Response(
-                206, content=warc_bytes,
-                headers={"Content-Range": f"bytes 0-{len(warc_bytes)-1}"}
+                206,
+                content=warc_bytes,
+                headers={"Content-Range": f"bytes 0-{len(warc_bytes) - 1}"},
             )
         )
         with pytest.raises(RuntimeError, match="No response record"):
             await commoncrawl.fetch_record_html(snap)
-
-

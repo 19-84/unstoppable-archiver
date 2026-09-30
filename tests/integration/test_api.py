@@ -29,7 +29,7 @@ pytestmark = pytest.mark.integration
 async def pool() -> AsyncIterator[asyncpg.pool.Pool]:
     p = await create_pool(DB_URL, min_size=2, max_size=5)
     await init_db(p)
-    await reset_test_db(p)   # clean slate IN, not OUT
+    await reset_test_db(p)  # clean slate IN, not OUT
     yield p
     await close_pool(p)
 
@@ -46,30 +46,22 @@ async def client(
     app.state.pool = pool
     app.state.blocklist = DomainBlocklist()
     transport = ASGITransport(app=app)  # type: ignore[arg-type]
-    async with AsyncClient(
-        transport=transport, base_url="http://test"
-    ) as c:
+    async with AsyncClient(transport=transport, base_url="http://test") as c:
         yield c
 
 
 class TestHealth:
-    async def test_shallow_health(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_shallow_health(self, client: AsyncClient) -> None:
         resp = await client.get("/api/health")
         assert resp.status_code == 200  # noqa: PLR2004
         assert resp.json()["status"] == "ok"
 
-    async def test_deep_health(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_deep_health(self, client: AsyncClient) -> None:
         resp = await client.get("/api/health/deep")
         assert resp.status_code == 200  # noqa: PLR2004
         assert resp.json()["database"] == "connected"
 
-    async def test_metrics_endpoint(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_metrics_endpoint(self, client: AsyncClient) -> None:
         resp = await client.get("/api/metrics")
         assert resp.status_code == 200  # noqa: PLR2004
         assert "text/plain" in resp.headers["content-type"]
@@ -77,9 +69,7 @@ class TestHealth:
 
 
 class TestArchiveCreate:
-    async def test_create_archive(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_create_archive(self, client: AsyncClient) -> None:
         resp = await client.post(
             "/api/archives",
             json={"url": "https://example.com/test"},
@@ -90,9 +80,7 @@ class TestArchiveCreate:
         assert data["url"] == "https://example.com/test"
         assert data["id"] is not None
 
-    async def test_create_duplicate_blocked(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_create_duplicate_blocked(self, client: AsyncClient) -> None:
         await client.post(
             "/api/archives",
             json={"url": "https://example.com/dup"},
@@ -106,9 +94,7 @@ class TestArchiveCreate:
         )
         assert resp.status_code == 201  # noqa: PLR2004
 
-    async def test_create_invalid_url(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_create_invalid_url(self, client: AsyncClient) -> None:
         resp = await client.post(
             "/api/archives",
             json={"url": "not-a-url"},
@@ -128,8 +114,7 @@ class TestArchiveCreate:
         # Manually mark complete so the dedup check fires
         async with pool.acquire() as conn:
             await conn.execute(
-                "UPDATE archives SET status='complete',"
-                " completed_at=now() WHERE id=$1",
+                "UPDATE archives SET status='complete', completed_at=now() WHERE id=$1",
                 archive_id,
             )
         resp2 = await client.post(
@@ -149,8 +134,7 @@ class TestArchiveCreate:
         archive_id = resp.json()["id"]
         async with pool.acquire() as conn:
             await conn.execute(
-                "UPDATE archives SET status='complete',"
-                " completed_at=now() WHERE id=$1",
+                "UPDATE archives SET status='complete', completed_at=now() WHERE id=$1",
                 archive_id,
             )
         resp2 = await client.post(
@@ -160,9 +144,7 @@ class TestArchiveCreate:
         assert resp2.status_code == 201  # noqa: PLR2004
         assert resp2.json()["id"] != archive_id
 
-    async def test_create_force_bypass_dedup(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_create_force_bypass_dedup(self, client: AsyncClient) -> None:
         resp = await client.post(
             "/api/archives",
             json={
@@ -174,18 +156,14 @@ class TestArchiveCreate:
 
 
 class TestArchiveList:
-    async def test_list_empty(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_list_empty(self, client: AsyncClient) -> None:
         resp = await client.get("/api/archives")
         assert resp.status_code == 200  # noqa: PLR2004
         data = resp.json()
         assert data["archives"] == []
         assert data["total"] == 0
 
-    async def test_list_with_archives(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_list_with_archives(self, client: AsyncClient) -> None:
         await client.post(
             "/api/archives",
             json={"url": "https://a.com"},
@@ -199,9 +177,7 @@ class TestArchiveList:
         assert data["total"] == 2  # noqa: PLR2004
         assert len(data["archives"]) == 2  # noqa: PLR2004
 
-    async def test_list_pagination(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_list_pagination(self, client: AsyncClient) -> None:
         for i in range(3):
             await client.post(
                 "/api/archives",
@@ -213,7 +189,8 @@ class TestArchiveList:
         assert data["total"] == 3  # noqa: PLR2004
 
     async def test_list_response_echoes_pagination_window(
-        self, client: AsyncClient,
+        self,
+        client: AsyncClient,
     ) -> None:
         """API consumers paginating through archives need limit +
         offset echoed in the response so they don't have to track
@@ -238,7 +215,9 @@ class TestArchiveList:
         assert has_next is True
 
     async def test_search_response_echoes_pagination_window(
-        self, client: AsyncClient, pool: asyncpg.pool.Pool,
+        self,
+        client: AsyncClient,
+        pool: asyncpg.pool.Pool,
     ) -> None:
         """Same self-describing-pagination requirement for the search
         endpoint — without limit/offset in the response, paginating
@@ -267,9 +246,7 @@ class TestArchiveList:
 
 
 class TestArchiveGet:
-    async def test_get_by_id(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_get_by_id(self, client: AsyncClient) -> None:
         create_resp = await client.post(
             "/api/archives",
             json={"url": "https://example.com/get"},
@@ -280,17 +257,13 @@ class TestArchiveGet:
         assert resp.status_code == 200  # noqa: PLR2004
         assert resp.json()["id"] == archive_id
 
-    async def test_get_nonexistent(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_get_nonexistent(self, client: AsyncClient) -> None:
         resp = await client.get("/api/archives/nonexistent")
         assert resp.status_code == 404  # noqa: PLR2004
 
 
 class TestArchiveDelete:
-    async def test_delete_archive(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_delete_archive(self, client: AsyncClient) -> None:
         create_resp = await client.post(
             "/api/archives",
             json={"url": "https://example.com/del"},
@@ -303,20 +276,14 @@ class TestArchiveDelete:
         get_resp = await client.get(f"/api/archives/{archive_id}")
         assert get_resp.status_code == 404  # noqa: PLR2004
 
-    async def test_delete_nonexistent(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_delete_nonexistent(self, client: AsyncClient) -> None:
         resp = await client.delete("/api/archives/nonexistent")
         assert resp.status_code == 404  # noqa: PLR2004
 
 
 class TestSearch:
-    async def test_search_empty(
-        self, client: AsyncClient
-    ) -> None:
-        resp = await client.get(
-            "/api/archives/search?q=nonexistent"
-        )
+    async def test_search_empty(self, client: AsyncClient) -> None:
+        resp = await client.get("/api/archives/search?q=nonexistent")
         assert resp.status_code == 200  # noqa: PLR2004
         data = resp.json()
         assert data["total"] == 0
@@ -325,38 +292,26 @@ class TestSearch:
 
 
 class TestArtifactEndpoints:
-    async def test_snapshot_404_no_artifacts(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_snapshot_404_no_artifacts(self, client: AsyncClient) -> None:
         create_resp = await client.post(
             "/api/archives",
             json={"url": "https://example.com/noart"},
         )
         archive_id = create_resp.json()["id"]
-        resp = await client.get(
-            f"/api/archives/{archive_id}/snapshot"
-        )
+        resp = await client.get(f"/api/archives/{archive_id}/snapshot")
         assert resp.status_code == 404  # noqa: PLR2004
 
-    async def test_warc_404_no_artifacts(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_warc_404_no_artifacts(self, client: AsyncClient) -> None:
         create_resp = await client.post(
             "/api/archives",
             json={"url": "https://example.com/nowarc"},
         )
         archive_id = create_resp.json()["id"]
-        resp = await client.get(
-            f"/api/archives/{archive_id}/warc"
-        )
+        resp = await client.get(f"/api/archives/{archive_id}/warc")
         assert resp.status_code == 404  # noqa: PLR2004
 
-    async def test_nonexistent_archive_snapshot(
-        self, client: AsyncClient
-    ) -> None:
-        resp = await client.get(
-            "/api/archives/nonexistent/snapshot"
-        )
+    async def test_nonexistent_archive_snapshot(self, client: AsyncClient) -> None:
+        resp = await client.get("/api/archives/nonexistent/snapshot")
         assert resp.status_code == 404  # noqa: PLR2004
 
     async def test_serve_snapshot_file(
@@ -371,9 +326,7 @@ class TestArtifactEndpoints:
 
         repo = ArchiveRepository()
         async with pool.acquire() as conn:
-            archive = await repo.create(
-                conn, "https://example.com/serve"
-            )
+            archive = await repo.create(conn, "https://example.com/serve")
             # Create artifact files
             art_dir = tmp_path / "artifacts" / "test"
             art_dir.mkdir(parents=True)
@@ -394,20 +347,14 @@ class TestArtifactEndpoints:
             tmp_path / "artifacts"
         )
 
-        resp = await client.get(
-            f"/api/archives/{archive.id}/snapshot"
-        )
+        resp = await client.get(f"/api/archives/{archive.id}/snapshot")
         assert resp.status_code == 200  # noqa: PLR2004
         assert "<html>hi</html>" in resp.text
 
-        resp = await client.get(
-            f"/api/archives/{archive.id}/screenshot"
-        )
+        resp = await client.get(f"/api/archives/{archive.id}/screenshot")
         assert resp.status_code == 200  # noqa: PLR2004
 
-        resp = await client.get(
-            f"/api/archives/{archive.id}/thumbnail"
-        )
+        resp = await client.get(f"/api/archives/{archive.id}/thumbnail")
         assert resp.status_code == 200  # noqa: PLR2004
 
     async def test_artifact_responses_emit_short_cache_control(
@@ -428,7 +375,8 @@ class TestArtifactEndpoints:
         repo = ArchiveRepository()
         async with pool.acquire() as conn:
             archive = await repo.create(
-                conn, "https://example.com/cache-headers-uat",
+                conn,
+                "https://example.com/cache-headers-uat",
             )
             art_dir = tmp_path / "artifacts" / "cache_headers"
             art_dir.mkdir(parents=True)
@@ -437,7 +385,9 @@ class TestArtifactEndpoints:
             (art_dir / "screenshot.png").write_bytes(b"\x89PNG")
             (art_dir / "thumbnail.png").write_bytes(b"\x89PNG")
             await repo.update_status(
-                conn, archive.id, ArchiveStatus.COMPLETE,
+                conn,
+                archive.id,
+                ArchiveStatus.COMPLETE,
                 artifact_dir="cache_headers",
             )
 
@@ -458,27 +408,19 @@ class TestArtifactEndpoints:
             # max-age caps the takedown propagation delay to 5 minutes.
             assert "max-age=300" in cc, f"{route}: {cc!r}"
 
-    async def test_artifact_404_when_archive_missing(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_artifact_404_when_archive_missing(self, client: AsyncClient) -> None:
         """All artifact endpoints return 404 for missing archive."""
         for endpoint in ("snapshot", "warc", "screenshot", "thumbnail"):
-            resp = await client.get(
-                f"/api/archives/nonexistent/{endpoint}"
-            )
+            resp = await client.get(f"/api/archives/nonexistent/{endpoint}")
             assert resp.status_code == 404  # noqa: PLR2004
 
-    async def test_artifact_404_when_no_artifacts(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_artifact_404_when_no_artifacts(self, client: AsyncClient) -> None:
         """Archive exists but has no artifacts yet (pending)."""
         resp = await client.post(
             "/api/archives", json={"url": "https://example.com/no-art", "force": True}
         )
         archive_id = resp.json()["id"]
-        resp = await client.get(
-            f"/api/archives/{archive_id}/warc"
-        )
+        resp = await client.get(f"/api/archives/{archive_id}/warc")
         assert resp.status_code == 404  # noqa: PLR2004
 
     async def test_delete_archive_with_artifacts(
@@ -502,7 +444,8 @@ class TestArtifactEndpoints:
         async with pool.acquire() as conn:
             await conn.execute(
                 "UPDATE archives SET artifact_dir=$1 WHERE id=$2",
-                rel_dir, archive_id,
+                rel_dir,
+                archive_id,
             )
         resp = await client.delete(f"/api/archives/{archive_id}")
         assert resp.status_code == 204  # noqa: PLR2004
@@ -516,10 +459,10 @@ class TestCreateAppDefaults:
         """Calling create_app() with no settings should construct a
         default Settings() and return a usable FastAPI app."""
         from archiver.app import create_app
+
         app = create_app()
         # FastAPI instance with the project's title
         assert app.title == "Unstoppable Archive"
-
 
 
 class TestServeSnapshotZstd:
@@ -540,7 +483,8 @@ class TestServeSnapshotZstd:
         repo = ArchiveRepository()
         async with pool.acquire() as conn:
             archive = await repo.create(
-                conn, f"https://example.com/zst-{tmp_path.name}",
+                conn,
+                f"https://example.com/zst-{tmp_path.name}",
             )
             art_dir = tmp_path / "artifacts" / "zsttest"
             art_dir.mkdir(parents=True)
@@ -548,7 +492,9 @@ class TestServeSnapshotZstd:
             (art_dir / "snapshot.html.zst").write_bytes(compressed)
             rel = str(art_dir.relative_to(tmp_path / "artifacts"))
             await repo.update_status(
-                conn, archive.id, ArchiveStatus.COMPLETE,
+                conn,
+                archive.id,
+                ArchiveStatus.COMPLETE,
                 artifact_dir=rel,
             )
         return archive.id, art_dir
@@ -601,9 +547,7 @@ class TestServeSnapshotZstd:
         assert resp.status_code == 200  # noqa: PLR2004
         assert resp.content == html
         # Server-side decompress => no Content-Encoding header
-        assert "content-encoding" not in {
-            k.lower() for k in resp.headers
-        }
+        assert "content-encoding" not in {k.lower() for k in resp.headers}
 
     async def test_neither_zst_nor_plain_returns_404(
         self,
@@ -619,15 +563,16 @@ class TestServeSnapshotZstd:
         repo = ArchiveRepository()
         async with pool.acquire() as conn:
             archive = await repo.create(
-                conn, "https://example.com/no-snap",
+                conn,
+                "https://example.com/no-snap",
             )
             empty_dir = tmp_path / "artifacts" / "empty"
             empty_dir.mkdir(parents=True)
             await repo.update_status(
-                conn, archive.id, ArchiveStatus.COMPLETE,
-                artifact_dir=str(
-                    empty_dir.relative_to(tmp_path / "artifacts")
-                ),
+                conn,
+                archive.id,
+                ArchiveStatus.COMPLETE,
+                artifact_dir=str(empty_dir.relative_to(tmp_path / "artifacts")),
             )
         client._transport.app.state.settings.artifacts_dir = (  # type: ignore[union-attr]
             tmp_path / "artifacts"
@@ -650,10 +595,13 @@ class TestServeSnapshotZstd:
         repo = ArchiveRepository()
         async with pool.acquire() as conn:
             archive = await repo.create(
-                conn, "https://example.com/escape",
+                conn,
+                "https://example.com/escape",
             )
             await repo.update_status(
-                conn, archive.id, ArchiveStatus.COMPLETE,
+                conn,
+                archive.id,
+                ArchiveStatus.COMPLETE,
                 artifact_dir="../etc",
             )
         (tmp_path / "artifacts").mkdir(parents=True, exist_ok=True)

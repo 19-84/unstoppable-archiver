@@ -248,11 +248,11 @@ END$$;
 
 
 @beartype
-async def create_pool(db_url: str, *, min_size: int = 2, max_size: int = 10) -> asyncpg.Pool:
+async def create_pool(
+    db_url: str, *, min_size: int = 2, max_size: int = 10
+) -> asyncpg.Pool:
     """Create and return a connection pool."""
-    pool = await asyncpg.create_pool(
-        db_url, min_size=min_size, max_size=max_size
-    )
+    pool = await asyncpg.create_pool(db_url, min_size=min_size, max_size=max_size)
     assert pool is not None  # noqa: S101
     log.info("db.pool_created", min_size=min_size, max_size=max_size)
     return pool

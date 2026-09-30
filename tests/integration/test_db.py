@@ -49,9 +49,7 @@ async def pool() -> AsyncIterator[asyncpg.pool.Pool]:
 
 
 class TestInitDb:
-    async def test_creates_tables(
-        self, pool: asyncpg.pool.Pool
-    ) -> None:
+    async def test_creates_tables(self, pool: asyncpg.pool.Pool) -> None:
         await init_db(pool)
         async with pool.acquire() as conn:
             row = await conn.fetchrow(
@@ -72,15 +70,11 @@ class TestInitDb:
             assert row is not None
             assert row[0] is True
 
-    async def test_idempotent(
-        self, pool: asyncpg.pool.Pool
-    ) -> None:
+    async def test_idempotent(self, pool: asyncpg.pool.Pool) -> None:
         await init_db(pool)
         await init_db(pool)
 
-    async def test_archives_has_search_vector(
-        self, pool: asyncpg.pool.Pool
-    ) -> None:
+    async def test_archives_has_search_vector(self, pool: asyncpg.pool.Pool) -> None:
         await init_db(pool)
         async with pool.acquire() as conn:
             row = await conn.fetchrow(
@@ -91,13 +85,10 @@ class TestInitDb:
             )
             assert row is not None
 
-    async def test_gin_index_exists(
-        self, pool: asyncpg.pool.Pool
-    ) -> None:
+    async def test_gin_index_exists(self, pool: asyncpg.pool.Pool) -> None:
         await init_db(pool)
         async with pool.acquire() as conn:
             row = await conn.fetchrow(
-                "SELECT 1 FROM pg_indexes "
-                "WHERE indexname = 'idx_archives_search'"
+                "SELECT 1 FROM pg_indexes WHERE indexname = 'idx_archives_search'"
             )
             assert row is not None
