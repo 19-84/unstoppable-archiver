@@ -33,10 +33,28 @@ services:
     memswap_limit: 1g       # disable swap — OOM-kill is preferable to thrashing
     cpus: 2.0
 
+  # One-shot ownership fix for the named volumes. app/worker run as the
+  # unprivileged `archiver` user (UID/GID 10001, pinned in the
+  # Dockerfile), but volumes written by older root-run images are
+  # root-owned. Only mismatched entries are touched, so after the
+  # first run this is a quick no-op scan. Reuses the postgres image
+  # to avoid pulling another one.
+  volume-perms:
+    image: postgres:17-alpine
+    user: "0:0"
+    entrypoint:
+      - sh
+      - -c
+      - find /data /cache \( ! -user 10001 -o ! -group 10001 \) -exec chown -h 10001:10001 {} +
+    volumes:
+      - artifacts:/data
+      - camoufox_cache:/cache
+    restart: "no"
+
   app:
     build:
       context: .
-      target: dev
+      target: production
     command: uv run uvicorn archiver.app:create_app --factory --host 0.0.0.0 --port 8000
     ports:
       # Localhost-only for the same firewall-bypass reason as postgres.
@@ -61,6 +79,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      volume-perms:
+        condition: service_completed_successfully
     restart: unless-stopped
     mem_limit: 1g
     memswap_limit: 1g
@@ -69,7 +89,7 @@ services:
   worker:
     build:
       context: .
-      target: dev
+      target: production
     # Run an init process (tini) as PID 1. The worker launches
     # Camoufox/Firefox, whose child processes (Socket/RDD/Utility)
     # get orphaned and reparented to PID 1 when a browser closes.
@@ -82,7 +102,7 @@ services:
     command: uv run python -m archiver
     volumes:
       - artifacts:/data
-      - camoufox_cache:/root/.cache
+      - camoufox_cache:/home/archiver/.cache
     environment:
       ARCHIVER_DB_URL: postgresql://archiver:archiver@postgres:5432/archiver
       ARCHIVER_ARTIFACTS_DIR: /data/archives
@@ -105,9 +125,19 @@ services:
              exec uv run python -m archiver"
     ports:
       - "127.0.0.1:9090:9090"
+    # The image's HEALTHCHECK probes the app's :8000, which the worker
+    # doesn't serve; probe its own metrics listener instead.
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://localhost:9090/metrics"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
     depends_on:
       postgres:
         condition: service_healthy
+      volume-perms:
+        condition: service_completed_successfully
     restart: unless-stopped
     # Worker runs Camoufox (Firefox-based stealth browser ~1-1.5 GB
     # per session) at max_concurrent_captures=2, so peak is ~3 GB

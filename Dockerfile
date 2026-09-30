@@ -81,9 +81,16 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 RUN uv run playwright install chromium
 
-# Non-root user for security
-RUN useradd -r -m -d /home/archiver archiver && \
-    mkdir -p /data/archives && chown -R archiver:archiver /data /ms-playwright
+# Non-root user for security. The UID/GID are pinned because the compose
+# `volume-perms` job chowns existing named volumes to them by number.
+# /tmp/.X11-unix is pre-created because Xvfb (worker) can't create it
+# without root. ~/.cache exists up front so the camoufox_cache volume
+# inherits archiver ownership on first mount.
+RUN groupadd -r -g 10001 archiver && \
+    useradd -r -u 10001 -g archiver -m -d /home/archiver archiver && \
+    mkdir -p /data/archives /home/archiver/.cache /tmp/.X11-unix && \
+    chmod 1777 /tmp/.X11-unix && \
+    chown -R archiver:archiver /data /ms-playwright /home/archiver
 
 # Credentials must be passed at runtime via env vars or secrets, not baked into image
 ENV ARCHIVER_ARTIFACTS_DIR=/data/archives
