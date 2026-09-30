@@ -33,6 +33,7 @@ test-db:
 
 lint:
 	$(RUN) uv run --no-sync ruff check .
+	$(RUN) uv run --no-sync ruff format --check .
 
 typecheck:
 	$(RUN) uv run --no-sync pyright
