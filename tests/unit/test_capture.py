@@ -27,9 +27,7 @@ from archiver.models import CaptureResult
 def _make_mock_page() -> AsyncMock:
     """Create a mock Playwright Page with standard responses."""
     page = AsyncMock()
-    page.goto = AsyncMock(
-        return_value=MagicMock(status=200)
-    )
+    page.goto = AsyncMock(return_value=MagicMock(status=200))
     page.wait_for_load_state = AsyncMock()
     page.title = AsyncMock(return_value="Test Page")
     page.evaluate = AsyncMock(
@@ -52,9 +50,7 @@ def _make_mock_page() -> AsyncMock:
         ]
     )
     # Valid 1x1 PNG
-    page.screenshot = AsyncMock(
-        return_value=_make_tiny_png()
-    )
+    page.screenshot = AsyncMock(return_value=_make_tiny_png())
     page.on = MagicMock()
     page.add_init_script = AsyncMock()
     return page
@@ -103,9 +99,7 @@ class TestCapturePageSuccess:
             singlefile_bundle_path=Path("fake.js"),
         )
 
-        result = await capture_page(
-            "https://example.com", browser, settings
-        )
+        result = await capture_page("https://example.com", browser, settings)
 
         assert isinstance(result, CaptureResult)
         assert result.title == "Test Page"
@@ -114,7 +108,6 @@ class TestCapturePageSuccess:
         assert len(result.thumbnail_png) > 0
         assert len(result.content_hash) == 64  # noqa: PLR2004
         assert len(result.screenshot_hash) == 64  # noqa: PLR2004
-
 
     @patch("archiver.capture.load_bundle", return_value="// fake JS")
     @patch("archiver.capture.check_anti_bot")
@@ -159,7 +152,9 @@ class TestCapturePageSuccess:
         )
 
         result = await capture_page(
-            "https://example.com", browser, settings,
+            "https://example.com",
+            browser,
+            settings,
             tier=CaptureTier.CAMOUFOX,
         )
 
@@ -183,9 +178,7 @@ class TestCapturePageSuccess:
         )
 
         page = _make_mock_page()
-        page.goto = AsyncMock(
-            side_effect=TimeoutError("navigation timeout")
-        )
+        page.goto = AsyncMock(side_effect=TimeoutError("navigation timeout"))
         # Title without challenge markers so the timeout falls to the
         # plain anti-bot check (not the JS-challenge wait path).
         page.title = AsyncMock(return_value="Access Denied")
@@ -198,10 +191,7 @@ class TestCapturePageSuccess:
         )
 
         with pytest.raises(AntiBotDetectedError, match="timeout"):
-            await capture_page(
-                "https://example.com", browser, settings
-            )
-
+            await capture_page("https://example.com", browser, settings)
 
     @patch("archiver.capture.capture_via_cli", new_callable=AsyncMock)
     @patch("archiver.capture.load_bundle", return_value="// fake JS")
@@ -252,7 +242,9 @@ class TestCapturePageSuccess:
         )
 
         result = await capture_page(
-            "https://example.com", browser, settings,
+            "https://example.com",
+            browser,
+            settings,
             tier=CaptureTier.CAMOUFOX,
         )
         assert isinstance(result, CaptureResult)
@@ -297,7 +289,9 @@ class TestCapturePageSuccess:
             singlefile_bundle_path=Path("fake.js"),
         )
         result = await capture_page(
-            "https://example.com", browser, settings,
+            "https://example.com",
+            browser,
+            settings,
             tier=CaptureTier.CAMOUFOX,
         )
         assert b"live" in result.snapshot_html
@@ -349,12 +343,13 @@ class TestCapturePageSuccess:
         )
 
         result = await capture_page(
-            "https://example.com", browser, settings,
+            "https://example.com",
+            browser,
+            settings,
             tier=CaptureTier.CAMOUFOX,
         )
         assert isinstance(result, CaptureResult)
         mock_cli.assert_awaited_once()
-
 
     @patch("archiver.capture.load_bundle", return_value="// fake JS")
     async def test_post_timeout_page_check_failure(
@@ -369,9 +364,7 @@ class TestCapturePageSuccess:
         page.wait_for_load_state = AsyncMock(
             side_effect=TimeoutError("networkidle timeout")
         )
-        page.title = AsyncMock(
-            side_effect=Exception("page crashed")
-        )
+        page.title = AsyncMock(side_effect=Exception("page crashed"))
         page.evaluate = AsyncMock(return_value="")
         page.on = MagicMock()
         page.add_init_script = AsyncMock()
@@ -383,9 +376,7 @@ class TestCapturePageSuccess:
         )
 
         with pytest.raises(CaptureError):
-            await capture_page(
-                "https://example.com", browser, settings
-            )
+            await capture_page("https://example.com", browser, settings)
 
 
 class TestCloseContextBounded:
@@ -415,7 +406,9 @@ class TestCloseContextBounded:
 
         start = time.monotonic()
         await close_context_bounded(
-            context, url="https://example.com", timeout=0.3,
+            context,
+            url="https://example.com",
+            timeout=0.3,
         )
         elapsed = time.monotonic() - start
         # Returned ~0.3s, NOT hung. Generous ceiling for CI jitter.
@@ -427,7 +420,9 @@ class TestCloseContextBounded:
         context = MagicMock(spec=BrowserContext)
         context.close = AsyncMock()
         await close_context_bounded(
-            context, url="https://example.com", timeout=5.0,
+            context,
+            url="https://example.com",
+            timeout=5.0,
         )
         context.close.assert_awaited_once()
 
@@ -443,9 +438,7 @@ class TestCapturePageErrors:
     ) -> None:
         from archiver.detection import DetectionSignal
 
-        mock_detect.return_value = DetectionSignal(
-            is_blocked=True, reason="403"
-        )
+        mock_detect.return_value = DetectionSignal(is_blocked=True, reason="403")
 
         page = _make_mock_page()
         browser = _make_mock_browser(page)
@@ -455,9 +448,7 @@ class TestCapturePageErrors:
         )
 
         with pytest.raises(AntiBotDetectedError):
-            await capture_page(
-                "https://example.com", browser, settings
-            )
+            await capture_page("https://example.com", browser, settings)
 
     @patch("archiver.capture.load_bundle", return_value="// fake JS")
     @patch("archiver.capture.check_anti_bot")
@@ -476,17 +467,17 @@ class TestCapturePageErrors:
         mock_detect.return_value = DetectionSignal(is_blocked=False)
 
         page = AsyncMock()
-        page.goto = AsyncMock(
-            return_value=MagicMock(status=200)
-        )
+        page.goto = AsyncMock(return_value=MagicMock(status=200))
         page.wait_for_load_state = AsyncMock()
         page.title = AsyncMock(return_value="Test")
         page.evaluate = AsyncMock(
             side_effect=[
-                "body text",                 # body.innerText for detection
-                "<html></html>",              # documentElement.outerHTML for challenge
-                None,                         # consent-style cleanup
-                {"wrong_shape": "no content"},  # SingleFile returned dict without "content"
+                "body text",  # body.innerText for detection
+                "<html></html>",  # documentElement.outerHTML for challenge
+                None,  # consent-style cleanup
+                {
+                    "wrong_shape": "no content"
+                },  # SingleFile returned dict without "content"
             ]
         )
         page.on = MagicMock()
@@ -500,9 +491,7 @@ class TestCapturePageErrors:
         )
 
         with pytest.raises(CaptureError, match="unexpected"):
-            await capture_page(
-                "https://example.com", browser, settings
-            )
+            await capture_page("https://example.com", browser, settings)
 
     @patch("archiver.capture.load_bundle", return_value="// fake JS")
     async def test_navigation_error_raises_capture_error(
@@ -511,9 +500,7 @@ class TestCapturePageErrors:
         tmp_path: Path,
     ) -> None:
         page = AsyncMock()
-        page.goto = AsyncMock(
-            side_effect=TimeoutError("page timeout")
-        )
+        page.goto = AsyncMock(side_effect=TimeoutError("page timeout"))
         page.title = AsyncMock(return_value="")
         page.evaluate = AsyncMock(return_value="")
         page.on = MagicMock()
@@ -529,9 +516,7 @@ class TestCapturePageErrors:
         )
 
         with pytest.raises(CaptureError):
-            await capture_page(
-                "https://example.com", browser, settings
-            )
+            await capture_page("https://example.com", browser, settings)
 
         # Context should be closed even on error
         context.close.assert_awaited_once()
@@ -539,7 +524,10 @@ class TestCapturePageErrors:
 
 class TestLooksLikeBlockPage:
     def test_title_403_matches(self) -> None:
-        assert _looks_like_block_page("<html><head><title>403 Forbidden</title></head>") is True
+        assert (
+            _looks_like_block_page("<html><head><title>403 Forbidden</title></head>")
+            is True
+        )
 
     def test_access_denied_title_matches(self) -> None:
         assert _looks_like_block_page("<html><title>Access Denied</title>") is True
@@ -620,10 +608,9 @@ class TestGenerateThumbnail:
 
 
 class TestSaveArtifacts:
-    async def test_creates_directory_and_files(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_creates_directory_and_files(self, tmp_path: Path) -> None:
         import zstandard as zstd
+
         result = CaptureResult(
             snapshot_html=b"<html>test</html>",
             screenshot_png=_make_tiny_png(),
@@ -636,9 +623,7 @@ class TestSaveArtifacts:
             screenshot_hash="def456",
         )
 
-        rel_dir = await save_artifacts(
-            result, "urlhash123", tmp_path
-        )
+        rel_dir = await save_artifacts(result, "urlhash123", tmp_path)
 
         out_dir = tmp_path / rel_dir
         # snapshot.html is zstd-compressed at write time; the legacy
@@ -653,12 +638,10 @@ class TestSaveArtifacts:
         )
         assert decompressed == b"<html>test</html>"
 
-    async def test_compression_ratio_better_than_2x(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_compression_ratio_better_than_2x(self, tmp_path: Path) -> None:
         """Plain HTML should compress at least 2x -- guards against a
         future regression accidentally writing uncompressed bytes."""
-        repetitive_html = (b"<div>hello world</div>" * 1000)
+        repetitive_html = b"<div>hello world</div>" * 1000
         result = CaptureResult(
             snapshot_html=repetitive_html,
             screenshot_png=_make_tiny_png(),
@@ -673,13 +656,10 @@ class TestSaveArtifacts:
         rel_dir = await save_artifacts(result, "h", tmp_path)
         compressed = (tmp_path / rel_dir / "snapshot.html.zst").stat().st_size
         assert compressed * 2 < len(repetitive_html), (
-            f"expected >=2x compression, got "
-            f"{len(repetitive_html)} -> {compressed}"
+            f"expected >=2x compression, got {len(repetitive_html)} -> {compressed}"
         )
 
-    async def test_moves_warc_file(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_moves_warc_file(self, tmp_path: Path) -> None:
         warc_tmp = tmp_path / "temp.warc.gz"
         warc_tmp.write_bytes(b"fake warc data")
 
@@ -695,16 +675,12 @@ class TestSaveArtifacts:
             screenshot_hash="def",
         )
 
-        rel_dir = await save_artifacts(
-            result, "urlhash", tmp_path
-        )
+        rel_dir = await save_artifacts(result, "urlhash", tmp_path)
         out_dir = tmp_path / rel_dir
         assert (out_dir / "archive.warc.gz").exists()
         assert not warc_tmp.exists()  # moved, not copied
 
-    async def test_returns_relative_path(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_returns_relative_path(self, tmp_path: Path) -> None:
         result = CaptureResult(
             snapshot_html=b"<html>test</html>",
             screenshot_png=_make_tiny_png(),
@@ -717,9 +693,7 @@ class TestSaveArtifacts:
             screenshot_hash="def",
         )
 
-        rel_dir = await save_artifacts(
-            result, "myhash", tmp_path
-        )
+        rel_dir = await save_artifacts(result, "myhash", tmp_path)
         assert rel_dir.startswith("myhash/")
         assert "/" in rel_dir
 
@@ -743,9 +717,16 @@ class TestCookieCacheIntegration:
         browser = _make_mock_browser(page)
         context = browser.new_context.return_value
         # Mock cookies() to return a cf_clearance cookie
-        context.cookies = AsyncMock(return_value=[
-            {"name": "cf_clearance", "value": "token123", "domain": ".example.com", "path": "/"},
-        ])
+        context.cookies = AsyncMock(
+            return_value=[
+                {
+                    "name": "cf_clearance",
+                    "value": "token123",
+                    "domain": ".example.com",
+                    "path": "/",
+                },
+            ]
+        )
         context.add_cookies = AsyncMock()
 
         cache = CfClearanceCache()
@@ -757,7 +738,9 @@ class TestCookieCacheIntegration:
         )
 
         result = await capture_page(
-            "https://example.com", browser, settings,
+            "https://example.com",
+            browser,
+            settings,
             cookie_cache=cache,
         )
 
@@ -791,9 +774,7 @@ class TestCookieCacheIntegration:
             singlefile_bundle_path=Path("fake.js"),
         )
 
-        result = await capture_page(
-            "https://example.com", browser, settings
-        )
+        result = await capture_page("https://example.com", browser, settings)
 
         assert isinstance(result, CaptureResult)
         context.add_cookies.assert_not_awaited()
@@ -857,8 +838,6 @@ class TestCapturePageStripSelectors:
         # Strip selectors were each passed to page.evaluate with the
         # removal script as the first arg.
         eval_calls = page.evaluate.call_args_list
-        selector_args = [
-            call.args[1] for call in eval_calls if len(call.args) > 1
-        ]
+        selector_args = [call.args[1] for call in eval_calls if len(call.args) > 1]
         assert "#HEADER" in selector_args
         assert "#DIVSHARE" in selector_args

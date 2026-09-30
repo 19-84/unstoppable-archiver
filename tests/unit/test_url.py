@@ -18,13 +18,20 @@ class TestNormalizeUrl:
         assert normalize_url("http://example.com:80/path") == "http://example.com/path"
 
     def test_removes_default_https_port(self) -> None:
-        assert normalize_url("https://example.com:443/path") == "https://example.com/path"
+        assert (
+            normalize_url("https://example.com:443/path") == "https://example.com/path"
+        )
 
     def test_keeps_non_default_port(self) -> None:
-        assert normalize_url("http://example.com:8080/path") == "http://example.com:8080/path"
+        assert (
+            normalize_url("http://example.com:8080/path")
+            == "http://example.com:8080/path"
+        )
 
     def test_strips_tracking_params(self) -> None:
-        result = normalize_url("https://example.com/page?id=5&utm_source=twitter&fbclid=abc")
+        result = normalize_url(
+            "https://example.com/page?id=5&utm_source=twitter&fbclid=abc"
+        )
         assert result == "https://example.com/page?id=5"
 
     def test_sorts_query_params(self) -> None:
@@ -69,7 +76,6 @@ class TestNormalizeUrl:
         normalized = {normalize_url(u) for u in urls}
         assert len(normalized) == 1
 
-
     def test_empty_url_raises(self) -> None:
         with pytest.raises(ViolationError):
             normalize_url("")
@@ -113,10 +119,7 @@ class TestApexOf:
         assert apex_of("https://EXAMPLE.COM/") == "example.com"
 
     def test_ignores_path_and_query(self) -> None:
-        assert (
-            apex_of("https://example.com/a/b?x=1#frag")
-            == "example.com"
-        )
+        assert apex_of("https://example.com/a/b?x=1#frag") == "example.com"
 
     def test_empty_on_malformed(self) -> None:
         assert apex_of("not a url") == ""
@@ -125,7 +128,4 @@ class TestApexOf:
         assert apex_of("") == ""
 
     def test_collapses_www_and_bare_to_same_key(self) -> None:
-        assert (
-            apex_of("https://www.example.com/a")
-            == apex_of("https://example.com/b")
-        )
+        assert apex_of("https://www.example.com/a") == apex_of("https://example.com/b")

@@ -37,9 +37,7 @@ async def main(url: str, tier_str: str) -> int:
         return 1
 
     settings = Settings()
-    pool = await create_pool(
-        settings.db_url.get_secret_value(), min_size=1, max_size=2
-    )
+    pool = await create_pool(settings.db_url.get_secret_value(), min_size=1, max_size=2)
     try:
         await init_db(pool)
         archive_repo = ArchiveRepository()

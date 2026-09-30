@@ -51,9 +51,7 @@ def get_client_ip_hash(request: Request) -> str:
         settings.ip_hash_salt.get_secret_value()
         or settings.session_secret.get_secret_value()
     )
-    return hmac.new(
-        salt.encode(), raw.encode(), hashlib.sha256
-    ).hexdigest()[:32]
+    return hmac.new(salt.encode(), raw.encode(), hashlib.sha256).hexdigest()[:32]
 
 
 async def require_api_key(request: Request) -> None:
@@ -108,6 +106,4 @@ async def require_metrics_token(request: Request) -> None:
     if auth.startswith("Bearer ") and hmac.compare_digest(auth[7:], token):
         return
 
-    raise HTTPException(
-        status_code=401, detail="Invalid or missing metrics token"
-    )
+    raise HTTPException(status_code=401, detail="Invalid or missing metrics token")

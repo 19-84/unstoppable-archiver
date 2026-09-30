@@ -41,9 +41,7 @@ class TestSettings:
         assert s.recapture_interval_seconds == 3600  # noqa: PLR2004
 
     def test_env_prefix(self) -> None:
-        with patch.dict(
-            "os.environ", {"ARCHIVER_LOG_LEVEL": "DEBUG"}
-        ):
+        with patch.dict("os.environ", {"ARCHIVER_LOG_LEVEL": "DEBUG"}):
             s = Settings()
             assert s.log_level == "DEBUG"
 

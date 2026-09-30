@@ -33,12 +33,12 @@ JSON_OUTPUT = VENDOR_DIR / "cookie_filters.json"
 # ABP element-hide rule: [domains]##selector
 # Domains comma-separated, "~" prefix = exclusion
 # `#@#` = element-hide exception ("don't hide on this domain")
-_HIDE_RE = re.compile(
-    r"^(?P<domains>[a-zA-Z0-9.\-,~]*)(?P<op>#@?#)(?P<selector>.+)$"
-)
+_HIDE_RE = re.compile(r"^(?P<domains>[a-zA-Z0-9.\-,~]*)(?P<op>#@?#)(?P<selector>.+)$")
 
 
-def parse_rules(body: str) -> tuple[list[str], dict[str, list[str]], dict[str, list[str]]]:
+def parse_rules(
+    body: str,
+) -> tuple[list[str], dict[str, list[str]], dict[str, list[str]]]:
     """Return (generic_selectors, domain_rules, domain_exceptions).
 
     - generic_selectors: apply everywhere (domains field empty)
@@ -155,8 +155,7 @@ def main() -> int:
         json.dumps(domain_payload, separators=(",", ":")), encoding="utf-8"
     )
     print(
-        f"wrote {JSON_OUTPUT} "
-        f"({JSON_OUTPUT.stat().st_size:,} bytes)",
+        f"wrote {JSON_OUTPUT} ({JSON_OUTPUT.stat().st_size:,} bytes)",
         file=sys.stderr,
     )
     return 0

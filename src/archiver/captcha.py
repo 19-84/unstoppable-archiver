@@ -39,9 +39,7 @@ async def verify(settings: Settings, token: str) -> bool:
             token, settings.hcaptcha_secret.get_secret_value()
         )
     if provider == "altcha":
-        return _verify_altcha(
-            token, settings.altcha_hmac_key.get_secret_value()
-        )
+        return _verify_altcha(token, settings.altcha_hmac_key.get_secret_value())
     return False
 
 
@@ -65,9 +63,7 @@ async def _verify_hcaptcha(token: str, secret: str) -> bool:
 
 
 @beartype
-def generate_altcha_challenge(
-    hmac_key: str, max_number: int = 50000
-) -> dict[str, Any]:
+def generate_altcha_challenge(hmac_key: str, max_number: int = 50000) -> dict[str, Any]:
     """Generate an Altcha proof-of-work challenge.
 
     Returns a dict the client JS consumes:
@@ -77,9 +73,7 @@ def generate_altcha_challenge(
         raise ValueError("altcha_hmac_key not configured")
     salt = secrets.token_hex(12)
     secret_number = secrets.randbelow(max_number)
-    challenge = hashlib.sha256(
-        (salt + str(secret_number)).encode()
-    ).hexdigest()
+    challenge = hashlib.sha256((salt + str(secret_number)).encode()).hexdigest()
     signature = hmac.new(
         hmac_key.encode(),
         challenge.encode(),
@@ -122,9 +116,7 @@ def _verify_altcha(token: str, hmac_key: str) -> bool:  # noqa: PLR0911
         return False
 
     # Verify PoW: sha256(salt + number) must match challenge
-    expected_challenge = hashlib.sha256(
-        (salt + str(number)).encode()
-    ).hexdigest()
+    expected_challenge = hashlib.sha256((salt + str(number)).encode()).hexdigest()
     if not hmac.compare_digest(expected_challenge, challenge):
         return False
 

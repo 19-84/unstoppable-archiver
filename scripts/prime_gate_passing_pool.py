@@ -61,9 +61,11 @@ async def _tcp_reachable(proxy: ProxyConfig, timeout: float = 3.0) -> bool:
     except (IndexError, ValueError):
         return False
     import contextlib
+
     try:
         _, writer = await asyncio.wait_for(
-            asyncio.open_connection(host, port), timeout=timeout,
+            asyncio.open_connection(host, port),
+            timeout=timeout,
         )
         writer.close()
         with contextlib.suppress(Exception):
@@ -130,6 +132,7 @@ async def _load_and_prefilter(
         # Random sample for more diverse geographic coverage than the
         # implicit "first N from a github-raw file" order.
         import random
+
         random.shuffle(consumer)
         consumer = consumer[:max_candidates]
     return consumer
@@ -144,9 +147,7 @@ async def _probe_with_persistence(
     Returns (pass_count, fail_count).
     """
     settings = Settings()
-    pool = await create_pool(
-        settings.db_url.get_secret_value(), min_size=2, max_size=5
-    )
+    pool = await create_pool(settings.db_url.get_secret_value(), min_size=2, max_size=5)
     await init_db(pool)
     repo = ProxyStatusRepository()
 
@@ -179,9 +180,7 @@ async def _probe_with_persistence(
         )
 
     try:
-        await asyncio.gather(
-            *(_one(i + 1, p) for i, p in enumerate(proxies))
-        )
+        await asyncio.gather(*(_one(i + 1, p) for i, p in enumerate(proxies)))
     finally:
         await close_pool(pool)
 
@@ -194,8 +193,7 @@ async def main() -> int:
         "--max-candidates",
         type=int,
         default=100,
-        help="Cap on the number of post-filter proxies to gate-probe "
-             "(default: 100)",
+        help="Cap on the number of post-filter proxies to gate-probe (default: 100)",
     )
     parser.add_argument(
         "--concurrency",

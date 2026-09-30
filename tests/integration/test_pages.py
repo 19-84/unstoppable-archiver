@@ -29,7 +29,7 @@ pytestmark = pytest.mark.integration
 async def pool() -> AsyncIterator[asyncpg.pool.Pool]:
     p = await create_pool(DB_URL, min_size=2, max_size=5)
     await init_db(p)
-    await reset_test_db(p)   # clean slate IN, not OUT
+    await reset_test_db(p)  # clean slate IN, not OUT
     yield p
     await close_pool(p)
 
@@ -46,25 +46,19 @@ async def client(
     app.state.blocklist = DomainBlocklist()
     app.state.settings = settings  # ensure self-hosted mode
     transport = ASGITransport(app=app)  # type: ignore[arg-type]
-    async with AsyncClient(
-        transport=transport, base_url="http://test"
-    ) as c:
+    async with AsyncClient(transport=transport, base_url="http://test") as c:
         yield c
 
 
 class TestHomePage:
-    async def test_renders_html(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_renders_html(self, client: AsyncClient) -> None:
         resp = await client.get("/")
         assert resp.status_code == 200  # noqa: PLR2004
         assert "text/html" in resp.headers["content-type"]
         assert "unstoppable archive" in resp.text
         assert "Preserve the web" in resp.text
 
-    async def test_has_stats(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_has_stats(self, client: AsyncClient) -> None:
         resp = await client.get("/")
         assert "pages" in resp.text
         assert "domains" in resp.text
@@ -84,8 +78,7 @@ class TestHomePage:
         3/6 = 50%."""
         async with pool.acquire() as conn:
             for i, status in enumerate(
-                ["complete", "complete", "complete",
-                 "failed", "capturing", "capturing"]
+                ["complete", "complete", "complete", "failed", "capturing", "capturing"]
             ):
                 await conn.execute(
                     """
@@ -105,22 +98,16 @@ class TestHomePage:
         # The buggy formula (3 of 6 total) would render 50.0%.
         assert "50.0%" not in body
 
-    async def test_has_search_description(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_has_search_description(self, client: AsyncClient) -> None:
         resp = await client.get("/")
         assert "Full-text search" in resp.text
 
-    async def test_selfhosted_shows_bookmarklet(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_selfhosted_shows_bookmarklet(self, client: AsyncClient) -> None:
         resp = await client.get("/")
         # Bookmarklet is only rendered in self-hosted mode (default)
         assert "Archive this" in resp.text
 
-    async def test_skip_to_content_link_present(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_skip_to_content_link_present(self, client: AsyncClient) -> None:
         """Every page that extends base.html must carry a skip-to-
         content link as the first focusable element, targeting the
         <main id="main-content">. Keyboard / screen-reader users use
@@ -137,9 +124,7 @@ class TestHomePage:
             header_pos = body.index('role="banner"')
             assert skip_pos < header_pos, f"{path}: skip link after header"
 
-    async def test_site_wide_social_preview_defaults(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_site_wide_social_preview_defaults(self, client: AsyncClient) -> None:
         """Every page that isn't a per-archive detail must render the
         site-wide social preview defaults — og:type=website, generic
         title, twitter:card=summary. Without these, sharing the root
@@ -149,9 +134,11 @@ class TestHomePage:
         for path in ("/", "/archives", "/search?q=anything"):
             resp = await client.get(path)
             body = resp.text
-            assert '<meta property="og:site_name" content="Unstoppable Archive">' in body, path
+            assert (
+                '<meta property="og:site_name" content="Unstoppable Archive">' in body
+            ), path
             assert '<meta property="og:type" content="website">' in body, path
-            assert 'twitter:card' in body, path
+            assert "twitter:card" in body, path
             # Default is small-card 'summary' — detail pages upgrade
             # to summary_large_image once a screenshot exists.
             assert 'content="summary"' in body, path
@@ -160,7 +147,9 @@ class TestHomePage:
             assert body.count('property="og:url"') == 1, path
 
     async def test_detail_override_replaces_site_defaults(
-        self, client: AsyncClient, pool: asyncpg.pool.Pool,
+        self,
+        client: AsyncClient,
+        pool: asyncpg.pool.Pool,
     ) -> None:
         """Detail pages must render their per-archive social meta and
         NOT also the site-wide defaults — duplicate og:url / og:title
@@ -225,6 +214,7 @@ class TestSitemap:
         # Must parse as well-formed XML — a malformed sitemap is silently
         # ignored by every search engine, which would defeat the point.
         import xml.etree.ElementTree as ET
+
         ET.fromstring(body)  # noqa: S314
 
     async def test_excludes_removed_archives(
@@ -317,7 +307,10 @@ class TestArchivesBrowse:
     matches the title."""
 
     async def _seed_n(
-        self, pool: asyncpg.pool.Pool, n: int, prefix: str,
+        self,
+        pool: asyncpg.pool.Pool,
+        n: int,
+        prefix: str,
     ) -> None:
         async with pool.acquire() as conn:
             for i in range(n):
@@ -422,6 +415,7 @@ class TestViewerSiblingsCount:
         newest or the oldest. Position 1 = newest (matches the
         detail-page history sort order)."""
         from archiver.url import url_hash as _hash
+
         url = "https://example.com/multi-capture-uat"
         uhash = _hash(url)
         async with pool.acquire() as conn:
@@ -440,7 +434,8 @@ class TestViewerSiblingsCount:
                         'B', 'sibtest/B', 100)
                 """,
                 "01TESTSIBA00000000000000",
-                url, uhash,
+                url,
+                uhash,
                 "01TESTSIBB00000000000000",
             )
 
@@ -480,6 +475,7 @@ class TestViewerSiblingsCount:
         """A URL with a single capture must NOT render the link —
         'Capture 1 of 1' is misleading UI noise."""
         from archiver.url import url_hash as _hash
+
         url = "https://example.com/lonely-capture-uat"
         uhash = _hash(url)
         async with pool.acquire() as conn:
@@ -492,7 +488,8 @@ class TestViewerSiblingsCount:
                         now(), now(), 'Lonely', 'lonely/A', 100)
                 """,
                 "01TESTLONELY000000000000",
-                url, uhash,
+                url,
+                uhash,
             )
 
         resp = await client.get(
@@ -512,10 +509,17 @@ class TestHEADMethod:
     with HEAD before GET fall over."""
 
     async def test_head_returns_same_status_as_get(
-        self, client: AsyncClient,
+        self,
+        client: AsyncClient,
     ) -> None:
-        for path in ("/", "/archives", "/sitemap.xml", "/robots.txt",
-                     "/api/archives", "/api/health"):
+        for path in (
+            "/",
+            "/archives",
+            "/sitemap.xml",
+            "/robots.txt",
+            "/api/archives",
+            "/api/health",
+        ):
             get = await client.get(path)
             head = await client.head(path)
             assert head.status_code == get.status_code, (
@@ -523,7 +527,8 @@ class TestHEADMethod:
             )
 
     async def test_head_strips_body(
-        self, client: AsyncClient,
+        self,
+        client: AsyncClient,
     ) -> None:
         """RFC 7231: HEAD response MUST NOT have a body. The middleware
         rewrites HEAD→GET so handlers run, then strips the body so the
@@ -534,7 +539,8 @@ class TestHEADMethod:
         assert resp.headers.get("content-length") == "0"
 
     async def test_head_preserves_response_headers(
-        self, client: AsyncClient,
+        self,
+        client: AsyncClient,
     ) -> None:
         """The whole point of HEAD is to get the headers without the
         body — content-type, cache-control, security headers must
@@ -551,7 +557,8 @@ class TestSecurityHeaders:
     HTML)."""
 
     async def test_csp_applied_to_html_responses(
-        self, client: AsyncClient,
+        self,
+        client: AsyncClient,
     ) -> None:
         """Without CSP, any XSS that slips through autoescape +
         safe_href can load remote scripts, exfil data to attackers,
@@ -569,7 +576,8 @@ class TestSecurityHeaders:
         assert "object-src 'none'" in csp
 
     async def test_csp_applied_to_json_responses(
-        self, client: AsyncClient,
+        self,
+        client: AsyncClient,
     ) -> None:
         """API responses also get CSP — defence in depth in case any
         body bytes are ever rendered into an HTML context by a
@@ -578,19 +586,22 @@ class TestSecurityHeaders:
         assert "content-security-policy" in resp.headers
 
     async def test_csp_applied_to_error_responses(
-        self, client: AsyncClient,
+        self,
+        client: AsyncClient,
     ) -> None:
         """The friendly 404/410/429 HTML pages must also carry CSP —
         a stale-link page rendering inside an attacker's frame is a
         clickjacking vector if frame-ancestors isn't set."""
         resp = await client.get(
-            "/nonexistent", headers={"Accept": "text/html"},
+            "/nonexistent",
+            headers={"Accept": "text/html"},
         )
         csp = resp.headers.get("content-security-policy", "")
         assert "frame-ancestors 'none'" in csp
 
     async def test_baseline_headers_still_present(
-        self, client: AsyncClient,
+        self,
+        client: AsyncClient,
     ) -> None:
         """The previously-shipped baseline headers must still ship
         alongside the new CSP (didn't regress when refactoring)."""
@@ -685,6 +696,7 @@ class TestFriendly404:
         retry-after wait time, and a link home. API surfaces still
         get JSON."""
         from starlette.exceptions import HTTPException
+
         # Manually raise a 429 from a test endpoint by simulating
         # the exact shape the rate_limit module produces: detail
         # message + Retry-After header.
@@ -721,6 +733,7 @@ class TestFriendly404:
         (418, 451, etc.) fall through to JSON so we don't invent
         headings for them."""
         from starlette.exceptions import HTTPException
+
         app = client._transport.app  # type: ignore[attr-defined]
 
         for code, heading in [
@@ -734,11 +747,13 @@ class TestFriendly404:
             def _make_handler(c: int) -> object:
                 async def _handler() -> None:
                     raise HTTPException(status_code=c, detail=f"err {c}")
+
                 return _handler
 
             app.get(route_path)(_make_handler(code))
             resp = await client.get(
-                route_path, headers={"Accept": "text/html"},
+                route_path,
+                headers={"Accept": "text/html"},
             )
             assert resp.status_code == code
             assert resp.headers["content-type"].startswith("text/html")
@@ -746,27 +761,19 @@ class TestFriendly404:
 
 
 class TestRecapture:
-    async def test_recapture_creates_new_archive(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_recapture_creates_new_archive(self, client: AsyncClient) -> None:
         resp = await client.post(
             "/api/archives",
             json={"url": "https://example.com/", "force": True},
         )
         original_id = resp.json()["id"]
-        resp = await client.post(
-            f"/recapture/{original_id}", follow_redirects=False
-        )
+        resp = await client.post(f"/recapture/{original_id}", follow_redirects=False)
         assert resp.status_code == 303  # noqa: PLR2004
         # Should redirect to a *new* archive, not the original
         assert original_id not in resp.headers["location"]
 
-    async def test_recapture_404_for_missing_archive(
-        self, client: AsyncClient
-    ) -> None:
-        resp = await client.post(
-            "/recapture/nonexistent", follow_redirects=False
-        )
+    async def test_recapture_404_for_missing_archive(self, client: AsyncClient) -> None:
+        resp = await client.post("/recapture/nonexistent", follow_redirects=False)
         assert resp.status_code == 404  # noqa: PLR2004
 
     async def test_failed_archive_retry_button_is_real_form_post(
@@ -813,9 +820,7 @@ class TestRecapture:
 
 
 class TestArchiveDetailPage:
-    async def test_renders_for_existing_archive(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_renders_for_existing_archive(self, client: AsyncClient) -> None:
         create = await client.post(
             "/api/archives",
             json={"url": "https://example.com/detail-test"},
@@ -826,9 +831,7 @@ class TestArchiveDetailPage:
         assert resp.status_code == 200  # noqa: PLR2004
         assert "example.com" in resp.text
 
-    async def test_404_for_missing(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_404_for_missing(self, client: AsyncClient) -> None:
         resp = await client.get("/archive/nonexistent")
         assert resp.status_code == 404  # noqa: PLR2004
 
@@ -872,9 +875,9 @@ class TestArchiveDetailPage:
         assert '<meta property="og:title" content="OG Test Page">' in body
         assert "og:url" in body
         assert "archive/01TESTOG00000000000000000" in body
-        assert 'og:description' in body
+        assert "og:description" in body
         assert "https://example.com/og-pin" in body
-        assert 'og:image' in body
+        assert "og:image" in body
         assert "api/archives/01TESTOG00000000000000000/screenshot" in body
         assert 'twitter:card" content="summary_large_image"' in body
         assert 'rel="canonical"' in body
@@ -924,6 +927,7 @@ class TestArchiveDetailPage:
         exactly where the user looks to see how each snapshot was
         obtained."""
         from archiver.url import url_hash as _hash
+
         url = "https://example.com/sources-uat-pin"
         uhash = _hash(url)
         async with pool.acquire() as conn:
@@ -956,7 +960,8 @@ class TestArchiveDetailPage:
                 "01TESTSRC3CCCCCCCCCCCCCC",
                 "01TESTSRC4DDDDDDDDDDDDDD",
                 "01TESTSRC5EEEEEEEEEEEEEE",
-                url, uhash,
+                url,
+                uhash,
             )
 
         resp = await client.get("/archive/01TESTSRC1AAAAAAAAAAAAAA")
@@ -999,9 +1004,7 @@ class TestArchiveDetailPage:
                 "badurl-hash-32chars-abcdefghi12",
             )
 
-        body = (
-            await client.get("/archive/01TESTBADURL000000000000")
-        ).text
+        body = (await client.get("/archive/01TESTBADURL000000000000")).text
         # No exploitable href anywhere on the page
         assert 'href="javascript:' not in body
         # The dangerous URL got sanitized to inert '#'
@@ -1017,9 +1020,7 @@ class TestArchiveDetailPage:
                 " removed_reason='xss' WHERE id=$1",
                 "01TESTBADURL000000000000",
             )
-        body = (
-            await client.get("/archive/01TESTBADURL000000000000")
-        ).text
+        body = (await client.get("/archive/01TESTBADURL000000000000")).text
         assert 'href="javascript:' not in body
         assert 'href="#"' in body
 
@@ -1045,9 +1046,7 @@ class TestArchiveDetailPage:
                 "goodurl-hash-32chars-abcdefghi1",
             )
 
-        body = (
-            await client.get("/archive/01TESTGOODURL00000000000")
-        ).text
+        body = (await client.get("/archive/01TESTGOODURL00000000000")).text
         assert 'href="https://example.com/legit-href-test"' in body
         assert 'rel="noopener noreferrer"' in body
 
@@ -1069,6 +1068,7 @@ class TestArchiveDetailPage:
         audit visibility) but can't execute it."""
         async with pool.acquire() as conn:
             import json
+
             await conn.execute(
                 """
                 INSERT INTO archives (id, url, url_hash, status, source,
@@ -1080,14 +1080,14 @@ class TestArchiveDetailPage:
                 "01TESTXSSSRC00000000000A",
                 "https://example.com/xss-srcurl-uat",
                 "xssrc-hash-32chars-abcdefghij12",
-                json.dumps({
-                    "source_url": 'javascript:alert("XSS-IN-METADATA")',
-                }),
+                json.dumps(
+                    {
+                        "source_url": 'javascript:alert("XSS-IN-METADATA")',
+                    }
+                ),
             )
 
-        body = (
-            await client.get("/archive/01TESTXSSSRC00000000000A")
-        ).text
+        body = (await client.get("/archive/01TESTXSSSRC00000000000A")).text
         # The dangerous href form must be absent
         assert 'href="javascript:' not in body
         # But the user-visible value is still shown as inert text so
@@ -1107,6 +1107,7 @@ class TestArchiveDetailPage:
         clickable <a href> with the expected security attrs."""
         async with pool.acquire() as conn:
             import json
+
             await conn.execute(
                 """
                 INSERT INTO archives (id, url, url_hash, status, source,
@@ -1118,14 +1119,14 @@ class TestArchiveDetailPage:
                 "01TESTXSSSRC00000000000B",
                 "https://example.com/legit-srcurl-uat",
                 "legitsrc-hash-32chars-abcdefghi1",
-                json.dumps({
-                    "source_url": "https://nitter.example.com/foo",
-                }),
+                json.dumps(
+                    {
+                        "source_url": "https://nitter.example.com/foo",
+                    }
+                ),
             )
 
-        body = (
-            await client.get("/archive/01TESTXSSSRC00000000000B")
-        ).text
+        body = (await client.get("/archive/01TESTXSSSRC00000000000B")).text
         # Link form rendered with security attrs intact
         assert 'href="https://nitter.example.com/foo"' in body
         assert 'rel="noopener noreferrer"' in body
@@ -1182,15 +1183,11 @@ class TestArchiveDetailPage:
 
 
 class TestArchiveViewPage:
-    async def test_404_for_missing_archive(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_404_for_missing_archive(self, client: AsyncClient) -> None:
         resp = await client.get("/archive/nonexistent/view")
         assert resp.status_code == 404  # noqa: PLR2004
 
-    async def test_404_for_pending_archive(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_404_for_pending_archive(self, client: AsyncClient) -> None:
         create = await client.post(
             "/api/archives",
             json={"url": "https://example.com/view-pending"},
@@ -1218,13 +1215,16 @@ class TestArchiveViewPage:
         repo = ArchiveRepository()
         async with pool.acquire() as conn:
             archive = await repo.create(
-                conn, "https://example.com/viewer-csp-uat",
+                conn,
+                "https://example.com/viewer-csp-uat",
             )
             art_dir = tmp_path / "artifacts" / "viewer_csp"
             art_dir.mkdir(parents=True)
             (art_dir / "snapshot.html").write_text("<html>x</html>")
             await repo.update_status(
-                conn, archive.id, ArchiveStatus.COMPLETE,
+                conn,
+                archive.id,
+                ArchiveStatus.COMPLETE,
                 artifact_dir="viewer_csp",
             )
         client._transport.app.state.settings.artifacts_dir = (  # type: ignore[union-attr]
@@ -1232,7 +1232,8 @@ class TestArchiveViewPage:
         )
 
         resp = await client.get(
-            f"/archive/{archive.id}/view", follow_redirects=True,
+            f"/archive/{archive.id}/view",
+            follow_redirects=True,
         )
         assert resp.status_code == 200  # noqa: PLR2004
         # No embedded meta CSP — single source of truth.
@@ -1246,9 +1247,7 @@ class TestArchiveViewPage:
 
 
 class TestWaybackStyleURLs:
-    async def test_latest_404_for_unknown_url(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_latest_404_for_unknown_url(self, client: AsyncClient) -> None:
         resp = await client.get(
             "/web/latest/https://never-archived.example.com/",
             follow_redirects=False,
@@ -1264,9 +1263,7 @@ class TestWaybackStyleURLs:
         )
         assert resp.status_code == 400  # noqa: PLR2004
 
-    async def test_timestamped_404_when_no_snapshot(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_timestamped_404_when_no_snapshot(self, client: AsyncClient) -> None:
         resp = await client.get(
             "/web/20260418/https://never-archived.example.com/",
             follow_redirects=False,
@@ -1287,23 +1284,17 @@ class TestWaybackStyleURLs:
         # Pending → view returns 404 (not complete). We cover the
         # redirect path via the integration pool fixture marking it
         # complete in other tests; here we just verify the 404 path.
-        resp = await client.get(
-            f"/archive/{archive_id}/view", follow_redirects=False
-        )
+        resp = await client.get(f"/archive/{archive_id}/view", follow_redirects=False)
         assert resp.status_code == 404  # noqa: PLR2004
 
 
 class TestSearchPage:
-    async def test_renders_empty_search(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_renders_empty_search(self, client: AsyncClient) -> None:
         resp = await client.get("/search?q=xyznothing")
         assert resp.status_code == 200  # noqa: PLR2004
         assert "No results" in resp.text
 
-    async def test_renders_with_query(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_renders_with_query(self, client: AsyncClient) -> None:
         resp = await client.get("/search?q=test")
         assert resp.status_code == 200  # noqa: PLR2004
         assert "text/html" in resp.headers["content-type"]
@@ -1347,9 +1338,19 @@ class TestSearchPage:
         # chip-closing form `{op}</span>` rather than a bare substring
         # — a bare `"size:"` check false-matches CSS like `font-size:`
         # elsewhere in the page.
-        for phantom in ("intitle:", "site:", "inurl:", "source:",
-                        "tier:", "before:", "after:", "size:",
-                        "has:", "is:", "net:"):
+        for phantom in (
+            "intitle:",
+            "site:",
+            "inurl:",
+            "source:",
+            "tier:",
+            "before:",
+            "after:",
+            "size:",
+            "has:",
+            "is:",
+            "net:",
+        ):
             assert f"{phantom}</span>" not in body, (
                 f"phantom operator {phantom} still advertised as a chip"
             )
@@ -1389,7 +1390,7 @@ class TestSearchPage:
         assert baseline.json()["total"] == 2  # noqa: PLR2004
 
         phrase = await client.get(
-            '/api/archives/search?q=%22banana+smoothie%22',
+            "/api/archives/search?q=%22banana+smoothie%22",
         )
         assert phrase.json()["total"] == 1
 
@@ -1400,9 +1401,7 @@ class TestSearchPage:
 
 
 class TestSubmitForm:
-    async def test_submit_url_redirects(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_submit_url_redirects(self, client: AsyncClient) -> None:
         resp = await client.post(
             "/submit",
             data={"url": "https://example.com/submit"},
@@ -1432,8 +1431,7 @@ class TestSubmitForm:
         # Promote to complete so check_recent_capture sees it
         async with pool.acquire() as conn:
             await conn.execute(
-                "UPDATE archives SET status='complete', completed_at=now()"
-                " WHERE id=$1",
+                "UPDATE archives SET status='complete', completed_at=now() WHERE id=$1",
                 first_id,
             )
 
@@ -1450,13 +1448,12 @@ class TestSubmitForm:
         # Confirm no second row was created
         async with pool.acquire() as conn:
             count = await conn.fetchval(
-                "SELECT COUNT(*) FROM archives WHERE url=$1", url,
+                "SELECT COUNT(*) FROM archives WHERE url=$1",
+                url,
             )
             assert count == 1
 
-    async def test_submit_search_redirects(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_submit_search_redirects(self, client: AsyncClient) -> None:
         resp = await client.post(
             "/submit",
             data={"url": "python programming"},
@@ -1465,12 +1462,8 @@ class TestSubmitForm:
         assert resp.status_code == 303  # noqa: PLR2004
         assert "/search?q=" in resp.headers["location"]
 
-    async def test_submit_empty_returns_400(
-        self, client: AsyncClient
-    ) -> None:
-        resp = await client.post(
-            "/submit", data={"url": ""}
-        )
+    async def test_submit_empty_returns_400(self, client: AsyncClient) -> None:
+        resp = await client.post("/submit", data={"url": ""})
         assert resp.status_code == 400  # noqa: PLR2004
 
     async def test_submit_htmx_empty_returns_200_partial(
@@ -1503,24 +1496,18 @@ class TestSubmitForm:
 
 
 class TestPartials:
-    async def test_status_partial(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_status_partial(self, client: AsyncClient) -> None:
         create = await client.post(
             "/api/archives",
             json={"url": "https://example.com/partial-test"},
         )
         archive_id = create.json()["id"]
 
-        resp = await client.get(
-            f"/partials/status/{archive_id}"
-        )
+        resp = await client.get(f"/partials/status/{archive_id}")
         assert resp.status_code == 200  # noqa: PLR2004
         assert "Pending" in resp.text
 
-    async def test_search_partial(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_search_partial(self, client: AsyncClient) -> None:
         resp = await client.get("/partials/search?q=test")
         assert resp.status_code == 200  # noqa: PLR2004
 
@@ -1542,22 +1529,19 @@ class TestPartials:
         repo = ArchiveRepository()
         async with pool.acquire() as conn:
             archive = await repo.create(
-                conn, "https://example.com/refresh-uat",
+                conn,
+                "https://example.com/refresh-uat",
             )
             aid = archive.id
 
             # pending → no refresh
             resp = await client.get(f"/partials/status/{aid}")
-            assert "hx-refresh" not in {
-                k.lower() for k in resp.headers
-            }
+            assert "hx-refresh" not in {k.lower() for k in resp.headers}
 
             # capturing → no refresh
             await repo.update_status(conn, aid, ArchiveStatus.CAPTURING)
             resp = await client.get(f"/partials/status/{aid}")
-            assert "hx-refresh" not in {
-                k.lower() for k in resp.headers
-            }
+            assert "hx-refresh" not in {k.lower() for k in resp.headers}
 
             # complete → HX-Refresh:true
             await repo.update_status(conn, aid, ArchiveStatus.COMPLETE)
@@ -1601,10 +1585,13 @@ class TestSoftDeleteVisibility:
     """
 
     async def _seed_removed(
-        self, pool: asyncpg.pool.Pool, url: str,
+        self,
+        pool: asyncpg.pool.Pool,
+        url: str,
     ) -> str:
         """Create a removed archive and return its id."""
         from archiver.url import url_hash as _hash
+
         archive_id = "01TESTRM00000000000000000"
         async with pool.acquire() as conn:
             await conn.execute(
@@ -1617,7 +1604,9 @@ class TestSoftDeleteVisibility:
                         now(), now(), 'taken down', 'rm/20260515', 30,
                         now(), 'admin takedown')
                 """,
-                archive_id, url, _hash(url),
+                archive_id,
+                url,
+                _hash(url),
             )
         return archive_id
 
@@ -1631,7 +1620,8 @@ class TestSoftDeleteVisibility:
         is gone instead of seeing a generic 'not found' page. The
         snapshot is no longer served; only the takedown metadata is."""
         archive_id = await self._seed_removed(
-            pool, "https://example.com/rm-detail",
+            pool,
+            "https://example.com/rm-detail",
         )
         resp = await client.get(f"/archive/{archive_id}")
         assert resp.status_code == 410  # noqa: PLR2004
@@ -1648,7 +1638,8 @@ class TestSoftDeleteVisibility:
         url = "https://example.com/rm-wayback"
         await self._seed_removed(pool, url)
         resp = await client.get(
-            f"/web/latest/{url}", follow_redirects=False,
+            f"/web/latest/{url}",
+            follow_redirects=False,
         )
         assert resp.status_code == 404  # noqa: PLR2004
 
@@ -1662,10 +1653,12 @@ class TestSoftDeleteVisibility:
         should send the user to the detail page (which renders the
         friendly takedown stub at HTTP 410) instead of a bare 404."""
         archive_id = await self._seed_removed(
-            pool, "https://example.com/rm-view-redirect",
+            pool,
+            "https://example.com/rm-view-redirect",
         )
         resp = await client.get(
-            f"/archive/{archive_id}/view", follow_redirects=False,
+            f"/archive/{archive_id}/view",
+            follow_redirects=False,
         )
         assert resp.status_code == 303  # noqa: PLR2004
         assert resp.headers["location"] == f"/archive/{archive_id}"
@@ -1681,7 +1674,8 @@ class TestSoftDeleteVisibility:
         url = "https://example.com/rm-dedup"
         removed_id = await self._seed_removed(pool, url)
         resp = await client.post(
-            "/api/archives", json={"url": url},
+            "/api/archives",
+            json={"url": url},
         )
         assert resp.status_code == 201  # noqa: PLR2004
         new_id = resp.json()["id"]

@@ -45,7 +45,9 @@ class TestParseDomainList:
 class TestWalkUp:
     def test_three_labels(self) -> None:
         assert _walk_up("a.b.example.com") == [
-            "a.b.example.com", "b.example.com", "example.com",
+            "a.b.example.com",
+            "b.example.com",
+            "example.com",
         ]
 
     def test_two_labels(self) -> None:
@@ -144,16 +146,14 @@ class TestLoadBlocklist:
 
     @respx.mock
     async def test_url_fetch_error_doesnt_crash(self) -> None:
-        respx.get("https://example.com/list").mock(
-            return_value=httpx.Response(500)
-        )
+        respx.get("https://example.com/list").mock(return_value=httpx.Response(500))
         settings = Settings(blocklist_urls="https://example.com/list")
         bl = await load_blocklist(settings)
         assert bl.blocked == set()  # failed silently, empty set
 
-
     async def test_file_oserror_logged_not_raised(
-        self, tmp_path: object,
+        self,
+        tmp_path: object,
     ) -> None:
         """A file that exists but is unreadable (permissions, broken
         symlink, etc.) must NOT crash load_blocklist — log + continue."""
@@ -161,11 +161,13 @@ class TestLoadBlocklist:
         # but mock read_text to raise OSError mid-load.
         from pathlib import Path
         from unittest.mock import patch
+
         f = Path(tmp_path) / "list.txt"  # type: ignore[arg-type]
         f.write_text("example.com\n")
         settings = Settings(blocklist_file=f)
         with patch.object(
-            Path, "read_text",
+            Path,
+            "read_text",
             side_effect=PermissionError("denied"),
         ):
             bl = await load_blocklist(settings)

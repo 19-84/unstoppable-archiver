@@ -70,9 +70,7 @@ class TestRefresh:
 
     @respx.mock
     async def test_network_failure_keeps_bundled_pool(self) -> None:
-        respx.get(user_agents._SOURCE_URL).mock(
-            side_effect=httpx.ConnectError("boom")
-        )
+        respx.get(user_agents._SOURCE_URL).mock(side_effect=httpx.ConnectError("boom"))
         await user_agents.refresh(force=True)
         # Pool should still contain only bundled entries (network failed,
         # cache empty).
@@ -130,7 +128,9 @@ class TestPoolEdges:
         """Cache older than TTL should be skipped and network used."""
         import os
 
-        cached = ["Mozilla/5.0 (old) AppleWebKit/537.36 Chrome/100.0.0.0 Safari/537.36 pad"]
+        cached = [
+            "Mozilla/5.0 (old) AppleWebKit/537.36 Chrome/100.0.0.0 Safari/537.36 pad"
+        ]
         user_agents._CACHE_PATH.write_text(json.dumps(cached))
         # Backdate the cache file past TTL
         old = 1.0
@@ -200,9 +200,7 @@ class TestPoolEdges:
     async def test_empty_pool_falls_back_to_bundled(self) -> None:
         """If every source fails AND pool is empty, bundled is restored."""
         user_agents._pool = []
-        respx.get(user_agents._SOURCE_URL).mock(
-            side_effect=httpx.ConnectError("boom")
-        )
+        respx.get(user_agents._SOURCE_URL).mock(side_effect=httpx.ConnectError("boom"))
         size = await user_agents.refresh(force=True)
         assert size == len(user_agents._BUNDLED_POOL)
         assert set(user_agents._pool) == set(user_agents._BUNDLED_POOL)

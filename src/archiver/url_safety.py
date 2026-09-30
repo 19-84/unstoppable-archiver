@@ -17,24 +17,24 @@ from icontract import require
 from archiver.blocklist import DomainBlocklist
 
 # Hostnames that resolve to internal Docker services
-BLOCKED_HOSTNAMES: frozenset[str] = frozenset({
-    "localhost",
-    "postgres",
-    "tor",
-    "i2p",
-    "web",
-    "app",
-    "worker",
-    "redis",
-    "0.0.0.0",  # noqa: S104
-})
+BLOCKED_HOSTNAMES: frozenset[str] = frozenset(
+    {
+        "localhost",
+        "postgres",
+        "tor",
+        "i2p",
+        "web",
+        "app",
+        "worker",
+        "redis",
+        "0.0.0.0",  # noqa: S104
+    }
+)
 
 
 @beartype
 @require(lambda url: len(url) > 0, "URL must not be empty")
-def check_url_safety(
-    url: str, blocklist: DomainBlocklist | None = None
-) -> str | None:
+def check_url_safety(url: str, blocklist: DomainBlocklist | None = None) -> str | None:
     """Check if a URL is safe to fetch. Returns error message or None if safe."""
     error = _check_static_rules(url, blocklist)
     if error:
@@ -60,17 +60,13 @@ async def check_url_safety_async(
     hostname = (urlparse(url).hostname or "").lower()
     loop = asyncio.get_running_loop()
     try:
-        addr_infos = await loop.getaddrinfo(
-            hostname, None, type=socket.SOCK_STREAM
-        )
+        addr_infos = await loop.getaddrinfo(hostname, None, type=socket.SOCK_STREAM)
     except socket.gaierror:
         return None  # Can't resolve — allow (.onion, .i2p via proxy)
     return _evaluate_addrinfos(addr_infos)
 
 
-def _check_static_rules(
-    url: str, blocklist: DomainBlocklist | None
-) -> str | None:
+def _check_static_rules(url: str, blocklist: DomainBlocklist | None) -> str | None:
     """Run the non-resolving checks: scheme, hostname, blocklist."""
     error = _check_scheme_and_host(url)
     if error:
@@ -109,9 +105,7 @@ def _check_resolved_ips(url: str) -> str | None:
     hostname = (urlparse(url).hostname or "").lower()
 
     try:
-        addr_infos = socket.getaddrinfo(
-            hostname, None, type=socket.SOCK_STREAM
-        )
+        addr_infos = socket.getaddrinfo(hostname, None, type=socket.SOCK_STREAM)
     except socket.gaierror:
         return None  # Can't resolve — allow (.onion, .i2p via proxy)
     return _evaluate_addrinfos(addr_infos)
@@ -124,9 +118,7 @@ def _evaluate_addrinfos(
             int,
             int,
             str,
-            tuple[str, int]
-            | tuple[str, int, int, int]
-            | tuple[int, bytes],
+            tuple[str, int] | tuple[str, int, int, int] | tuple[int, bytes],
         ]
     ],
 ) -> str | None:
@@ -138,12 +130,7 @@ def _evaluate_addrinfos(
         except ValueError:
             continue
 
-        if (
-            ip.is_private
-            or ip.is_loopback
-            or ip.is_link_local
-            or ip.is_reserved
-        ):
+        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
             return f"Blocked private/internal IP: {ip_str}"
 
     return None

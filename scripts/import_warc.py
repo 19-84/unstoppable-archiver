@@ -49,7 +49,11 @@ async def import_warc_file(warc_path: Path) -> int:  # noqa: PLR0915
             for record in ArchiveIterator(f):
                 if record.rec_type != "response":
                     continue
-                ctype = record.http_headers.get_header("content-type", "") if record.http_headers else ""
+                ctype = (
+                    record.http_headers.get_header("content-type", "")
+                    if record.http_headers
+                    else ""
+                )
                 if "html" not in ctype.lower():
                     continue
                 url = record.rec_headers.get_header("WARC-Target-URI")
@@ -60,7 +64,8 @@ async def import_warc_file(warc_path: Path) -> int:  # noqa: PLR0915
                 except Exception as exc:
                     log.warning(
                         "warc.import.record_read_failed",
-                        url=url, error=str(exc)[:120],
+                        url=url,
+                        error=str(exc)[:120],
                     )
                     continue
                 # Try to extract <title>
@@ -79,9 +84,9 @@ async def import_warc_file(warc_path: Path) -> int:  # noqa: PLR0915
                 # Skip if already imported (same content hash)
                 content_hash = hashlib.sha256(body).hexdigest()
                 existing = await conn.fetchrow(
-                    "SELECT id FROM archives WHERE url_hash = $1"
-                    " AND content_hash = $2",
-                    uhash, content_hash,
+                    "SELECT id FROM archives WHERE url_hash = $1 AND content_hash = $2",
+                    uhash,
+                    content_hash,
                 )
                 if existing:
                     log.info("warc.import.skip_duplicate", url=url)
@@ -156,6 +161,7 @@ def _extract_title(html: bytes) -> str:
 def _strip_tags(html: str) -> str:
     """Very rough tag stripping for search indexing."""
     import re
+
     return re.sub(r"<[^>]+>", " ", html)
 
 
@@ -165,6 +171,7 @@ async def main() -> int:
         return 1
 
     from archiver.logging import setup_logging
+
     setup_logging("INFO", "console")
 
     total = 0

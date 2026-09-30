@@ -77,9 +77,7 @@ async def login_submit(
     enforce_limit(request, settings.rate_limit_login_per_hour)
 
     ip = get_client_ip_hash(request)
-    if verify_password(
-        password, settings.admin_password_hash.get_secret_value()
-    ):
+    if verify_password(password, settings.admin_password_hash.get_secret_value()):
         request.session["admin"] = True
         await _audit_repo.log(
             conn, AuditAction.ADMIN_LOGIN, admin_user="admin", ip_address_hash=ip
@@ -190,32 +188,47 @@ async def resolve_report(
 
     if action == "dismiss":
         await _report_repo.update_status(
-            conn, report_id, ReportStatus.DISMISSED,
-            resolved_by="admin", notes=notes.strip() or None,
+            conn,
+            report_id,
+            ReportStatus.DISMISSED,
+            resolved_by="admin",
+            notes=notes.strip() or None,
         )
         await _audit_repo.log(
-            conn, AuditAction.REPORT_DISMISSED, archive_id=report.archive_id,
-            admin_user="admin", ip_address_hash=ip,
+            conn,
+            AuditAction.REPORT_DISMISSED,
+            archive_id=report.archive_id,
+            admin_user="admin",
+            ip_address_hash=ip,
             details={"report_id": report_id, "notes": notes},
         )
     else:  # resolve (takedown)
         await _archive_repo.soft_delete(
-            conn, report.archive_id,
+            conn,
+            report.archive_id,
             reason=f"Report {report_id}: {notes[:200]}",
         )
         await _report_repo.update_status(
-            conn, report_id, ReportStatus.RESOLVED,
-            resolved_by="admin", notes=notes.strip() or None,
+            conn,
+            report_id,
+            ReportStatus.RESOLVED,
+            resolved_by="admin",
+            notes=notes.strip() or None,
         )
         await _audit_repo.log(
-            conn, AuditAction.ARCHIVE_SOFT_DELETE,
+            conn,
+            AuditAction.ARCHIVE_SOFT_DELETE,
             archive_id=report.archive_id,
-            admin_user="admin", ip_address_hash=ip,
+            admin_user="admin",
+            ip_address_hash=ip,
             details={"report_id": report_id, "notes": notes},
         )
         await _audit_repo.log(
-            conn, AuditAction.REPORT_RESOLVED, archive_id=report.archive_id,
-            admin_user="admin", ip_address_hash=ip,
+            conn,
+            AuditAction.REPORT_RESOLVED,
+            archive_id=report.archive_id,
+            admin_user="admin",
+            ip_address_hash=ip,
             details={"report_id": report_id},
         )
 
@@ -235,14 +248,19 @@ async def archives_list(
         return _admin
 
     archives, total = await _archive_repo.list_recent(
-        conn, limit=limit, offset=offset, show_removed=True,
+        conn,
+        limit=limit,
+        offset=offset,
+        show_removed=True,
     )
     return templates.TemplateResponse(
         request,
         "admin/archives.html",
         {
-            "archives": archives, "total": total,
-            "limit": limit, "offset": offset,
+            "archives": archives,
+            "total": total,
+            "limit": limit,
+            "offset": offset,
         },
     )
 
@@ -263,8 +281,11 @@ async def admin_remove_archive(
         conn, archive_id, reason=reason.strip() or "admin removal"
     )
     await _audit_repo.log(
-        conn, AuditAction.ARCHIVE_SOFT_DELETE, archive_id=archive_id,
-        admin_user="admin", ip_address_hash=get_client_ip_hash(request),
+        conn,
+        AuditAction.ARCHIVE_SOFT_DELETE,
+        archive_id=archive_id,
+        admin_user="admin",
+        ip_address_hash=get_client_ip_hash(request),
         details={"reason": reason},
     )
     return RedirectResponse(url="/admin/archives", status_code=303)
@@ -283,8 +304,11 @@ async def admin_restore_archive(
 
     await _archive_repo.restore(conn, archive_id)
     await _audit_repo.log(
-        conn, AuditAction.ARCHIVE_RESTORE, archive_id=archive_id,
-        admin_user="admin", ip_address_hash=get_client_ip_hash(request),
+        conn,
+        AuditAction.ARCHIVE_RESTORE,
+        archive_id=archive_id,
+        admin_user="admin",
+        ip_address_hash=get_client_ip_hash(request),
     )
     return RedirectResponse(url="/admin/archives", status_code=303)
 
@@ -306,7 +330,9 @@ async def admin_hard_delete_archive(
     # the public-safe SELECT would return None and we'd silently
     # skip the on-disk cleanup.
     archive = await _archive_repo.get_by_id(
-        conn, archive_id, include_removed=True,
+        conn,
+        archive_id,
+        include_removed=True,
     )
     if archive and archive.artifact_dir:
         artifact_path = settings.artifacts_dir / archive.artifact_dir
@@ -320,8 +346,10 @@ async def admin_hard_delete_archive(
     # violates it. Keep the column NULL and preserve the id in details,
     # which also survives unlike a SET-NULLed column.
     await _audit_repo.log(
-        conn, AuditAction.ARCHIVE_HARD_DELETE,
-        admin_user="admin", ip_address_hash=get_client_ip_hash(request),
+        conn,
+        AuditAction.ARCHIVE_HARD_DELETE,
+        admin_user="admin",
+        ip_address_hash=get_client_ip_hash(request),
         details={"archive_id": archive_id},
     )
     return RedirectResponse(url="/admin/archives", status_code=303)

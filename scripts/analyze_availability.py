@@ -107,9 +107,7 @@ class Result:
     error: str | None
 
 
-async def _probe_one(
-    url: str, category: str, at_proxy: str | None
-) -> Result:
+async def _probe_one(url: str, category: str, at_proxy: str | None) -> Result:
     t0 = time.perf_counter()
     error: str | None = None
 
@@ -164,13 +162,11 @@ def _summarize(results: list[Result]) -> dict[str, dict[str, float]]:
             "archive_today_pct": round(
                 sum(r.archive_today for r in items) / n * 100, 1
             ),
-            "commoncrawl_pct": round(
-                sum(r.commoncrawl for r in items) / n * 100, 1
-            ),
+            "commoncrawl_pct": round(sum(r.commoncrawl for r in items) / n * 100, 1),
             "any_upstream_pct": round(
-                sum(
-                    r.wayback or r.archive_today or r.commoncrawl for r in items
-                ) / n * 100,
+                sum(r.wayback or r.archive_today or r.commoncrawl for r in items)
+                / n
+                * 100,
                 1,
             ),
         }
@@ -179,27 +175,19 @@ def _summarize(results: list[Result]) -> dict[str, dict[str, float]]:
 
 def _print_table(results: list[Result]) -> None:
     print()
-    print(
-        f"{'URL':<55} {'cat':<18} {'WB':>3} {'AT':>3} {'CC':>3} {'s':>5}"
-    )
+    print(f"{'URL':<55} {'cat':<18} {'WB':>3} {'AT':>3} {'CC':>3} {'s':>5}")
     print("-" * 94)
     for r in results:
         wb = "y" if r.wayback else "."
         at = "y" if r.archive_today else "."
         cc = "y" if r.commoncrawl else "."
         url = r.url if len(r.url) <= 54 else r.url[:51] + "..."  # noqa: PLR2004
-        print(
-            f"{url:<55} {r.category:<18} "
-            f"{wb:>3} {at:>3} {cc:>3} {r.elapsed_s:>5.1f}"
-        )
+        print(f"{url:<55} {r.category:<18} {wb:>3} {at:>3} {cc:>3} {r.elapsed_s:>5.1f}")
 
 
 def _print_summary(summary: dict[str, dict[str, float]]) -> None:
     print()
-    print(
-        f"{'category':<20} {'n':>3} "
-        f"{'WB%':>6} {'AT%':>6} {'CC%':>6} {'any%':>6}"
-    )
+    print(f"{'category':<20} {'n':>3} {'WB%':>6} {'AT%':>6} {'CC%':>6} {'any%':>6}")
     print("-" * 55)
     for cat, s in summary.items():
         print(
@@ -214,9 +202,7 @@ def _print_summary(summary: dict[str, dict[str, float]]) -> None:
 async def _pick_gate_proxy() -> str | None:
     """Read a fresh gate-passing SOCKS5 from proxy_status, or None."""
     settings = Settings()
-    pool = await create_pool(
-        settings.db_url.get_secret_value(), min_size=1, max_size=2
-    )
+    pool = await create_pool(settings.db_url.get_secret_value(), min_size=1, max_size=2)
     try:
         repo = ProxyStatusRepository()
         async with pool.acquire() as conn:
@@ -226,6 +212,7 @@ async def _pick_gate_proxy() -> str | None:
     if not passing:
         return None
     import random
+
     return random.choice(passing)  # noqa: S311 — not security-sensitive
 
 

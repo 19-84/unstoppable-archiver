@@ -101,7 +101,9 @@ async def _probe_one(
 async def main(apex_filter: str | None) -> int:
     settings = Settings()
     pool = await create_pool(
-        settings.db_url.get_secret_value(), min_size=2, max_size=5,
+        settings.db_url.get_secret_value(),
+        min_size=2,
+        max_size=5,
     )
     await init_db(pool)
     try:
@@ -135,12 +137,15 @@ async def main(apex_filter: str | None) -> int:
                     flush=True,
                 )
                 r = await _probe_one(
-                    pool, policy, instance, proxy, frontend_repo,
+                    pool,
+                    policy,
+                    instance,
+                    proxy,
+                    frontend_repo,
                 )
                 tag = "PASS" if r["passing"] else "FAIL"
                 print(
-                    f"    -> [{tag}] {r['elapsed_s']:.1f}s "
-                    f"({r['stage']}) {r['note']}",
+                    f"    -> [{tag}] {r['elapsed_s']:.1f}s ({r['stage']}) {r['note']}",
                     flush=True,
                 )
                 results.append(r)

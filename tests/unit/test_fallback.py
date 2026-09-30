@@ -98,15 +98,13 @@ class TestSnapshotTimestamps:
         assert ts == datetime(2015, 6, 7, 8, 9, 10, tzinfo=UTC)
 
     def test_short_id_url_has_no_stamp(self) -> None:
-        assert memento_timestamp_from_url(
-            "https://archive.today/abc123"
-        ) is None
+        assert memento_timestamp_from_url("https://archive.today/abc123") is None
 
     def test_longer_digit_run_not_half_matched(self) -> None:
         # 16 digits is not a valid stamp; must not match its prefix.
-        assert memento_timestamp_from_url(
-            "https://example.com/2024010112304567/x"
-        ) is None
+        assert (
+            memento_timestamp_from_url("https://example.com/2024010112304567/x") is None
+        )
 
 
 class TestFallbackConstants:
@@ -148,9 +146,7 @@ class TestWaybackAvailability:
     @respx.mock
     async def test_not_available(self) -> None:
         respx.get("https://archive.org/wayback/available").mock(
-            return_value=httpx.Response(
-                200, json={"archived_snapshots": {}}
-            )
+            return_value=httpx.Response(200, json={"archived_snapshots": {}})
         )
         result = await check_wayback_availability("https://example.com")
         assert result is None
@@ -175,9 +171,7 @@ class TestWaybackAvailability:
                 raise httpx.ConnectError("boom")
             return httpx.Response(200, json={"archived_snapshots": {}})
 
-        respx.get("https://archive.org/wayback/available").mock(
-            side_effect=responder
-        )
+        respx.get("https://archive.org/wayback/available").mock(side_effect=responder)
         result = await check_wayback_availability("https://example.com")
         assert result is None
         assert call_count["n"] > 1
@@ -220,19 +214,19 @@ class TestMirrorRotation:
     async def test_succeeds_when_only_backup_mirror_responds(self) -> None:
         """Primary mirror 429s, a backup mirror returns a snapshot."""
         # Primary returns rate-limit
-        respx.get(
-            "https://archive.today/timemap/https://example.com"
-        ).mock(return_value=httpx.Response(429))
+        respx.get("https://archive.today/timemap/https://example.com").mock(
+            return_value=httpx.Response(429)
+        )
         # One backup has the snapshot
-        respx.get(
-            "https://archive.ph/timemap/https://example.com"
-        ).mock(return_value=httpx.Response(
-            200,
-            text=(
-                '<https://archive.ph/2024/foo>; rel="memento";'
-                ' datetime="Mon, 01 Jan 2024 00:00:00 GMT"\n'
-            ),
-        ))
+        respx.get("https://archive.ph/timemap/https://example.com").mock(
+            return_value=httpx.Response(
+                200,
+                text=(
+                    '<https://archive.ph/2024/foo>; rel="memento";'
+                    ' datetime="Mon, 01 Jan 2024 00:00:00 GMT"\n'
+                ),
+            )
+        )
         # Remaining mirrors fail
         for host in ARCHIVE_TODAY_MIRRORS:
             if host in ("archive.today", "archive.ph"):
@@ -258,12 +252,11 @@ class TestTimemapParser:
         )
 
     def test_returns_none_when_no_brackets(self) -> None:
-        assert _extract_angle_url('no brackets here') is None
+        assert _extract_angle_url("no brackets here") is None
 
     def test_extract_attr(self) -> None:
         assert (
-            _extract_attr('<url>; rel="memento"; datetime="Mon, 01 Jan"',
-                          "datetime")
+            _extract_attr('<url>; rel="memento"; datetime="Mon, 01 Jan"', "datetime")
             == "Mon, 01 Jan"
         )
 
@@ -305,9 +298,7 @@ class TestFetchDirect:
     @respx.mock
     async def test_403_on_all_mirrors_returns_none(self) -> None:
         for host in ARCHIVE_TODAY_MIRRORS:
-            respx.get(f"https://{host}/2024/foo").mock(
-                return_value=httpx.Response(403)
-            )
+            respx.get(f"https://{host}/2024/foo").mock(return_value=httpx.Response(403))
         result = await fetch_archive_today_snapshot_html(
             "https://archive.today/2024/foo"
         )
@@ -331,9 +322,7 @@ class TestFetchDirect:
         for host in ARCHIVE_TODAY_MIRRORS:
             if host in ("archive.today", "archive.ph"):
                 continue
-            respx.get(f"https://{host}/2024/foo").mock(
-                return_value=httpx.Response(429)
-            )
+            respx.get(f"https://{host}/2024/foo").mock(return_value=httpx.Response(429))
         result = await fetch_archive_today_snapshot_html(
             "https://archive.today/2024/foo"
         )
@@ -347,16 +336,12 @@ class TestFetchDirect:
             side_effect=httpx.ConnectError("boom")
         )
         respx.get("https://archive.ph/2024/foo").mock(
-            return_value=httpx.Response(
-                200, text="<html><title>ok</title></html>"
-            )
+            return_value=httpx.Response(200, text="<html><title>ok</title></html>")
         )
         for host in ARCHIVE_TODAY_MIRRORS:
             if host in ("archive.today", "archive.ph"):
                 continue
-            respx.get(f"https://{host}/2024/foo").mock(
-                return_value=httpx.Response(429)
-            )
+            respx.get(f"https://{host}/2024/foo").mock(return_value=httpx.Response(429))
         result = await fetch_archive_today_snapshot_html(
             "https://archive.today/2024/foo"
         )
@@ -378,9 +363,7 @@ class TestFetchDirect:
 class TestHtmlHelpers:
     def test_extract_title(self) -> None:
         assert (
-            extract_title_from_html(
-                "<html><head><title>Hello</title></head></html>"
-            )
+            extract_title_from_html("<html><head><title>Hello</title></head></html>")
             == "Hello"
         )
 
@@ -392,9 +375,7 @@ class TestHtmlHelpers:
         assert len(extract_title_from_html(long)) == 500  # noqa: PLR2004
 
     def test_strip_html_tags_removes_scripts(self) -> None:
-        text = strip_html_tags(
-            "<html><script>alert('x')</script><p>Hi</p></html>"
-        )
+        text = strip_html_tags("<html><script>alert('x')</script><p>Hi</p></html>")
         assert "alert" not in text
         assert "Hi" in text
 
@@ -402,16 +383,12 @@ class TestHtmlHelpers:
         # Browsers treat </script > (trailing space/attrs) as a
         # closing tag; the stripper must too or the script body
         # lands in the search index.
-        text = strip_html_tags(
-            "<html><script>alert('x')</script ><p>Hi</p></html>"
-        )
+        text = strip_html_tags("<html><script>alert('x')</script ><p>Hi</p></html>")
         assert "alert" not in text
         assert "Hi" in text
 
     def test_strip_html_tags_removes_styles(self) -> None:
-        text = strip_html_tags(
-            "<html><style>body{color:red}</style><p>Hi</p></html>"
-        )
+        text = strip_html_tags("<html><style>body{color:red}</style><p>Hi</p></html>")
         assert "color:red" not in text
         assert "Hi" in text
 
@@ -434,8 +411,7 @@ class TestWaybackUrlVariants:
     def test_removes_www_prefix(self) -> None:
         variants = _wayback_url_variants("https://www.example.com/")
         assert any(
-            "://example.com" in v and "://www.example.com" not in v
-            for v in variants
+            "://example.com" in v and "://www.example.com" not in v for v in variants
         )
 
     def test_deduplicates(self) -> None:
@@ -475,9 +451,7 @@ class TestWaybackAvailabilityWithVariants:
 class TestSaveToWayback:
     async def test_success_returns_snapshot_url(self) -> None:
         page = _mock_page()
-        page.url = (
-            "https://web.archive.org/web/20260417000000/https://example.com/"
-        )
+        page.url = "https://web.archive.org/web/20260417000000/https://example.com/"
         result = await save_to_wayback("https://example.com/", page)
         assert result is not None
         assert "/web/" in result
@@ -501,43 +475,39 @@ class TestSaveToWayback:
     async def test_wait_timeout_returns_none(self) -> None:
         page = _mock_page()
         page.url = "https://web.archive.org/save/https://example.com/"
-        page.wait_for_function = AsyncMock(
-            side_effect=TimeoutError("timed out")
-        )
+        page.wait_for_function = AsyncMock(side_effect=TimeoutError("timed out"))
         result = await save_to_wayback("https://example.com/", page)
         assert result is None
 
 
 class TestArchiveTodaySnapshotUrlPredicate:
     def test_real_snapshot_url(self) -> None:
-        assert _is_archive_today_snapshot_url(
-            "https://archive.today/abc12/https://example.com/"
-        ) is True
+        assert (
+            _is_archive_today_snapshot_url(
+                "https://archive.today/abc12/https://example.com/"
+            )
+            is True
+        )
 
     def test_archive_is_host(self) -> None:
-        assert _is_archive_today_snapshot_url(
-            "https://archive.is/XyZ98"
-        ) is True
+        assert _is_archive_today_snapshot_url("https://archive.is/XyZ98") is True
 
     def test_submit_path_rejected(self) -> None:
-        assert _is_archive_today_snapshot_url(
-            "https://archive.today/submit/?url=https://example.com"
-        ) is False
+        assert (
+            _is_archive_today_snapshot_url(
+                "https://archive.today/submit/?url=https://example.com"
+            )
+            is False
+        )
 
     def test_wip_path_rejected(self) -> None:
-        assert _is_archive_today_snapshot_url(
-            "https://archive.today/wip/abc"
-        ) is False
+        assert _is_archive_today_snapshot_url("https://archive.today/wip/abc") is False
 
     def test_homepage_rejected(self) -> None:
-        assert _is_archive_today_snapshot_url(
-            "https://archive.today/"
-        ) is False
+        assert _is_archive_today_snapshot_url("https://archive.today/") is False
 
     def test_non_archive_host_rejected(self) -> None:
-        assert _is_archive_today_snapshot_url(
-            "https://example.com/foo"
-        ) is False
+        assert _is_archive_today_snapshot_url("https://example.com/foo") is False
 
     def test_garbage_rejected(self) -> None:
         assert _is_archive_today_snapshot_url("not a url") is False
@@ -574,10 +544,6 @@ class TestSaveToArchiveToday:
 
     async def test_wait_timeout_returns_none(self) -> None:
         page = _mock_page()
-        page.wait_for_url = AsyncMock(
-            side_effect=TimeoutError("captcha stuck")
-        )
+        page.wait_for_url = AsyncMock(side_effect=TimeoutError("captcha stuck"))
         result = await save_to_archive_today("https://example.com/", page)
         assert result is None
-
-

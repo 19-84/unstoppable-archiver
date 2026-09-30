@@ -55,9 +55,7 @@ _global_limiter = RateLimiter()
 
 
 @beartype
-def enforce_limit(
-    request: Request, limit: int, window_seconds: int = 3600
-) -> None:
+def enforce_limit(request: Request, limit: int, window_seconds: int = 3600) -> None:
     """Enforce rate limit for the current request. Raises 429 on exceed."""
     settings: Settings = request.app.state.settings
     if not settings.rate_limit_enabled:

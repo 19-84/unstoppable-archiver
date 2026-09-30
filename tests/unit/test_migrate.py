@@ -77,9 +77,7 @@ class TestMigrateApply:
         conn.transaction = MagicMock(return_value=tx_ctx)
         return pool, conn
 
-    async def test_no_pending_returns_empty(
-        self, tmp_path: Path, monkeypatch
-    ) -> None:
+    async def test_no_pending_returns_empty(self, tmp_path: Path, monkeypatch) -> None:
         """All migrations on disk are already in schema_migrations -> []."""
         from archiver import migrate as migrate_mod
 
@@ -99,9 +97,7 @@ class TestMigrateApply:
         assert any("schema_migrations" in c for c in execute_calls)
         assert not any("INSERT INTO schema_migrations" in c for c in execute_calls)
 
-    async def test_applies_pending_in_order(
-        self, tmp_path: Path, monkeypatch
-    ) -> None:
+    async def test_applies_pending_in_order(self, tmp_path: Path, monkeypatch) -> None:
         """Two pending migrations get executed + recorded in order."""
         from archiver import migrate as migrate_mod
 
@@ -117,15 +113,14 @@ class TestMigrateApply:
 
         # Inspect the recorded INSERTs to confirm both versions landed
         insert_args = [
-            c for c in conn.execute.await_args_list
+            c
+            for c in conn.execute.await_args_list
             if "INSERT INTO schema_migrations" in c.args[0]
         ]
         recorded_versions = [c.args[1] for c in insert_args]
         assert recorded_versions == ["001_a", "002_b"]
 
-    async def test_skips_already_applied(
-        self, tmp_path: Path, monkeypatch
-    ) -> None:
+    async def test_skips_already_applied(self, tmp_path: Path, monkeypatch) -> None:
         """Only the missing migration runs when 001 is in the table."""
         from archiver import migrate as migrate_mod
 
@@ -143,7 +138,8 @@ class TestMigrateApply:
         # in an execute call between the tracking-table create and the
         # 002 INSERT)
         non_track_executes = [
-            c.args[0] for c in conn.execute.await_args_list
+            c.args[0]
+            for c in conn.execute.await_args_list
             if "schema_migrations" not in c.args[0]
         ]
         assert any("-- two" in s for s in non_track_executes)

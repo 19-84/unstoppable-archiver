@@ -33,9 +33,7 @@ class TestResolvePolicy:
         assert policy.target_apex == "medium.com"
 
     def test_reddit_subdomain_match(self) -> None:
-        policy = resolve_policy(
-            "https://old.reddit.com/r/technology/comments/abc/"
-        )
+        policy = resolve_policy("https://old.reddit.com/r/technology/comments/abc/")
         assert policy is not None
         assert policy.target_apex == "reddit.com"
 
@@ -86,9 +84,7 @@ class TestRewriteToInstance:
         assert result == "https://xcancel.com/jack/status/1"
 
     def test_root_path_preserved(self) -> None:
-        result = rewrite_to_instance(
-            "https://medium.com/", "https://scribe.rip"
-        )
+        result = rewrite_to_instance("https://medium.com/", "https://scribe.rip")
         assert result == "https://scribe.rip/"
 
     def test_subdomain_target_flattened(self) -> None:
@@ -97,9 +93,7 @@ class TestRewriteToInstance:
             "https://old.reddit.com/r/foo/comments/abc/",
             "https://redlib.example",
         )
-        assert (
-            result == "https://redlib.example/r/foo/comments/abc/"
-        )
+        assert result == "https://redlib.example/r/foo/comments/abc/"
 
 
 class TestRegistry:
@@ -185,9 +179,13 @@ class TestIsAliveTcp:
     @pytest.mark.asyncio
     async def test_unresolvable_host_returns_false(self) -> None:
         # .invalid is reserved (RFC 6761) — guaranteed NXDOMAIN
-        assert await is_alive_tcp(
-            "no-such-host.invalid", timeout=2.0,
-        ) is False
+        assert (
+            await is_alive_tcp(
+                "no-such-host.invalid",
+                timeout=2.0,
+            )
+            is False
+        )
 
     @pytest.mark.asyncio
     async def test_closed_port_returns_false(self) -> None:
@@ -229,7 +227,9 @@ class TestIsAliveTcp:
         writer.wait_closed = _AsyncMock()
         reader = _MagicMock()
 
-        async def fake_open_connection(*_a: object, **_kw: object) -> tuple[object, object]:
+        async def fake_open_connection(
+            *_a: object, **_kw: object
+        ) -> tuple[object, object]:
             return reader, writer
 
         with patch("asyncio.open_connection", side_effect=fake_open_connection):
@@ -242,7 +242,8 @@ class TestD420FetchFailures:
 
     @pytest.mark.asyncio
     async def test_returns_empty_on_5xx(
-        self, respx_mock,
+        self,
+        respx_mock,
     ) -> None:
         """Upstream 5xx → log warning + return ()."""
         import httpx
@@ -259,8 +260,6 @@ class TestD420FetchFailures:
             registry_kind="d420-html",
         )
         assert await fetch_registry_instances(p) == ()
-
-
 
 
 class TestRegistryHasExpandedRoster:
@@ -301,7 +300,8 @@ class TestRegistryDiscovery:
 
     @pytest.mark.asyncio
     async def test_discover_falls_back_to_static_on_registry_failure(
-        self, respx_mock,  # pytest fixture
+        self,
+        respx_mock,  # pytest fixture
     ) -> None:
         """A registry fetch error should NOT break discovery — we still
         get the hardcoded fallback list."""
@@ -323,7 +323,8 @@ class TestRegistryDiscovery:
 
     @pytest.mark.asyncio
     async def test_redlib_json_parser_drops_onion_and_keeps_https(
-        self, respx_mock,
+        self,
+        respx_mock,
     ) -> None:
         """redlib-json schema: drop onion-only entries, keep https ones,
         strip trailing slashes."""
@@ -356,7 +357,8 @@ class TestRegistryDiscovery:
 
     @pytest.mark.asyncio
     async def test_d420_html_parser_extracts_instances(
-        self, respx_mock,
+        self,
+        respx_mock,
     ) -> None:
         """d420 HTML pattern: one <a rel="nofollow external"
         href="https://..."> per instance, mixed with github metadata
@@ -389,7 +391,8 @@ class TestRegistryDiscovery:
 
     @pytest.mark.asyncio
     async def test_discover_dedupes_and_preserves_order(
-        self, respx_mock,
+        self,
+        respx_mock,
     ) -> None:
         """Static instances come first (preference order); registry
         additions append. Duplicates in either list collapse."""

@@ -198,7 +198,9 @@ async def index(
     stats = {
         "total_pages": total,
         "total_domains": stats_row["total_domains"] if stats_row else 0,
-        "storage_mb": round((stats_row["total_bytes"] if stats_row else 0) / 1048576, 1),
+        "storage_mb": round(
+            (stats_row["total_bytes"] if stats_row else 0) / 1048576, 1
+        ),
         "success_rate": round(complete / finished * 100, 1) if finished > 0 else 0,
     }
 
@@ -207,9 +209,7 @@ async def index(
     # avoid providing a browsable index of all public submissions)
     recent_archives: list[object] = []
     if settings.mode == "self-hosted":
-        archives, _ = await _archive_repo.list_recent(
-            conn, limit=10, offset=0
-        )
+        archives, _ = await _archive_repo.list_recent(conn, limit=10, offset=0)
         recent_archives = list(archives)
 
     return templates.TemplateResponse(
@@ -246,14 +246,18 @@ async def archives_browse(
     limit = max(1, min(limit, 100))
     offset = max(0, offset)
     archives, total = await _archive_repo.list_recent(
-        conn, limit=limit, offset=offset,
+        conn,
+        limit=limit,
+        offset=offset,
     )
     return templates.TemplateResponse(
         request,
         "archives_list.html",
         {
-            "archives": archives, "total": total,
-            "limit": limit, "offset": offset,
+            "archives": archives,
+            "total": total,
+            "limit": limit,
+            "offset": offset,
         },
     )
 
@@ -302,9 +306,7 @@ async def submit_form(
     if not url.startswith(("http://", "https://")):
         from urllib.parse import quote
 
-        return RedirectResponse(
-            url=f"/search?q={quote(url, safe='')}", status_code=303
-        )
+        return RedirectResponse(url=f"/search?q={quote(url, safe='')}", status_code=303)
 
     from archiver.url_safety import check_url_safety_async
 
@@ -321,11 +323,14 @@ async def submit_form(
     # archive instead of an error page.
     uhash = url_hash(url)
     recent = await _archive_repo.check_recent_capture(
-        conn, uhash, settings.recapture_interval_seconds,
+        conn,
+        uhash,
+        settings.recapture_interval_seconds,
     )
     if recent is not None:
         return RedirectResponse(
-            url=f"/archive/{recent.id}", status_code=303,
+            url=f"/archive/{recent.id}",
+            status_code=303,
         )
 
     archive = await _archive_repo.create(
@@ -334,9 +339,7 @@ async def submit_form(
     job_repo = JobRepository()
     await job_repo.enqueue(conn, archive.id, CaptureTier.CHROMIUM)
 
-    return RedirectResponse(
-        url=f"/archive/{archive.id}", status_code=303
-    )
+    return RedirectResponse(url=f"/archive/{archive.id}", status_code=303)
 
 
 @router.post("/recapture/{archive_id}", response_model=None)
@@ -364,9 +367,7 @@ async def recapture(
     job_repo = JobRepository()
     await job_repo.enqueue(conn, new_archive.id, CaptureTier.CHROMIUM)
 
-    return RedirectResponse(
-        url=f"/archive/{new_archive.id}", status_code=303
-    )
+    return RedirectResponse(url=f"/archive/{new_archive.id}", status_code=303)
 
 
 @router.get("/archive/{archive_id}", response_class=HTMLResponse)
@@ -386,7 +387,9 @@ async def archive_detail(
     from 'taken down' — a 404 alone confuses legitimate revisits.
     """
     archive = await _archive_repo.get_by_id(
-        conn, archive_id, include_removed=True,
+        conn,
+        archive_id,
+        include_removed=True,
     )
     if archive is None:
         raise HTTPException(status_code=404, detail="Archive not found")
@@ -400,7 +403,8 @@ async def archive_detail(
 
     # Get snapshot history for this URL (filter removed)
     history = [
-        h for h in await _archive_repo.get_by_url_hash(conn, archive.url_hash)
+        h
+        for h in await _archive_repo.get_by_url_hash(conn, archive.url_hash)
         if h.removed_at is None
     ]
 
@@ -426,13 +430,16 @@ async def archive_view(
     lands on the friendly takedown stub instead of a bare 404.
     """
     archive = await _archive_repo.get_by_id(
-        conn, archive_id, include_removed=True,
+        conn,
+        archive_id,
+        include_removed=True,
     )
     if archive is None:
         raise HTTPException(status_code=404, detail="Archive not found")
     if archive.removed_at is not None:
         return RedirectResponse(
-            url=f"/archive/{archive_id}", status_code=303,
+            url=f"/archive/{archive_id}",
+            status_code=303,
         )
     if archive.status != ArchiveStatus.COMPLETE:
         raise HTTPException(status_code=404, detail="Archive not complete")
@@ -441,14 +448,20 @@ async def archive_view(
 
     ts = archive.created_at.strftime("%Y%m%d%H%M%S") if archive.created_at else ""
     if ts:
-        return RedirectResponse(
-            url=f"/web/{ts}/{archive.url}", status_code=301
-        )
-    siblings_pos, siblings_count, siblings_newer, siblings_older = await _archive_repo.get_siblings_info(
-        conn, archive.url_hash, archive.id,
+        return RedirectResponse(url=f"/web/{ts}/{archive.url}", status_code=301)
+    (
+        siblings_pos,
+        siblings_count,
+        siblings_newer,
+        siblings_older,
+    ) = await _archive_repo.get_siblings_info(
+        conn,
+        archive.url_hash,
+        archive.id,
     )
     return templates.TemplateResponse(
-        request, "archive_view.html",
+        request,
+        "archive_view.html",
         {
             "archive": archive,
             "siblings_count": siblings_count,
@@ -480,11 +493,19 @@ async def wayback_latest(
     archive = await _archive_repo.get_latest_complete(conn, uhash)
     if archive is None or not archive.artifact_dir:
         raise HTTPException(status_code=404, detail="No snapshot for this URL")
-    siblings_pos, siblings_count, siblings_newer, siblings_older = await _archive_repo.get_siblings_info(
-        conn, uhash, archive.id,
+    (
+        siblings_pos,
+        siblings_count,
+        siblings_newer,
+        siblings_older,
+    ) = await _archive_repo.get_siblings_info(
+        conn,
+        uhash,
+        archive.id,
     )
     return templates.TemplateResponse(
-        request, "archive_view.html",
+        request,
+        "archive_view.html",
         {
             "archive": archive,
             "siblings_count": siblings_count,
@@ -515,16 +536,22 @@ async def wayback_timestamped(
         raise HTTPException(status_code=400, detail="Invalid timestamp")
     target = _normalize_path_url(url, request)
     uhash = url_hash(target)
-    archive = await _archive_repo.get_closest_to_timestamp(
-        conn, uhash, padded
-    )
+    archive = await _archive_repo.get_closest_to_timestamp(conn, uhash, padded)
     if archive is None or not archive.artifact_dir:
         raise HTTPException(status_code=404, detail="No snapshot near this timestamp")
-    siblings_pos, siblings_count, siblings_newer, siblings_older = await _archive_repo.get_siblings_info(
-        conn, uhash, archive.id,
+    (
+        siblings_pos,
+        siblings_count,
+        siblings_newer,
+        siblings_older,
+    ) = await _archive_repo.get_siblings_info(
+        conn,
+        uhash,
+        archive.id,
     )
     return templates.TemplateResponse(
-        request, "archive_view.html",
+        request,
+        "archive_view.html",
         {
             "archive": archive,
             "siblings_count": siblings_count,
@@ -551,7 +578,7 @@ def _normalize_path_url(raw: str, request: Request) -> str:
     for scheme in ("http", "https"):
         prefix = f"{scheme}:"
         if raw.startswith(prefix) and not raw.startswith(f"{scheme}://"):
-            raw = f"{scheme}://{raw[len(prefix):].lstrip('/')}"
+            raw = f"{scheme}://{raw[len(prefix) :].lstrip('/')}"
     return raw
 
 
@@ -586,9 +613,7 @@ async def search_page(
     offset = max(0, offset)
     results = None
     if q.strip():
-        results = await _archive_repo.search(
-            conn, q, limit=limit, offset=offset
-        )
+        results = await _archive_repo.search(conn, q, limit=limit, offset=offset)
     return templates.TemplateResponse(
         request,
         "search.html",
@@ -644,9 +669,7 @@ async def partial_search(
     offset = max(0, offset)
     results = None
     if q.strip():
-        results = await _archive_repo.search(
-            conn, q, limit=limit, offset=offset
-        )
+        results = await _archive_repo.search(conn, q, limit=limit, offset=offset)
     return templates.TemplateResponse(
         request,
         "partials/search_results.html",

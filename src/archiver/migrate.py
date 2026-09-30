@@ -70,8 +70,7 @@ def _list_migrations(migrations_dir: Path | None = None) -> list[tuple[str, Path
     if not migrations_dir.exists():
         return []
     files = sorted(
-        p for p in migrations_dir.iterdir()
-        if p.is_file() and p.suffix == ".sql"
+        p for p in migrations_dir.iterdir() if p.is_file() and p.suffix == ".sql"
     )
     return [(p.stem, p) for p in files]
 

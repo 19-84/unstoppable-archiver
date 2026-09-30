@@ -43,6 +43,7 @@ def _discover_chromium_for_cli() -> str | None:
     error rather than try to run the CLI blindly.
     """
     import glob
+
     for pattern in _CHROMIUM_CANDIDATES:
         for path in sorted(glob.glob(pattern), reverse=True):
             if Path(path).exists():
@@ -88,18 +89,26 @@ async def capture_via_cli(
     # triggers bot detection on many origins; replace with a current
     # real-browser UA from our rotating pool.
     from archiver import user_agents as _ua
+
     ua = _ua.pick()
     cmd = [
-        cli_path, url,
-        "--browser-executable-path", browser_path,
-        "--browser-arg", "--no-sandbox",
-        "--browser-arg", "--disable-gpu",
-        "--browser-arg", "--disable-dev-shm-usage",
-        "--user-agent", ua,
-        "--dump-content",                      # HTML → stdout
+        cli_path,
+        url,
+        "--browser-executable-path",
+        browser_path,
+        "--browser-arg",
+        "--no-sandbox",
+        "--browser-arg",
+        "--disable-gpu",
+        "--browser-arg",
+        "--disable-dev-shm-usage",
+        "--user-agent",
+        ua,
+        "--dump-content",  # HTML → stdout
         "--compress-HTML",
         "--load-deferred-images",
-        "--load-deferred-images-max-idle-time", "3000",
+        "--load-deferred-images-max-idle-time",
+        "3000",
     ]
 
     proc = await asyncio.create_subprocess_exec(
@@ -108,9 +117,7 @@ async def capture_via_cli(
         stderr=asyncio.subprocess.PIPE,
     )
     try:
-        stdout, stderr = await asyncio.wait_for(
-            proc.communicate(), timeout=timeout
-        )
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
     except TimeoutError:
         proc.kill()
         raise CaptureError(f"single-file-cli timed out after {timeout}s") from None
@@ -122,8 +129,7 @@ async def capture_via_cli(
     html = stdout.decode("utf-8", errors="replace")
     if not html.strip():
         raise CaptureError(
-            "single-file-cli returned empty output "
-            f"(stderr: {stderr.decode()[:200]})"
+            f"single-file-cli returned empty output (stderr: {stderr.decode()[:200]})"
         )
     return html
 

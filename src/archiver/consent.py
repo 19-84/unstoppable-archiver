@@ -38,8 +38,8 @@ _CMP_SELECTORS: tuple[str, ...] = (
     # Sourcepoint (Guardian, Bloomberg, Reuters, WSJ, etc.)
     'iframe[id^="sp_message_iframe_"]',
     'div[id^="sp_message_container_"]',
-    'div.sp_veil',
-    'div.sp-message-open',
+    "div.sp_veil",
+    "div.sp-message-open",
     # OneTrust (widely used by Fortune 500)
     "#onetrust-consent-sdk",
     "#onetrust-banner-sdk",

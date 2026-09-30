@@ -87,12 +87,12 @@ class FrontendPolicy:
     failures (offline, parse error) degrade silently to it.
     """
 
-    target_apex: str                # site we're fronting (e.g. "reddit.com")
-    instances: tuple[str, ...]      # base URLs to try in order (fallback)
-    probe_path: str                 # path for canonical content probe
-    probe_marker: str               # substring required in real content
+    target_apex: str  # site we're fronting (e.g. "reddit.com")
+    instances: tuple[str, ...]  # base URLs to try in order (fallback)
+    probe_path: str  # path for canonical content probe
+    probe_marker: str  # substring required in real content
     not_found_markers: tuple[str, ...] = ()  # substrings flagging absence
-    registry_url: str | None = None   # upstream-curated instance list URL
+    registry_url: str | None = None  # upstream-curated instance list URL
     registry_kind: str | None = None  # parser key: 'redlib-json' or 'd420-html'
 
 
@@ -124,11 +124,11 @@ FRONTENDS: tuple[FrontendPolicy, ...] = (
         # article wouldn't contain it. "Welcome" is the scribe
         # homepage title (returned when the article slug 404s).
         not_found_markers=(
-            "This article is missing",      # scribe 404 body
-            "<title>Welcome</title>",       # scribe 404 / homepage shell
-            "<title>502 Bad Gateway",       # libmedium upstream hiccup
-            "<title>503 Service Unavailable", # libmedium upstream hiccup
-            "<title>504 Gateway Timeout",   # libmedium upstream hiccup
+            "This article is missing",  # scribe 404 body
+            "<title>Welcome</title>",  # scribe 404 / homepage shell
+            "<title>502 Bad Gateway",  # libmedium upstream hiccup
+            "<title>503 Service Unavailable",  # libmedium upstream hiccup
+            "<title>504 Gateway Timeout",  # libmedium upstream hiccup
         ),
     ),
     # Twitter / X. After Nitter's guest-account removal most upstream
@@ -144,16 +144,16 @@ FRONTENDS: tuple[FrontendPolicy, ...] = (
     FrontendPolicy(
         target_apex="twitter.com",
         instances=(
-            "https://xcancel.com",                 # d420 97% uptime
-            "https://nitter.space",                # 96%
-            "https://nuku.trabun.org",             # 95%
-            "https://lightbrd.com",                # 95%
-            "https://nitter.net",                  # 94% (origin)
+            "https://xcancel.com",  # d420 97% uptime
+            "https://nitter.space",  # 96%
+            "https://nuku.trabun.org",  # 95%
+            "https://lightbrd.com",  # 95%
+            "https://nitter.net",  # 94% (origin)
             "https://nitter.privacyredirect.com",  # 91%
-            "https://nitter.kareem.one",           # 89%
-            "https://nitter.poast.org",            # 86%
-            "https://nitter.catsarch.com",         # 68%
-            "https://nitter.tiekoetter.com",       # 44% (kept; gate validates)
+            "https://nitter.kareem.one",  # 89%
+            "https://nitter.poast.org",  # 86%
+            "https://nitter.catsarch.com",  # 68%
+            "https://nitter.tiekoetter.com",  # 44% (kept; gate validates)
         ),
         probe_path="/jack/status/20",
         probe_marker="just setting up my twttr",
@@ -189,13 +189,13 @@ FRONTENDS: tuple[FrontendPolicy, ...] = (
     FrontendPolicy(
         target_apex="reddit.com",
         instances=(
-            "https://redlib.catsarch.com",        # US
-            "https://redlib.perennialte.ch",      # AU, CF
-            "https://redlib.r4fo.com",            # DE, CF
-            "https://red.artemislena.eu",         # DE
-            "https://redlib.cow.rip",             # IN, CF
-            "https://redlib.nadeko.net",          # CL
-            "https://redlib.privadency.com",      # DE
+            "https://redlib.catsarch.com",  # US
+            "https://redlib.perennialte.ch",  # AU, CF
+            "https://redlib.r4fo.com",  # DE, CF
+            "https://red.artemislena.eu",  # DE
+            "https://redlib.cow.rip",  # IN, CF
+            "https://redlib.nadeko.net",  # CL
+            "https://redlib.privadency.com",  # DE
         ),
         probe_path="/r/announcements/",
         probe_marker="r/announcements",
@@ -310,7 +310,8 @@ async def _fetch_d420_html(url: str, timeout: float) -> tuple[str, ...]:
 
 @beartype
 async def fetch_registry_instances(
-    policy: FrontendPolicy, timeout: float = 10.0,
+    policy: FrontendPolicy,
+    timeout: float = 10.0,
 ) -> tuple[str, ...]:
     """Pull the current upstream-curated instance list for `policy`.
 
@@ -338,7 +339,8 @@ async def fetch_registry_instances(
 
 @beartype
 async def discover_instances(
-    policy: FrontendPolicy, timeout: float = 10.0,
+    policy: FrontendPolicy,
+    timeout: float = 10.0,
 ) -> tuple[str, ...]:
     """Union the static fallback with the live upstream registry.
 
@@ -370,9 +372,7 @@ def resolve_policy(url: str) -> FrontendPolicy | None:
     if not host:
         return None
     for policy in FRONTENDS:
-        if host == policy.target_apex or host.endswith(
-            "." + policy.target_apex
-        ):
+        if host == policy.target_apex or host.endswith("." + policy.target_apex):
             return policy
     return None
 
@@ -438,7 +438,10 @@ async def is_alive_tcp(host: str, port: int = 443, timeout: float = 4.0) -> bool
     """
     try:
         fut = asyncio.open_connection(
-            host, port, ssl=True, server_hostname=host,
+            host,
+            port,
+            ssl=True,
+            server_hostname=host,
         )
         _, writer = await asyncio.wait_for(fut, timeout=timeout)
         writer.close()

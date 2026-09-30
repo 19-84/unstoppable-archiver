@@ -35,7 +35,8 @@ class TestFetchBasics:
     @respx.mock
     async def test_returns_response(self) -> None:
         respx.get("https://upstream.example/api").respond(
-            200, content=b'{"ok": true}',
+            200,
+            content=b'{"ok": true}',
             headers={"content-type": "application/json"},
         )
         resp = await fetch("https://upstream.example/api")
@@ -45,12 +46,10 @@ class TestFetchBasics:
 
     @respx.mock
     async def test_params_merged_into_url(self) -> None:
-        route = respx.get(
-            "https://upstream.example/api", params={"q": "x"}
-        ).respond(200, content=b"hit")
-        resp = await fetch(
-            "https://upstream.example/api", params={"q": "x"}
+        route = respx.get("https://upstream.example/api", params={"q": "x"}).respond(
+            200, content=b"hit"
         )
+        resp = await fetch("https://upstream.example/api", params={"q": "x"})
         assert resp.content == b"hit"
         assert route.called
 
@@ -69,9 +68,7 @@ class TestFetchBasics:
             "https://upstream.example/",
             headers={"User-Agent": "custom-agent"},
         )
-        assert route.calls.last.request.headers["user-agent"] == (
-            "custom-agent"
-        )
+        assert route.calls.last.request.headers["user-agent"] == ("custom-agent")
 
     @respx.mock
     async def test_non_retryable_status_returned_without_retry(
@@ -96,9 +93,7 @@ class TestFetchBasics:
 
 class TestRetries:
     @respx.mock
-    async def test_retries_503_then_succeeds(
-        self, sleeps: list[float]
-    ) -> None:
+    async def test_retries_503_then_succeeds(self, sleeps: list[float]) -> None:
         route = respx.get("https://upstream.example/")
         route.side_effect = [
             httpx.Response(503),
@@ -112,9 +107,7 @@ class TestRetries:
         assert sleeps[0] >= 2.0  # base backoff  # noqa: PLR2004
 
     @respx.mock
-    async def test_retry_after_seconds_honored(
-        self, sleeps: list[float]
-    ) -> None:
+    async def test_retry_after_seconds_honored(self, sleeps: list[float]) -> None:
         route = respx.get("https://upstream.example/")
         route.side_effect = [
             httpx.Response(429, headers={"Retry-After": "9"}),
@@ -181,9 +174,7 @@ class TestRetries:
 class TestBodyCaps:
     @respx.mock
     async def test_content_length_over_cap_raises(self) -> None:
-        respx.get("https://upstream.example/big").respond(
-            200, content=b"x" * 2048
-        )
+        respx.get("https://upstream.example/big").respond(200, content=b"x" * 2048)
         with pytest.raises(BodyTooLargeError):
             await fetch("https://upstream.example/big", max_bytes=1024)
 
@@ -194,18 +185,12 @@ class TestBodyCaps:
             return_value=httpx.Response(200, stream=_Stream())
         )
         with pytest.raises(BodyTooLargeError):
-            await fetch(
-                "https://upstream.example/chunked", max_bytes=1024
-            )
+            await fetch("https://upstream.example/chunked", max_bytes=1024)
 
     @respx.mock
     async def test_body_under_cap_ok(self) -> None:
-        respx.get("https://upstream.example/small").respond(
-            200, content=b"z" * 100
-        )
-        resp = await fetch(
-            "https://upstream.example/small", max_bytes=1024
-        )
+        respx.get("https://upstream.example/small").respond(200, content=b"z" * 100)
+        resp = await fetch("https://upstream.example/small", max_bytes=1024)
         assert len(resp.content) == 100  # noqa: PLR2004
 
 
@@ -223,12 +208,8 @@ class TestRedirects:
         respx.get("https://upstream.example/old").respond(
             302, headers={"location": "https://upstream.example/new"}
         )
-        respx.get("https://upstream.example/new").respond(
-            200, content=b"moved"
-        )
-        resp = await fetch(
-            "https://upstream.example/old", follow_redirects=True
-        )
+        respx.get("https://upstream.example/new").respond(200, content=b"moved")
+        resp = await fetch("https://upstream.example/old", follow_redirects=True)
         assert resp.content == b"moved"
         assert resp.url == "https://upstream.example/new"
 
@@ -246,9 +227,7 @@ class TestRedirects:
             301, headers={"location": "../new"}
         )
         respx.get("https://upstream.example/new").respond(200)
-        resp = await fetch(
-            "https://upstream.example/a/old", follow_redirects=True
-        )
+        resp = await fetch("https://upstream.example/a/old", follow_redirects=True)
         assert resp.url == "https://upstream.example/new"
 
     @respx.mock
@@ -257,9 +236,7 @@ class TestRedirects:
             302, headers={"location": "https://upstream.example/loop"}
         )
         with pytest.raises(UpstreamError, match="redirects"):
-            await fetch(
-                "https://upstream.example/loop", follow_redirects=True
-            )
+            await fetch("https://upstream.example/loop", follow_redirects=True)
 
 
 class TestSSRFGuard:
@@ -295,9 +272,7 @@ class TestFetchResponse:
     def test_text_uses_charset_from_content_type(self) -> None:
         resp = FetchResponse(
             status_code=200,
-            headers=httpx.Headers(
-                {"content-type": "text/html; charset=latin-1"}
-            ),
+            headers=httpx.Headers({"content-type": "text/html; charset=latin-1"}),
             content="café".encode("latin-1"),
             url="https://x.example/",
         )
@@ -306,9 +281,7 @@ class TestFetchResponse:
     def test_text_falls_back_on_unknown_charset(self) -> None:
         resp = FetchResponse(
             status_code=200,
-            headers=httpx.Headers(
-                {"content-type": "text/html; charset=not-a-charset"}
-            ),
+            headers=httpx.Headers({"content-type": "text/html; charset=not-a-charset"}),
             content=b"plain",
             url="https://x.example/",
         )

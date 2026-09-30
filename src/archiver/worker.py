@@ -95,11 +95,13 @@ log = structlog.get_logger()
 # Tiers that point a browser at the user-submitted URL itself (rather
 # than at an archive provider) and so need the capture-time SSRF
 # re-check in _process_job_inner.
-_DIRECT_NAVIGATION_TIERS: frozenset[CaptureTier] = frozenset({
-    CaptureTier.CHROMIUM,
-    CaptureTier.CAMOUFOX,
-    CaptureTier.CAMOUFOX_PROXY,
-})
+_DIRECT_NAVIGATION_TIERS: frozenset[CaptureTier] = frozenset(
+    {
+        CaptureTier.CHROMIUM,
+        CaptureTier.CAMOUFOX,
+        CaptureTier.CAMOUFOX_PROXY,
+    }
+)
 
 # Provenance label persisted with a completed archive. Tiers not listed
 # here captured the live site directly (CaptureSource.DIRECT).
@@ -181,9 +183,7 @@ class Worker:
         self._proxy_status_repo = ProxyStatusRepository()
         self._frontend_status_repo = FrontendStatusRepository()
         self._cookie_cache = CfClearanceCache()
-        self._semaphore = asyncio.Semaphore(
-            settings.max_concurrent_captures
-        )
+        self._semaphore = asyncio.Semaphore(settings.max_concurrent_captures)
         self._running = True
         self._pool: asyncpg.Pool | None = None
         # Background tasks tracked here include ones with non-None return
@@ -205,6 +205,7 @@ class Worker:
         # Refresh the User-Agent rotation pool from the daily-updated
         # public source. Bundled fallback covers us if the fetch fails.
         from archiver import user_agents as _ua
+
         ua_task = asyncio.create_task(_ua.refresh(force=True))
         self._tasks.add(ua_task)
         ua_task.add_done_callback(self._tasks.discard)
@@ -263,9 +264,7 @@ class Worker:
         # Set up LISTEN for new_job notifications
         listen_conn = await self._pool.acquire()
         try:
-            await listen_conn.add_listener(
-                "new_job", self._on_notify
-            )
+            await listen_conn.add_listener("new_job", self._on_notify)
 
             log.info(
                 "worker.started",
@@ -292,9 +291,7 @@ class Worker:
                 )
                 try:
                     await asyncio.wait_for(
-                        asyncio.gather(
-                            *self._tasks, return_exceptions=True
-                        ),
+                        asyncio.gather(*self._tasks, return_exceptions=True),
                         timeout=drain_timeout,
                     )
                     log.info("worker.drained")
@@ -304,9 +301,7 @@ class Worker:
                         stuck=len(self._tasks),
                     )
 
-            await listen_conn.remove_listener(
-                "new_job", self._on_notify
-            )
+            await listen_conn.remove_listener("new_job", self._on_notify)
             await self._pool.release(listen_conn)
             await self._browser_pool.close()
             await self._pool.close()
@@ -338,9 +333,7 @@ class Worker:
             return
 
         async with self._pool.acquire() as conn:
-            job = await self._job_repo.claim_next(
-                conn, self._settings.worker_id
-            )
+            job = await self._job_repo.claim_next(conn, self._settings.worker_id)
         if job is None:
             return
 
@@ -359,15 +352,11 @@ class Worker:
             jobs_running.inc()
             outcome = "failed"
             try:
-                with capture_duration_seconds.labels(
-                    tier=job.tier.value
-                ).time():
+                with capture_duration_seconds.labels(tier=job.tier.value).time():
                     outcome = await self._process_job_inner(job)
             finally:
                 jobs_running.dec()
-                captures_total.labels(
-                    tier=job.tier.value, outcome=outcome
-                ).inc()
+                captures_total.labels(tier=job.tier.value, outcome=outcome).inc()
 
     @beartype
     async def _process_job_inner(self, job: JobRecord) -> str:  # noqa: C901, PLR0911
@@ -375,177 +364,185 @@ class Worker:
         assert self._pool is not None  # noqa: S101
         apex = ""  # bound for the except handlers; set properly once archive is fetched
         async with self._pool.acquire() as conn:
-                try:
-                    archive = await self._archive_repo.get_by_id(
-                        conn, job.archive_id
-                    )
-                    if archive is None:
-                        await self._job_repo.fail(
-                            conn,
-                            job.id,
-                            "Archive deleted before capture",
-                        )
-                        return "failed"
-
-                    # Short-circuit: if another job already captured this
-                    # archive (tier escalation can race when a retry runs
-                    # after a previous attempt finished), skip the
-                    # redundant work. Without this early-exit, extra
-                    # queued jobs re-run captures and revert a COMPLETE
-                    # archive back to CAPTURING.
-                    if archive.status == ArchiveStatus.COMPLETE:
-                        await self._job_repo.complete(conn, job.id)
-                        log.info(
-                            "worker.skipped_already_complete",
-                            job_id=job.id,
-                            archive_id=archive.id,
-                        )
-                        return "complete"
-
-                    # Computed up-front so the exception handlers below
-                    # can record the per-tier loss even if update_status
-                    # or a capture call raises before the happy path.
-                    apex = apex_of(archive.url)
-
-                    # Re-validate URL safety for tiers that navigate to
-                    # the submitted URL directly. Submission-time
-                    # validation alone leaves a DNS-rebinding TOCTOU:
-                    # the hostname can be re-pointed at an internal
-                    # address between submit and capture. Fallback
-                    # tiers fetch from archive providers rather than
-                    # the URL itself, so they skip this check (their
-                    # own outbound fetches are guarded in http_client).
-                    if job.tier in _DIRECT_NAVIGATION_TIERS:
-                        safety_error = await check_url_safety_async(
-                            archive.url
-                        )
-                        if safety_error:
-                            ssrf_blocked_total.inc()
-                            log.warning(
-                                "worker.capture_time_safety_block",
-                                job_id=job.id,
-                                url=archive.url,
-                                reason=safety_error,
-                            )
-                            await self._job_repo.fail(
-                                conn, job.id, safety_error, retry=False
-                            )
-                            await self._archive_repo.update_status(
-                                conn,
-                                job.archive_id,
-                                ArchiveStatus.FAILED,
-                                error_message=(
-                                    "Capture-time URL safety check "
-                                    f"failed: {safety_error}"
-                                ),
-                            )
-                            return "failed"
-
-                    await self._archive_repo.update_status(
+            try:
+                archive = await self._archive_repo.get_by_id(conn, job.archive_id)
+                if archive is None:
+                    await self._job_repo.fail(
                         conn,
-                        job.archive_id,
-                        ArchiveStatus.CAPTURING,
+                        job.id,
+                        "Archive deleted before capture",
                     )
+                    return "failed"
 
-                    # Fallback tiers use public archives instead of
-                    # direct capture. Every tier's actual capture call
-                    # is wrapped in wait_for(max_capture_timeout) so a
-                    # hung Camoufox / dead SOCKS5 / runaway SingleFile
-                    # surfaces as TimeoutError (caught below, marked as
-                    # this tier's failure, escalated to the next tier)
-                    # instead of wedging the worker.
-                    async def _dispatch() -> CaptureResult:
-                        handler_name = _FALLBACK_HANDLERS.get(job.tier)
-                        if handler_name is not None:
-                            handler: Callable[
-                                [str], Awaitable[CaptureResult]
-                            ] = getattr(self, handler_name)
-                            return await handler(archive.url)
-                        browser = await self._browser_pool.get_browser(
-                            job.tier,
-                        )
-                        # CAMOUFOX_PROXY tier pulls a rotating proxy
-                        # from the pool; other tiers go direct (None).
-                        tier_proxy: ProxyConfig | None = None
-                        if job.tier == CaptureTier.CAMOUFOX_PROXY:
-                            tier_proxy = self._proxy_rotator.next()
-                            if tier_proxy is None:
-                                log.warning(
-                                    "worker.camoufox_proxy_no_proxy"
-                                    "_available_going_direct",
-                                    job_id=job.id,
-                                )
-                        return await self._capture_page_with_proxy_retry(
-                            job, archive.url, browser, tier_proxy,
-                        )
-
-                    result = await asyncio.wait_for(
-                        _dispatch(),
-                        timeout=self._settings.max_capture_timeout,
-                    )
-
-                    artifact_dir = await save_artifacts(
-                        result,
-                        job.archive_id,
-                        self._settings.artifacts_dir,
-                    )
-
-                    source = _TIER_SOURCES.get(
-                        job.tier, CaptureSource.DIRECT
-                    )
-
-                    # source_url provenance — recorded in metadata
-                    # so the UI can show "captured from <instance>"
-                    # without losing the original submission URL.
-                    metadata_json: str | None = None
-                    if result.source_url is not None:
-                        import json as _json
-                        metadata_json = _json.dumps(
-                            {"source_url": result.source_url},
-                        )
-
-                    await self._archive_repo.update_status(
-                        conn,
-                        job.archive_id,
-                        ArchiveStatus.COMPLETE,
-                        title=result.title,
-                        text_content=result.text_content,
-                        artifact_dir=artifact_dir,
-                        content_hash=result.content_hash,
-                        screenshot_hash=result.screenshot_hash,
-                        snapshot_size=len(result.snapshot_html),
-                        warc_size=result.warc_size,
-                        snapshot_timestamp=result.snapshot_timestamp,
-                        source=source.value,
-                        metadata=metadata_json,
-                    )
+                # Short-circuit: if another job already captured this
+                # archive (tier escalation can race when a retry runs
+                # after a previous attempt finished), skip the
+                # redundant work. Without this early-exit, extra
+                # queued jobs re-run captures and revert a COMPLETE
+                # archive back to CAPTURING.
+                if archive.status == ArchiveStatus.COMPLETE:
                     await self._job_repo.complete(conn, job.id)
-                    await self._obs_repo.record_outcome(
-                        conn, apex, job.tier, won=True,
+                    log.info(
+                        "worker.skipped_already_complete",
+                        job_id=job.id,
+                        archive_id=archive.id,
                     )
                     return "complete"
 
-                except AntiBotDetectedError as exc:
-                    await self._handle_antibot(
-                        conn, job, str(exc), apex=apex,
-                    )
-                    return "antibot"
+                # Computed up-front so the exception handlers below
+                # can record the per-tier loss even if update_status
+                # or a capture call raises before the happy path.
+                apex = apex_of(archive.url)
 
-                except CaptureError as exc:
-                    await self._handle_capture_error(
-                        conn, job, str(exc), apex=apex,
-                    )
-                    return "failed"
+                # Re-validate URL safety for tiers that navigate to
+                # the submitted URL directly. Submission-time
+                # validation alone leaves a DNS-rebinding TOCTOU:
+                # the hostname can be re-pointed at an internal
+                # address between submit and capture. Fallback
+                # tiers fetch from archive providers rather than
+                # the URL itself, so they skip this check (their
+                # own outbound fetches are guarded in http_client).
+                if job.tier in _DIRECT_NAVIGATION_TIERS:
+                    safety_error = await check_url_safety_async(archive.url)
+                    if safety_error:
+                        ssrf_blocked_total.inc()
+                        log.warning(
+                            "worker.capture_time_safety_block",
+                            job_id=job.id,
+                            url=archive.url,
+                            reason=safety_error,
+                        )
+                        await self._job_repo.fail(
+                            conn, job.id, safety_error, retry=False
+                        )
+                        await self._archive_repo.update_status(
+                            conn,
+                            job.archive_id,
+                            ArchiveStatus.FAILED,
+                            error_message=(
+                                f"Capture-time URL safety check failed: {safety_error}"
+                            ),
+                        )
+                        return "failed"
 
-                except Exception as exc:
-                    log.exception(
-                        "worker.unexpected_error",
-                        job_id=job.id,
+                await self._archive_repo.update_status(
+                    conn,
+                    job.archive_id,
+                    ArchiveStatus.CAPTURING,
+                )
+
+                # Fallback tiers use public archives instead of
+                # direct capture. Every tier's actual capture call
+                # is wrapped in wait_for(max_capture_timeout) so a
+                # hung Camoufox / dead SOCKS5 / runaway SingleFile
+                # surfaces as TimeoutError (caught below, marked as
+                # this tier's failure, escalated to the next tier)
+                # instead of wedging the worker.
+                async def _dispatch() -> CaptureResult:
+                    handler_name = _FALLBACK_HANDLERS.get(job.tier)
+                    if handler_name is not None:
+                        handler: Callable[[str], Awaitable[CaptureResult]] = getattr(
+                            self, handler_name
+                        )
+                        return await handler(archive.url)
+                    browser = await self._browser_pool.get_browser(
+                        job.tier,
                     )
-                    await self._handle_capture_error(
-                        conn, job, str(exc), apex=apex,
+                    # CAMOUFOX_PROXY tier pulls a rotating proxy
+                    # from the pool; other tiers go direct (None).
+                    tier_proxy: ProxyConfig | None = None
+                    if job.tier == CaptureTier.CAMOUFOX_PROXY:
+                        tier_proxy = self._proxy_rotator.next()
+                        if tier_proxy is None:
+                            log.warning(
+                                "worker.camoufox_proxy_no_proxy_available_going_direct",
+                                job_id=job.id,
+                            )
+                    return await self._capture_page_with_proxy_retry(
+                        job,
+                        archive.url,
+                        browser,
+                        tier_proxy,
                     )
-                    return "failed"
+
+                result = await asyncio.wait_for(
+                    _dispatch(),
+                    timeout=self._settings.max_capture_timeout,
+                )
+
+                artifact_dir = await save_artifacts(
+                    result,
+                    job.archive_id,
+                    self._settings.artifacts_dir,
+                )
+
+                source = _TIER_SOURCES.get(job.tier, CaptureSource.DIRECT)
+
+                # source_url provenance — recorded in metadata
+                # so the UI can show "captured from <instance>"
+                # without losing the original submission URL.
+                metadata_json: str | None = None
+                if result.source_url is not None:
+                    import json as _json
+
+                    metadata_json = _json.dumps(
+                        {"source_url": result.source_url},
+                    )
+
+                await self._archive_repo.update_status(
+                    conn,
+                    job.archive_id,
+                    ArchiveStatus.COMPLETE,
+                    title=result.title,
+                    text_content=result.text_content,
+                    artifact_dir=artifact_dir,
+                    content_hash=result.content_hash,
+                    screenshot_hash=result.screenshot_hash,
+                    snapshot_size=len(result.snapshot_html),
+                    warc_size=result.warc_size,
+                    snapshot_timestamp=result.snapshot_timestamp,
+                    source=source.value,
+                    metadata=metadata_json,
+                )
+                await self._job_repo.complete(conn, job.id)
+                await self._obs_repo.record_outcome(
+                    conn,
+                    apex,
+                    job.tier,
+                    won=True,
+                )
+                return "complete"
+
+            except AntiBotDetectedError as exc:
+                await self._handle_antibot(
+                    conn,
+                    job,
+                    str(exc),
+                    apex=apex,
+                )
+                return "antibot"
+
+            except CaptureError as exc:
+                await self._handle_capture_error(
+                    conn,
+                    job,
+                    str(exc),
+                    apex=apex,
+                )
+                return "failed"
+
+            except Exception as exc:
+                log.exception(
+                    "worker.unexpected_error",
+                    job_id=job.id,
+                )
+                await self._handle_capture_error(
+                    conn,
+                    job,
+                    str(exc),
+                    apex=apex,
+                )
+                return "failed"
 
     # @beartype — private, conn is AsyncMock in tests
     async def _handle_antibot(
@@ -557,11 +554,12 @@ class Worker:
     ) -> None:
         """Escalate to next tier on anti-bot detection."""
         escalated = next_tier(job.tier)
-        await self._job_repo.fail(
-            conn, job.id, error, retry=False
-        )
+        await self._job_repo.fail(conn, job.id, error, retry=False)
         await self._obs_repo.record_outcome(
-            conn, apex, job.tier, won=False,
+            conn,
+            apex,
+            job.tier,
+            won=False,
         )
 
         if escalated is not None:
@@ -586,8 +584,7 @@ class Worker:
                 conn,
                 job.archive_id,
                 ArchiveStatus.FAILED,
-                error_message="All capture tiers exhausted: "
-                + error,
+                error_message="All capture tiers exhausted: " + error,
             )
 
     # @beartype — private, conn is AsyncMock in tests
@@ -616,17 +613,16 @@ class Worker:
                 attempt=tier_attempts,
                 max=job.max_attempts,
             )
-            await self._job_repo.fail(
-                conn, job.id, error, retry=True
-            )
+            await self._job_repo.fail(conn, job.id, error, retry=True)
         else:
             # Exhausted retries on this tier — escalate to next tier
             escalated = next_tier(job.tier)
-            await self._job_repo.fail(
-                conn, job.id, error, retry=False
-            )
+            await self._job_repo.fail(conn, job.id, error, retry=False)
             await self._obs_repo.record_outcome(
-                conn, apex, job.tier, won=False,
+                conn,
+                apex,
+                job.tier,
+                won=False,
             )
             if escalated is not None:
                 log.warning(
@@ -698,9 +694,7 @@ class Worker:
         snapshot_url = await check_wayback_availability(url)
         if not snapshot_url:
             log.info("worker.wayback.spn_attempting", url=url)
-            browser = await self._browser_pool.get_browser(
-                CaptureTier.CHROMIUM
-            )
+            browser = await self._browser_pool.get_browser(CaptureTier.CHROMIUM)
             context = await browser.new_context()
             try:
                 page = await context.new_page()
@@ -724,6 +718,7 @@ class Worker:
             warc_original_url=url,
         )
         from dataclasses import replace
+
         return replace(
             result,
             source_url=snapshot_url,
@@ -749,15 +744,11 @@ class Worker:
             log.info("worker.commoncrawl.recent_miss_deep_scanning", url=url)
             snapshot = await cc_find_snapshot_full_history(url)
         if snapshot is None:
-            raise CaptureError(
-                f"No Common Crawl snapshot across all crawls: {url}"
-            )
+            raise CaptureError(f"No Common Crawl snapshot across all crawls: {url}")
         try:
             body = await cc_fetch_record_html(snapshot)
         except Exception as exc:
-            raise CaptureError(
-                f"Common Crawl range-fetch failed: {exc}"
-            ) from exc
+            raise CaptureError(f"Common Crawl range-fetch failed: {exc}") from exc
         html_str = body.decode("utf-8", errors="replace")
         # Build a result with CC's original URL as the source marker
         # so the archive records the true crawl-time URL (may differ
@@ -772,9 +763,7 @@ class Worker:
         return self._capture_result_from_html(
             html_str,
             snapshot.url,
-            snapshot_timestamp=parse_snapshot_timestamp(
-                snapshot.timestamp
-            ),
+            snapshot_timestamp=parse_snapshot_timestamp(snapshot.timestamp),
         )
 
     async def _capture_via_memento(self, url: str) -> CaptureResult:
@@ -804,11 +793,11 @@ class Worker:
         candidates = await find_memento_candidates(url)
         if not candidates:
             raise CaptureError(
-                f"No memento across {len(MEMENTO_ARCHIVES)} federated"
-                f" archives: {url}"
+                f"No memento across {len(MEMENTO_ARCHIVES)} federated archives: {url}"
             )
 
         from dataclasses import replace
+
         for hit in candidates:
             fetched = await fetch_memento_html(hit.memento_url)
             if fetched is None:
@@ -822,14 +811,10 @@ class Worker:
             render_url, raw_html = fetched
             # Timemap datetime is authoritative; fall back to the
             # 14-digit stamp in the memento URL when it carried none.
-            ts = hit.timestamp or memento_timestamp_from_url(
-                hit.memento_url
-            )
+            ts = hit.timestamp or memento_timestamp_from_url(hit.memento_url)
 
             try:
-                browser = await self._browser_pool.get_browser(
-                    CaptureTier.CHROMIUM
-                )
+                browser = await self._browser_pool.get_browser(CaptureTier.CHROMIUM)
                 result = await capture_page(
                     url=render_url,
                     browser=browser,
@@ -906,16 +891,12 @@ class Worker:
 
         # Try direct-fetch first — fast (1-3 s), bypasses CF challenge
         # by targeting the static snapshot URL with stealth headers.
-        raw_html = await fetch_archive_today_snapshot_html(
-            snapshot_url, proxy=at_proxy
-        )
+        raw_html = await fetch_archive_today_snapshot_html(snapshot_url, proxy=at_proxy)
         if raw_html is not None:
             return self._capture_result_from_html(
                 raw_html,
                 snapshot_url,
-                snapshot_timestamp=memento_timestamp_from_url(
-                    snapshot_url
-                ),
+                snapshot_timestamp=memento_timestamp_from_url(snapshot_url),
             )
 
         # Fallback: full Camoufox render against the memento URL.
@@ -924,6 +905,7 @@ class Worker:
             memento=snapshot_url,
         )
         from dataclasses import replace
+
         browser = await self._browser_pool.get_browser(CaptureTier.CAMOUFOX)
         result = await capture_page(
             url=snapshot_url,
@@ -945,9 +927,7 @@ class Worker:
             snapshot_timestamp=memento_timestamp_from_url(snapshot_url),
         )
 
-    async def _capture_via_archive_today_submit(
-        self, url: str
-    ) -> CaptureResult:
+    async def _capture_via_archive_today_submit(self, url: str) -> CaptureResult:
         """Submit URL to archive.today and fetch the resulting memento.
 
         Last-resort write path — all read tiers have already failed to
@@ -960,9 +940,7 @@ class Worker:
         """
         at_proxy = await self._pick_archive_today_proxy()
         if at_proxy is None:
-            raise CaptureError(
-                "archive.today submit: no gate-passing proxy available"
-            )
+            raise CaptureError("archive.today submit: no gate-passing proxy available")
 
         # One-shot Camoufox bound to the gate-passer. Can't reuse the
         # browser_pool's shared Camoufox — proxy is a launch-time arg.
@@ -995,9 +973,7 @@ class Worker:
                 await close_context_bounded(context, url=url)
 
         if snapshot_url is None:
-            raise CaptureError(
-                f"archive.today submit failed for {url}"
-            )
+            raise CaptureError(f"archive.today submit failed for {url}")
 
         log.info(
             "worker.archive_today.submit_success",
@@ -1007,9 +983,7 @@ class Worker:
 
         # Fetch the fresh memento through the same proxy — CF edge walls
         # direct-IP reads on newly-created snapshots just like on old ones.
-        raw_html = await fetch_archive_today_snapshot_html(
-            snapshot_url, proxy=at_proxy
-        )
+        raw_html = await fetch_archive_today_snapshot_html(snapshot_url, proxy=at_proxy)
         if raw_html is None:
             raise CaptureError(
                 "archive.today submit succeeded but memento fetch failed: "
@@ -1021,9 +995,7 @@ class Worker:
             snapshot_timestamp=memento_timestamp_from_url(snapshot_url),
         )
 
-    async def _capture_via_privacy_frontend(
-        self, url: str
-    ) -> CaptureResult:
+    async def _capture_via_privacy_frontend(self, url: str) -> CaptureResult:
         """Route `url` through a registered privacy frontend.
 
         Raises CaptureError when the URL has no registered frontend
@@ -1039,9 +1011,7 @@ class Worker:
 
         policy = resolve_policy(url)
         if policy is None:
-            raise CaptureError(
-                f"No privacy frontend registered for {url}"
-            )
+            raise CaptureError(f"No privacy frontend registered for {url}")
 
         # SOCKS5 is preferred but optional: many frontend instances are
         # Anubis-walled (JS PoW that Camoufox clears regardless of source
@@ -1068,7 +1038,8 @@ class Worker:
         assert self._pool is not None  # noqa: S101
         async with self._pool.acquire() as conn:
             verified = await self._frontend_status_repo.list_passing(
-                conn, policy.target_apex,
+                conn,
+                policy.target_apex,
             )
         if not verified:
             raise CaptureError(
@@ -1113,16 +1084,14 @@ class Worker:
             # instances are known to emit.
             hit_marker = next(
                 (
-                    m for m in policy.not_found_markers
+                    m
+                    for m in policy.not_found_markers
                     if m.encode() in result.snapshot_html
                 ),
                 None,
             )
             if hit_marker is not None:
-                last_error = (
-                    f"instance returned not-found marker "
-                    f"({hit_marker!r})"
-                )
+                last_error = f"instance returned not-found marker ({hit_marker!r})"
                 log.warning(
                     "worker.privacy_frontend.instance_not_found",
                     instance=instance,
@@ -1138,11 +1107,11 @@ class Worker:
             # Record the rewritten URL we actually captured so the UI
             # can show which instance won.
             from dataclasses import replace
+
             return replace(result, source_url=rewritten)
 
         raise CaptureError(
-            f"All privacy frontend instances failed for {url}: "
-            f"{last_error}"
+            f"All privacy frontend instances failed for {url}: {last_error}"
         )
 
     def _capture_result_from_html(
@@ -1173,9 +1142,7 @@ class Worker:
             warc_path=None,
             warc_size=0,
             content_hash=hashlib.sha256(snapshot_html).hexdigest(),
-            screenshot_hash=hashlib.sha256(
-                placeholder_png
-            ).hexdigest(),
+            screenshot_hash=hashlib.sha256(placeholder_png).hexdigest(),
             # Direct-fetch tiers (CC, archive.today read, wayback
             # browser-render-of-memento) feed source_url through so
             # the archive metadata records exactly where the bytes came from.
@@ -1197,6 +1164,7 @@ class Worker:
         suppresses the HTTP fetch when the cache is recent.
         """
         from archiver import user_agents as _ua
+
         while self._running:
             for _ in range(6 * 60 * 60 // 100):  # sleep in 100ms ticks
                 if not self._running:
@@ -1229,7 +1197,8 @@ class Worker:
         except OSError as exc:
             log.warning(
                 "worker.disk_usage.mkdir_failed",
-                path=str(path), error=str(exc),
+                path=str(path),
+                error=str(exc),
             )
         while self._running:
             try:
@@ -1240,7 +1209,8 @@ class Worker:
             except OSError as exc:
                 log.warning(
                     "worker.disk_usage.sample_failed",
-                    path=str(path), error=str(exc),
+                    path=str(path),
+                    error=str(exc),
                 )
             for _ in range(60):
                 if not self._running:
@@ -1278,9 +1248,7 @@ class Worker:
                 candidates,
                 probe_url=self._settings.proxy_health_check_url,
                 timeout=self._settings.proxy_health_check_timeout,
-                concurrency=(
-                    self._settings.proxy_health_check_concurrency
-                ),
+                concurrency=(self._settings.proxy_health_check_concurrency),
             )
         else:
             healthy = candidates
@@ -1296,13 +1264,12 @@ class Worker:
         """Return a fresh gate-passing SOCKS5, or None if pool is empty."""
         assert self._pool is not None  # noqa: S101
         async with self._pool.acquire() as conn:
-            passing = await self._proxy_status_repo.list_passing(
-                conn, max_age_hours=24
-            )
+            passing = await self._proxy_status_repo.list_passing(conn, max_age_hours=24)
         if not passing:
             log.warning("worker.archive_today.no_gate_passers")
             return None
         import random
+
         return random.choice(passing)  # noqa: S311 — not security-sensitive
 
     async def _gate_probe_loop(self) -> None:  # pragma: no cover
@@ -1337,24 +1304,21 @@ class Worker:
             try:
                 await self._gate_probe_iter()
             except Exception as exc:
-                log.warning(
-                    "worker.gate_probe_iter_failed", error=str(exc)
-                )
+                log.warning("worker.gate_probe_iter_failed", error=str(exc))
             # Pool-depth-adaptive sleep.
             assert self._pool is not None  # noqa: S101
             async with self._pool.acquire() as conn:
-                pool_size = len(
-                    await self._proxy_status_repo.list_passing(conn)
-                )
-            if pool_size < 5:                       # noqa: PLR2004
-                sleep_s = 600   # 10 min
-            elif pool_size < 15:                    # noqa: PLR2004
+                pool_size = len(await self._proxy_status_repo.list_passing(conn))
+            if pool_size < 5:  # noqa: PLR2004
+                sleep_s = 600  # 10 min
+            elif pool_size < 15:  # noqa: PLR2004
                 sleep_s = 1800  # 30 min
             else:
                 sleep_s = 3600  # 1 h
             log.info(
                 "worker.gate_probe_sleeping",
-                pool_size=pool_size, sleep_s=sleep_s,
+                pool_size=pool_size,
+                sleep_s=sleep_s,
             )
             for _ in range(sleep_s):
                 if not self._running:
@@ -1367,12 +1331,10 @@ class Worker:
 
         # Determine current pool depth → batch size for new candidates.
         async with self._pool.acquire() as conn:
-            pool_size = len(
-                await self._proxy_status_repo.list_passing(conn)
-            )
-        if pool_size < 5:                           # noqa: PLR2004
+            pool_size = len(await self._proxy_status_repo.list_passing(conn))
+        if pool_size < 5:  # noqa: PLR2004
             new_batch = 20
-        elif pool_size < 15:                        # noqa: PLR2004
+        elif pool_size < 15:  # noqa: PLR2004
             new_batch = 15
         else:
             new_batch = 10
@@ -1382,23 +1344,27 @@ class Worker:
         # they get served to capture-path consumers.
         async with self._pool.acquire() as conn:
             stale = await self._proxy_status_repo.list_passing_oldest(
-                conn, limit=5,
+                conn,
+                limit=5,
             )
         if stale:
             stale_configs = [ProxyConfig(server=s) for s in stale]
             log.info("worker.gate_reverify_start", count=len(stale))
             passing = await filter_gate_passing(
-                stale_configs, concurrency=3,
+                stale_configs,
+                concurrency=3,
             )
             async with self._pool.acquire() as conn:
                 for proxy in stale_configs:
                     await self._proxy_status_repo.record(
-                        conn, proxy.server,
+                        conn,
+                        proxy.server,
                         gate_passing=proxy in passing,
                     )
             log.info(
                 "worker.gate_reverify_done",
-                tried=len(stale_configs), still_passing=len(passing),
+                tried=len(stale_configs),
+                still_passing=len(passing),
             )
 
         # Step 2: probe new candidates.
@@ -1412,9 +1378,7 @@ class Worker:
         async with self._pool.acquire() as conn:
             evicted = await self._proxy_status_repo.evict_dead(
                 conn,
-                failure_threshold=(
-                    self._settings.proxy_eviction_failure_threshold
-                ),
+                failure_threshold=(self._settings.proxy_eviction_failure_threshold),
             )
         if evicted > 0:
             log.info("worker.proxy_evicted", count=evicted)
@@ -1434,9 +1398,7 @@ class Worker:
         assert self._pool is not None  # noqa: S101
         async with self._pool.acquire() as conn:
             already = set(
-                await self._proxy_status_repo.list_passing(
-                    conn, max_age_hours=24
-                )
+                await self._proxy_status_repo.list_passing(conn, max_age_hours=24)
             )
         # Skip proxies already confirmed passing recently.
         candidates = [p for p in socks if p.server not in already]
@@ -1476,7 +1438,9 @@ class Worker:
             passing=len(passing),
         )
 
-    async def _frontend_probe_loop(self) -> None:  # pragma: no cover  # noqa: C901, PLR0912
+    async def _frontend_probe_loop(  # noqa: C901, PLR0912
+        self,
+    ) -> None:  # pragma: no cover
         """Periodically verify that registered privacy-frontend instances
         actually serve real content (not Anubis/CF challenge pages).
 
@@ -1538,7 +1502,9 @@ class Worker:
                         else:
                             try:
                                 passing = await probe_frontend_instance(
-                                    policy, instance, at_proxy,
+                                    policy,
+                                    instance,
+                                    at_proxy,
                                 )
                             except Exception as exc:  # pragma: no cover
                                 log.warning(

@@ -15,7 +15,9 @@ def main() -> int:
     try:
         from archiver.auth import hash_password
     except ImportError:
-        print("error: run via 'uv run python scripts/hash_password.py'", file=sys.stderr)
+        print(
+            "error: run via 'uv run python scripts/hash_password.py'", file=sys.stderr
+        )
         return 1
 
     if sys.stdin.isatty():

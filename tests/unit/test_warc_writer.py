@@ -61,9 +61,7 @@ class TestPlaywrightWARCWriter:
         assert writer.accepts_body(10**12)
 
     def test_accepts_body_precheck_matches_caps(self) -> None:
-        writer = PlaywrightWARCWriter(
-            max_body_bytes=100, max_total_bytes=150
-        )
+        writer = PlaywrightWARCWriter(max_body_bytes=100, max_total_bytes=150)
         assert writer.accepts_body(100) is True
         assert writer.accepts_body(101) is False
         writer.add_exchange(_exchange(body=b"x" * 100))
@@ -83,9 +81,7 @@ class TestPlaywrightWARCWriter:
         )
         assert writer.exchange_count == 1
 
-    def test_finalize_creates_warc_file(
-        self, tmp_path: Path
-    ) -> None:
+    def test_finalize_creates_warc_file(self, tmp_path: Path) -> None:
         writer = PlaywrightWARCWriter()
         writer.add_exchange(
             CapturedExchange(
@@ -105,9 +101,7 @@ class TestPlaywrightWARCWriter:
         assert size > 0
         assert is_valid_warc(out)
 
-    def test_finalize_with_multiple_exchanges(
-        self, tmp_path: Path
-    ) -> None:
+    def test_finalize_with_multiple_exchanges(self, tmp_path: Path) -> None:
         writer = PlaywrightWARCWriter()
         for i in range(3):
             writer.add_exchange(
@@ -125,9 +119,7 @@ class TestPlaywrightWARCWriter:
         writer.finalize(out)
         assert is_valid_warc(out)
 
-    def test_dedup_identical_bodies_writes_revisit(
-        self, tmp_path: Path
-    ) -> None:
+    def test_dedup_identical_bodies_writes_revisit(self, tmp_path: Path) -> None:
         """Identical response bodies should produce revisit records."""
         import gzip
 
@@ -159,15 +151,11 @@ class TestPlaywrightWARCWriter:
         writer.finalize(out)
 
         # Parse the WARC and verify a revisit record exists
-        content = gzip.decompress(out.read_bytes()).decode(
-            "utf-8", errors="replace"
-        )
+        content = gzip.decompress(out.read_bytes()).decode("utf-8", errors="replace")
         assert "revisit" in content
         assert "identical-payload-digest" in content
 
-    def test_creates_parent_directories(
-        self, tmp_path: Path
-    ) -> None:
+    def test_creates_parent_directories(self, tmp_path: Path) -> None:
         writer = PlaywrightWARCWriter()
         writer.add_exchange(
             CapturedExchange(
@@ -212,9 +200,7 @@ class TestIsValidWarc:
 
 
 class TestWarcUnknownStatus:
-    def test_unknown_status_code_uses_unknown_reason(
-        self, tmp_path: Path
-    ) -> None:
+    def test_unknown_status_code_uses_unknown_reason(self, tmp_path: Path) -> None:
         """Status codes not in HTTPStatus should use 'Unknown'."""
         writer = PlaywrightWARCWriter()
         writer.add_exchange(
@@ -239,7 +225,8 @@ class TestWarcInfoProvenance:
     original from X-Archiver-Original-URI."""
 
     def test_warcinfo_includes_original_uri_when_set(
-        self, tmp_path: Path,
+        self,
+        tmp_path: Path,
     ) -> None:
 
         writer = PlaywrightWARCWriter()
@@ -270,7 +257,8 @@ class TestWarcInfoProvenance:
         pytest.fail("warcinfo record not found in WARC file")
 
     def test_warcinfo_omits_original_uri_when_not_set(
-        self, tmp_path: Path,
+        self,
+        tmp_path: Path,
     ) -> None:
         """Direct-capture tiers don't pass original_url; the header
         must NOT be added when there's no provenance to record."""

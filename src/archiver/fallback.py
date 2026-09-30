@@ -65,6 +65,7 @@ def _stealth_headers() -> dict[str, str]:
         "Upgrade-Insecure-Requests": "1",
     }
 
+
 # Wayback Machine toolbar element IDs to strip
 WAYBACK_STRIP_SELECTORS: list[str] = [
     "#wm-ib-bar",
@@ -81,7 +82,6 @@ ARCHIVE_TODAY_STRIP_SELECTORS: list[str] = [
     "#DIVSHARE",
     'script[src*="archive."]',
 ]
-
 
 
 def _wayback_url_variants(url: str) -> list[str]:
@@ -102,9 +102,7 @@ def _wayback_url_variants(url: str) -> list[str]:
         if path == "/":
             variants.append(urlunparse(p._replace(path="")))
         elif path.endswith("/"):
-            variants.append(
-                urlunparse(p._replace(path=path.rstrip("/")))
-            )
+            variants.append(urlunparse(p._replace(path=path.rstrip("/"))))
         else:
             variants.append(urlunparse(p._replace(path=path + "/")))
         # Toggle www. prefix
@@ -113,9 +111,7 @@ def _wayback_url_variants(url: str) -> list[str]:
         else:
             alt_host = "www." + p.hostname
         port = f":{p.port}" if p.port else ""
-        variants.append(
-            urlunparse(p._replace(netloc=alt_host + port))
-        )
+        variants.append(urlunparse(p._replace(netloc=alt_host + port)))
     except Exception:
         log.debug("fallback.wayback.variant_generation_failed", url=url)
     # Deduplicate while preserving order
@@ -174,9 +170,7 @@ async def check_wayback_availability(url: str) -> str | None:
 
 
 @beartype
-async def save_to_wayback(
-    url: str, page: Page, timeout: int = 90000
-) -> str | None:
+async def save_to_wayback(url: str, page: Page, timeout: int = 90000) -> str | None:
     """Submit a URL to the Wayback Machine's Save Page Now endpoint.
 
     Navigates to https://web.archive.org/save/URL with a real browser.
@@ -195,9 +189,7 @@ async def save_to_wayback(
             spn_url, timeout=timeout, wait_until="domcontentloaded"
         )
     except Exception as exc:
-        log.warning(
-            "fallback.wayback.spn_goto_failed", url=url, error=str(exc)
-        )
+        log.warning("fallback.wayback.spn_goto_failed", url=url, error=str(exc))
         return None
 
     # If SPN itself returned an error (rate-limit, blocklist, maintenance),
@@ -232,9 +224,7 @@ async def save_to_wayback(
 
 
 @beartype
-async def find_archive_today_snapshot(
-    url: str, proxy: str | None = None
-) -> str | None:
+async def find_archive_today_snapshot(url: str, proxy: str | None = None) -> str | None:
     """Return the newest archive.today snapshot URL for `url`, or None.
 
     Queries the timemap endpoint on each mirror in parallel and returns
@@ -251,6 +241,7 @@ async def find_archive_today_snapshot(
     server IP poorly so proxied reads recover coverage we can't get
     any other way.
     """
+
     async def _query(host: str) -> str | None:
         return await _timemap_latest_memento(host, url, proxy=proxy)
 
@@ -296,8 +287,10 @@ async def _timemap_latest_memento(
             f"https://{mirror_host}/timemap/{url}",
             timeout=12.0,
             follow_redirects=True,
-            headers={**_stealth_headers(),
-                     "Accept": "application/link-format, text/plain, */*"},
+            headers={
+                **_stealth_headers(),
+                "Accept": "application/link-format, text/plain, */*",
+            },
             proxy=proxy,
             attempts=1,
             max_bytes=_TIMEMAP_MAX_BYTES,
@@ -353,9 +346,7 @@ def mementos_from_timemap(
         if not memento_url:
             continue
         try:
-            memento_dt = parsedate_to_datetime(
-                _extract_attr(block, "datetime")
-            )
+            memento_dt = parsedate_to_datetime(_extract_attr(block, "datetime"))
         except (TypeError, ValueError):
             memento_dt = None
         # RFC 1123 datetimes are GMT per spec, but a missing zone would
@@ -419,9 +410,7 @@ def parse_snapshot_timestamp(value: str) -> datetime | None:
     if not _SNAPSHOT_TS_RE.fullmatch(value):
         return None
     try:
-        return datetime.strptime(value, "%Y%m%d%H%M%S").replace(
-            tzinfo=UTC
-        )
+        return datetime.strptime(value, "%Y%m%d%H%M%S").replace(tzinfo=UTC)
     except ValueError:
         return None
 
@@ -460,6 +449,7 @@ def extract_title_from_html(html: str) -> str:
 def strip_html_tags(html: str) -> str:
     """Very-rough tag stripping for search-index text extraction."""
     import re
+
     # Browsers close on end tags with trailing whitespace/attributes
     # (</script >), so the strict </script> form leaves script bodies
     # in the extracted text.
@@ -492,9 +482,7 @@ async def fetch_archive_today_snapshot_html(
     return None
 
 
-async def _try_fetch(
-    url: str, timeout: float, proxy: str | None = None
-) -> str | None:
+async def _try_fetch(url: str, timeout: float, proxy: str | None = None) -> str | None:
     """One fetch attempt; returns HTML on success, None on any failure."""
     try:
         # attempts=1: mirror rotation in the caller handles rate limits
@@ -671,5 +659,3 @@ def _is_archive_today_snapshot_url(url: str) -> bool:
     # Homepage — submission hasn't redirected yet
     path = p.path.rstrip("/")
     return bool(path)
-
-

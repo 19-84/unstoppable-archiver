@@ -9,9 +9,7 @@ from archiver.detection import check_anti_bot, detect_js_challenge
 
 class TestCheckAntiBot:
     def test_normal_page_not_blocked(self) -> None:
-        signal = check_anti_bot(
-            200, "Example Page", "Hello world " * 100
-        )
+        signal = check_anti_bot(200, "Example Page", "Hello world " * 100)
         assert signal.is_blocked is False
 
     def test_403_blocked(self) -> None:
@@ -32,16 +30,12 @@ class TestCheckAntiBot:
         assert signal.is_blocked is False
 
     def test_cloudflare_title_detected(self) -> None:
-        signal = check_anti_bot(
-            200, "Just a moment...", "Please wait"
-        )
+        signal = check_anti_bot(200, "Just a moment...", "Please wait")
         assert signal.is_blocked is True
         assert "just a moment" in (signal.reason or "")
 
     def test_attention_required_title(self) -> None:
-        signal = check_anti_bot(
-            200, "Attention Required", "Cloudflare"
-        )
+        signal = check_anti_bot(200, "Attention Required", "Cloudflare")
         assert signal.is_blocked is True
 
     def test_cloudflare_body_marker(self) -> None:
@@ -117,9 +111,7 @@ class TestCheckAntiBot:
             "Logga in\nRegistrera dig\n"
             "Did someone say … cookies?"
         )
-        signal = check_anti_bot(
-            200, "jack on X", wall_sv, has_privacy_frontend=True
-        )
+        signal = check_anti_bot(200, "jack on X", wall_sv, has_privacy_frontend=True)
         assert signal.is_blocked is True
         assert "login wall" in (signal.reason or "")
 
@@ -149,9 +141,7 @@ class TestCheckAntiBot:
             "People on X are the first to know.\n"
             "Log in\nSign up\n"
         )
-        signal = check_anti_bot(
-            200, "jack on X", wall_body, has_privacy_frontend=False
-        )
+        signal = check_anti_bot(200, "jack on X", wall_body, has_privacy_frontend=False)
         assert signal.is_blocked is False
 
     def test_access_denied_title(self) -> None:
@@ -159,9 +149,7 @@ class TestCheckAntiBot:
         assert signal.is_blocked is True
 
     def test_case_insensitive_title(self) -> None:
-        signal = check_anti_bot(
-            200, "CHECKING YOUR BROWSER", "Wait..."
-        )
+        signal = check_anti_bot(200, "CHECKING YOUR BROWSER", "Wait...")
         assert signal.is_blocked is True
 
     def test_reddit_network_security_block(self) -> None:
@@ -176,22 +164,16 @@ class TestCheckAntiBot:
         assert "platform block" in (signal.reason or "")
 
     def test_swedish_cloudflare_title(self) -> None:
-        signal = check_anti_bot(
-            200, "Verifiera att du är människa", "challenge"
-        )
+        signal = check_anti_bot(200, "Verifiera att du är människa", "challenge")
         assert signal.is_blocked is True
         assert "verifiera" in (signal.reason or "")
 
     def test_french_cloudflare_title(self) -> None:
-        signal = check_anti_bot(
-            200, "Un instant...", "challenge"
-        )
+        signal = check_anti_bot(200, "Un instant...", "challenge")
         assert signal.is_blocked is True
 
     def test_spanish_cloudflare_title(self) -> None:
-        signal = check_anti_bot(
-            200, "Un momento, por favor", "challenge"
-        )
+        signal = check_anti_bot(200, "Un momento, por favor", "challenge")
         assert signal.is_blocked is True
 
     def test_cloudflare_challenges_url_marker(self) -> None:
@@ -206,7 +188,9 @@ class TestCheckAntiBot:
     def test_captcha_density_triggers_on_large_shell(self) -> None:
         """WSJ/Reuters returning a 20KB HTML shell full of 'captcha' refs."""
         body = (
-            "<html><body>" + ("captcha " * 100) + ("<div>filler</div>" * 200)
+            "<html><body>"
+            + ("captcha " * 100)
+            + ("<div>filler</div>" * 200)
             + "</body></html>"
         )
         signal = check_anti_bot(200, "News", body)
@@ -238,19 +222,19 @@ class TestDetectJSChallenge:
         body = (
             '<html><body><div id="app">'
             '<img src="/.within.website/x/cmd/anubis/static/img/pensive.webp"/>'
-            '<footer>Protected by Anubis</footer></div></body></html>'
+            "<footer>Protected by Anubis</footer></div></body></html>"
         )
-        sig = detect_js_challenge(200, "Making sure you\'re not a bot!", body)
+        sig = detect_js_challenge(200, "Making sure you're not a bot!", body)
         assert sig is not None
         assert sig.kind == "anubis"
 
     def test_fingerprintjs_botd_markers(self) -> None:
         body = (
-            '<html><head>'
+            "<html><head>"
             '<script src="/check/ua-parser.min.js"></script>'
             '<script src="/check/iife.min.js"></script>'
             '<script>var check1 = {"detections": []};</script>'
-            '</head></html>'
+            "</head></html>"
         )
         sig = detect_js_challenge(503, "", body)
         assert sig is not None
@@ -278,7 +262,11 @@ class TestDetectJSChallenge:
 
     def test_passing_mention_of_anubis_word_not_flagged(self) -> None:
         """A page that mentions Anubis the Egyptian god shouldn't false-positive."""
-        body = "<html><body>" + ("The god Anubis was worshipped in ancient Egypt. " * 10) + "</body></html>"
+        body = (
+            "<html><body>"
+            + ("The god Anubis was worshipped in ancient Egypt. " * 10)
+            + "</body></html>"
+        )
         sig = detect_js_challenge(200, "Egyptian Gods", body)
         # No /.within.website/ or techaro.lol → not flagged
         assert sig is None

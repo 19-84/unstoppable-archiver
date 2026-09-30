@@ -20,9 +20,7 @@ log = structlog.get_logger()
 
 # Schemes we accept in proxy entries. httpx / Playwright support all four;
 # Camoufox uses its embedded Firefox which handles http(s) and socks4/5.
-_VALID_SCHEMES: frozenset[str] = frozenset(
-    {"http", "https", "socks4", "socks5"}
-)
+_VALID_SCHEMES: frozenset[str] = frozenset({"http", "https", "socks4", "socks5"})
 
 
 @dataclass(frozen=True)
@@ -110,9 +108,7 @@ def parse_proxy_list(
     return _normalize_lines(lines, default_scheme)
 
 
-def _normalize_lines(
-    lines: list[str], default_scheme: str
-) -> list[ProxyConfig]:
+def _normalize_lines(lines: list[str], default_scheme: str) -> list[ProxyConfig]:
     """Normalize raw lines into deduplicated ProxyConfig list."""
     out: list[ProxyConfig] = []
     seen: set[str] = set()
@@ -128,9 +124,7 @@ def _normalize_lines(
     return out
 
 
-def _normalize_entry(
-    entry: str, default_scheme: str
-) -> str | None:
+def _normalize_entry(entry: str, default_scheme: str) -> str | None:
     """Normalize a single proxy entry to scheme://host:port.
 
     Accepts bare "host:port" (GitHub-raw list convention) as well as
@@ -179,9 +173,7 @@ async def fetch_proxy_list_url(
                 return []
             lines = resp.text.strip().splitlines()
     except Exception as exc:
-        log.warning(
-            "proxy.list_url_fetch_failed", url=url, error=str(exc)
-        )
+        log.warning("proxy.list_url_fetch_failed", url=url, error=str(exc))
         return []
 
     # Lists often embed the scheme in the URL path (http.txt, socks5.txt).
@@ -203,9 +195,7 @@ def _infer_scheme_from_url(url: str) -> str | None:
     lower = url.lower()
     for scheme in ("socks5", "socks4", "https", "http"):
         tokens = (f"/{scheme}.", f"/{scheme}/", f"/{scheme}_")
-        if any(t in lower for t in tokens) or lower.endswith(
-            f"/{scheme}.txt"
-        ):
+        if any(t in lower for t in tokens) or lower.endswith(f"/{scheme}.txt"):
             return scheme
     return None
 
@@ -222,19 +212,12 @@ async def load_proxies(
     Fetches all URLs concurrently. Deduplicates. Truncates to `max_count`
     when > 0; `max_count=0` means no cap (return all).
     """
-    proxies: list[ProxyConfig] = list(
-        parse_proxy_list(proxy_list, default_scheme)
-    )
+    proxies: list[ProxyConfig] = list(parse_proxy_list(proxy_list, default_scheme))
 
     urls = [u.strip() for u in proxy_list_urls.split(",") if u.strip()]
     if urls:
         results = await asyncio.gather(
-            *(
-                fetch_proxy_list_url(
-                    u, default_scheme=default_scheme
-                )
-                for u in urls
-            ),
+            *(fetch_proxy_list_url(u, default_scheme=default_scheme) for u in urls),
             return_exceptions=True,
         )
         for result in results:
@@ -277,6 +260,7 @@ async def health_check_proxy(
     # Import here to avoid hard dependency when the module is imported
     # without an asyncio event loop (test helpers etc.).
     from archiver import user_agents as _ua
+
     # Hard outer cap. httpx's own timeout fires for network read/write
     # on an established connection, but an SOCKS5 proxy that accepts
     # TCP and then hangs during protocol negotiation can sit idle past
@@ -378,16 +362,53 @@ async def filter_healthy(
 # VPS/cloud ASNs get challenged ~100% of the time even through Camoufox+
 # SOCKS5; proxies from consumer/regional ISPs pass ~25% of the time.
 # Filter out known-datacenter ASNs before attempting gated captures.
-_DATACENTER_ASN_KEYWORDS: frozenset[str] = frozenset({
-    "hetzner", "ovh", "digitalocean", "linode", "vultr", "contabo",
-    "amazon", "aws", "google llc", "google cloud", "googleusercontent",
-    "microsoft", "azure", "oracle", "scaleway", "selectel", "cogent",
-    "cloudflare", "fastly", "akamai", "colocrossing", "choopa",
-    "leaseweb", "datacamp", "frantech", "m247", "constant company",
-    "psychz", "nforce", "alibaba", "tencent", "worldstream", "hostkey",
-    "quadranet", "serverstadium", "mevspace", "dedipath", "servermania",
-    "iomart", "rackspace", "wedos", "eonix", "performive",
-})
+_DATACENTER_ASN_KEYWORDS: frozenset[str] = frozenset(
+    {
+        "hetzner",
+        "ovh",
+        "digitalocean",
+        "linode",
+        "vultr",
+        "contabo",
+        "amazon",
+        "aws",
+        "google llc",
+        "google cloud",
+        "googleusercontent",
+        "microsoft",
+        "azure",
+        "oracle",
+        "scaleway",
+        "selectel",
+        "cogent",
+        "cloudflare",
+        "fastly",
+        "akamai",
+        "colocrossing",
+        "choopa",
+        "leaseweb",
+        "datacamp",
+        "frantech",
+        "m247",
+        "constant company",
+        "psychz",
+        "nforce",
+        "alibaba",
+        "tencent",
+        "worldstream",
+        "hostkey",
+        "quadranet",
+        "serverstadium",
+        "mevspace",
+        "dedipath",
+        "servermania",
+        "iomart",
+        "rackspace",
+        "wedos",
+        "eonix",
+        "performive",
+    }
+)
 
 _asn_lookup_cache: dict[str, dict[str, str]] = {}
 _ASN_LOOKUP_URL = "https://ipwho.is/{ip}"
@@ -472,7 +493,9 @@ async def filter_by_asn(
     dropped = len(proxies) - len(kept)
     log.info(
         "proxy.asn_filter_complete",
-        total=len(proxies), kept=len(kept), dropped_datacenter=dropped,
+        total=len(proxies),
+        kept=len(kept),
+        dropped_datacenter=dropped,
     )
     return kept
 
@@ -494,7 +517,9 @@ def filter_socks5(proxies: list[ProxyConfig]) -> list[ProxyConfig]:
 
 _GATE_PROBE_URL = "https://archive.ph/"
 _GATE_CHALLENGE_MARKERS: tuple[str, ...] = (
-    "g-recaptcha", "chk_captcha", "grecaptcha.render",
+    "g-recaptcha",
+    "chk_captcha",
+    "grecaptcha.render",
 )
 
 
@@ -535,9 +560,7 @@ async def probe_archive_gate(
             # Camoufox lacks type stubs; cast locally so member access
             # doesn't cascade as Unknown through pyright.
             browser: _Any = browser_
-            context = await browser.new_context(
-                viewport={"width": 1280, "height": 900}
-            )
+            context = await browser.new_context(viewport={"width": 1280, "height": 900})
             page = await context.new_page()
             try:
                 await page.goto(
@@ -551,7 +574,8 @@ async def probe_archive_gate(
                     html = await page.content()
                     if not any(m in html for m in _GATE_CHALLENGE_MARKERS):
                         log.debug(
-                            "proxy.gate_passed", server=proxy.server,
+                            "proxy.gate_passed",
+                            server=proxy.server,
                         )
                         return True
                 log.debug("proxy.gate_challenged", server=proxy.server)
@@ -593,6 +617,7 @@ async def filter_gate_passing(
     passing = [p for p, ok in results if ok]
     log.info(
         "proxy.gate_filter_complete",
-        total=len(proxies), passing=len(passing),
+        total=len(proxies),
+        passing=len(passing),
     )
     return passing

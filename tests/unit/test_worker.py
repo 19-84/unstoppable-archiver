@@ -78,9 +78,7 @@ def _make_pool_mock() -> tuple[MagicMock, AsyncMock]:
     """Create a mock pool where acquire() returns an async ctx mgr."""
     mock_conn = AsyncMock()
     mock_acquire_ctx = AsyncMock()
-    mock_acquire_ctx.__aenter__ = AsyncMock(
-        return_value=mock_conn
-    )
+    mock_acquire_ctx.__aenter__ = AsyncMock(return_value=mock_conn)
     mock_acquire_ctx.__aexit__ = AsyncMock(return_value=False)
     mock_pool = MagicMock()
     mock_pool.acquire.return_value = mock_acquire_ctx
@@ -103,9 +101,7 @@ def _make_worker() -> tuple[Worker, AsyncMock]:
     frontend_status_repo = AsyncMock()
     # Default: one verified instance per apex so happy-path tests don't
     # need to mock it. Tests exercising the empty-pool path override this.
-    frontend_status_repo.list_passing = AsyncMock(
-        return_value=["https://scribe.rip"]
-    )
+    frontend_status_repo.list_passing = AsyncMock(return_value=["https://scribe.rip"])
     worker._frontend_status_repo = frontend_status_repo
     return worker, mock_conn
 
@@ -119,9 +115,7 @@ def _capture_time_safety_allows(  # type: ignore[misc]
     Individual tests override the return value to exercise the block path.
     """
     mock = AsyncMock(return_value=None)
-    monkeypatch.setattr(
-        "archiver.worker.check_url_safety_async", mock
-    )
+    monkeypatch.setattr("archiver.worker.check_url_safety_async", mock)
     return mock
 
 
@@ -134,9 +128,7 @@ class TestCaptureTimeSafety:
     ) -> None:
         worker, _conn = _make_worker()
         job = _make_job(tier=CaptureTier.CHROMIUM)
-        worker._archive_repo.get_by_id = AsyncMock(
-            return_value=_make_archive()
-        )
+        worker._archive_repo.get_by_id = AsyncMock(return_value=_make_archive())
         _capture_time_safety_allows.return_value = (
             "Blocked private/internal IP: 10.0.0.5"
         )
@@ -159,13 +151,9 @@ class TestCaptureTimeSafety:
     ) -> None:
         worker, _conn = _make_worker()
         job = _make_job(tier=CaptureTier.CHROMIUM)
-        worker._archive_repo.get_by_id = AsyncMock(
-            return_value=_make_archive()
-        )
+        worker._archive_repo.get_by_id = AsyncMock(return_value=_make_archive())
         mock_capture.return_value = _make_capture_result()
-        worker._browser_pool.get_browser = AsyncMock(
-            return_value=AsyncMock()
-        )
+        worker._browser_pool.get_browser = AsyncMock(return_value=AsyncMock())
         with patch(
             "archiver.worker.save_artifacts",
             new_callable=AsyncMock,
@@ -178,7 +166,9 @@ class TestCaptureTimeSafety:
 
     @patch("archiver.worker.check_wayback_availability", new_callable=AsyncMock)
     @patch("archiver.worker.capture_page", new_callable=AsyncMock)
-    @patch("archiver.worker.save_artifacts", new_callable=AsyncMock, return_value="abc/1")
+    @patch(
+        "archiver.worker.save_artifacts", new_callable=AsyncMock, return_value="abc/1"
+    )
     async def test_fallback_tier_skips_recheck(
         self,
         _mock_save: AsyncMock,
@@ -190,16 +180,12 @@ class TestCaptureTimeSafety:
         the capture-time re-check must not run for fallback tiers."""
         worker, _conn = _make_worker()
         job = _make_job(tier=CaptureTier.WAYBACK)
-        worker._archive_repo.get_by_id = AsyncMock(
-            return_value=_make_archive()
-        )
+        worker._archive_repo.get_by_id = AsyncMock(return_value=_make_archive())
         mock_availability.return_value = (
             "https://web.archive.org/web/20260101000000/https://example.com"
         )
         mock_capture.return_value = _make_capture_result()
-        worker._browser_pool.get_browser = AsyncMock(
-            return_value=AsyncMock()
-        )
+        worker._browser_pool.get_browser = AsyncMock(return_value=AsyncMock())
 
         await worker._process_job(job)
 
@@ -209,52 +195,28 @@ class TestCaptureTimeSafety:
 
 class TestNextTier:
     def test_chromium_escalates_to_camoufox(self) -> None:
-        assert (
-            next_tier(CaptureTier.CHROMIUM)
-            == CaptureTier.CAMOUFOX
-        )
+        assert next_tier(CaptureTier.CHROMIUM) == CaptureTier.CAMOUFOX
 
     def test_camoufox_escalates_to_proxy(self) -> None:
-        assert (
-            next_tier(CaptureTier.CAMOUFOX)
-            == CaptureTier.CAMOUFOX_PROXY
-        )
+        assert next_tier(CaptureTier.CAMOUFOX) == CaptureTier.CAMOUFOX_PROXY
 
     def test_proxy_escalates_to_privacy_frontend(self) -> None:
-        assert (
-            next_tier(CaptureTier.CAMOUFOX_PROXY)
-            == CaptureTier.PRIVACY_FRONTEND
-        )
+        assert next_tier(CaptureTier.CAMOUFOX_PROXY) == CaptureTier.PRIVACY_FRONTEND
 
     def test_privacy_frontend_escalates_to_wayback(self) -> None:
-        assert (
-            next_tier(CaptureTier.PRIVACY_FRONTEND)
-            == CaptureTier.WAYBACK
-        )
+        assert next_tier(CaptureTier.PRIVACY_FRONTEND) == CaptureTier.WAYBACK
 
     def test_wayback_escalates_to_archive_today(self) -> None:
-        assert (
-            next_tier(CaptureTier.WAYBACK)
-            == CaptureTier.ARCHIVE_TODAY
-        )
+        assert next_tier(CaptureTier.WAYBACK) == CaptureTier.ARCHIVE_TODAY
 
     def test_archive_today_escalates_to_commoncrawl(self) -> None:
-        assert (
-            next_tier(CaptureTier.ARCHIVE_TODAY)
-            == CaptureTier.COMMONCRAWL
-        )
+        assert next_tier(CaptureTier.ARCHIVE_TODAY) == CaptureTier.COMMONCRAWL
 
     def test_commoncrawl_escalates_to_memento(self) -> None:
-        assert (
-            next_tier(CaptureTier.COMMONCRAWL)
-            == CaptureTier.MEMENTO
-        )
+        assert next_tier(CaptureTier.COMMONCRAWL) == CaptureTier.MEMENTO
 
     def test_memento_escalates_to_archive_today_submit(self) -> None:
-        assert (
-            next_tier(CaptureTier.MEMENTO)
-            == CaptureTier.ARCHIVE_TODAY_SUBMIT
-        )
+        assert next_tier(CaptureTier.MEMENTO) == CaptureTier.ARCHIVE_TODAY_SUBMIT
 
     def test_archive_today_submit_returns_none(self) -> None:
         assert next_tier(CaptureTier.ARCHIVE_TODAY_SUBMIT) is None
@@ -289,31 +251,21 @@ class TestWorkerProcessJob:
     ) -> None:
         worker, _conn = _make_worker()
         job = _make_job()
-        worker._archive_repo.get_by_id = AsyncMock(
-            return_value=_make_archive()
-        )
+        worker._archive_repo.get_by_id = AsyncMock(return_value=_make_archive())
         mock_capture.return_value = _make_capture_result()
         mock_save.return_value = "abc123/20260414"
-        worker._browser_pool.get_browser = AsyncMock(
-            return_value=AsyncMock()
-        )
+        worker._browser_pool.get_browser = AsyncMock(return_value=AsyncMock())
 
         await worker._process_job(job)
 
         worker._job_repo.complete.assert_awaited_once()
 
     @patch("archiver.worker.capture_page", new_callable=AsyncMock)
-    async def test_antibot_escalates(
-        self, mock_capture: AsyncMock
-    ) -> None:
+    async def test_antibot_escalates(self, mock_capture: AsyncMock) -> None:
         worker, _conn = _make_worker()
         job = _make_job(tier=CaptureTier.CHROMIUM)
-        worker._archive_repo.get_by_id = AsyncMock(
-            return_value=_make_archive()
-        )
-        mock_capture.side_effect = AntiBotDetectedError(
-            "Blocked"
-        )
+        worker._archive_repo.get_by_id = AsyncMock(return_value=_make_archive())
+        mock_capture.side_effect = AntiBotDetectedError("Blocked")
         worker._browser_pool.get_browser = AsyncMock()
 
         await worker._process_job(job)
@@ -325,18 +277,12 @@ class TestWorkerProcessJob:
         assert enqueue_args[0][2] == CaptureTier.CAMOUFOX
 
     @patch("archiver.worker.capture_page", new_callable=AsyncMock)
-    async def test_antibot_tiers_exhausted(
-        self, mock_capture: AsyncMock
-    ) -> None:
+    async def test_antibot_tiers_exhausted(self, mock_capture: AsyncMock) -> None:
         worker, _conn = _make_worker()
         # Use CAMOUFOX_PROXY (last direct tier) so antibot exhausts all tiers
         job = _make_job(tier=CaptureTier.CAMOUFOX_PROXY)
-        worker._archive_repo.get_by_id = AsyncMock(
-            return_value=_make_archive()
-        )
-        mock_capture.side_effect = AntiBotDetectedError(
-            "Still blocked"
-        )
+        worker._archive_repo.get_by_id = AsyncMock(return_value=_make_archive())
+        mock_capture.side_effect = AntiBotDetectedError("Still blocked")
         worker._browser_pool.get_browser = AsyncMock()
 
         await worker._process_job(job)
@@ -347,14 +293,10 @@ class TestWorkerProcessJob:
         assert enqueue_args[0][2] == CaptureTier.PRIVACY_FRONTEND
 
     @patch("archiver.worker.capture_page", new_callable=AsyncMock)
-    async def test_capture_error_retries(
-        self, mock_capture: AsyncMock
-    ) -> None:
+    async def test_capture_error_retries(self, mock_capture: AsyncMock) -> None:
         worker, mock_conn = _make_worker()
         job = _make_job(attempts=1, max_attempts=3)
-        worker._archive_repo.get_by_id = AsyncMock(
-            return_value=_make_archive()
-        )
+        worker._archive_repo.get_by_id = AsyncMock(return_value=_make_archive())
         mock_capture.side_effect = CaptureError("timeout")
         worker._browser_pool.get_browser = AsyncMock()
         # Simulate 1 existing job for this tier (below max, should retry)
@@ -366,14 +308,10 @@ class TestWorkerProcessJob:
         assert fail_kwargs[1]["retry"] is True
 
     @patch("archiver.worker.capture_page", new_callable=AsyncMock)
-    async def test_capture_error_max_retries(
-        self, mock_capture: AsyncMock
-    ) -> None:
+    async def test_capture_error_max_retries(self, mock_capture: AsyncMock) -> None:
         worker, mock_conn = _make_worker()
         job = _make_job(attempts=3, max_attempts=3)
-        worker._archive_repo.get_by_id = AsyncMock(
-            return_value=_make_archive()
-        )
+        worker._archive_repo.get_by_id = AsyncMock(return_value=_make_archive())
         mock_capture.side_effect = CaptureError("timeout")
         worker._browser_pool.get_browser = AsyncMock()
         # Simulate 3 existing jobs for this tier (triggers escalation)
@@ -389,9 +327,7 @@ class TestWorkerProcessJob:
     ) -> None:
         worker, _conn = _make_worker()
         job = _make_job()
-        worker._archive_repo.get_by_id = AsyncMock(
-            return_value=None
-        )
+        worker._archive_repo.get_by_id = AsyncMock(return_value=None)
 
         await worker._process_job(job)
 
@@ -410,7 +346,11 @@ class TestWorkerShutdown:
 
 
 class TestWorkerFallbackTiers:
-    @patch("archiver.worker.save_artifacts", new_callable=AsyncMock, return_value="hash/20260101")
+    @patch(
+        "archiver.worker.save_artifacts",
+        new_callable=AsyncMock,
+        return_value="hash/20260101",
+    )
     @patch("archiver.worker.capture_page", new_callable=AsyncMock)
     @patch("archiver.worker.check_wayback_availability", new_callable=AsyncMock)
     async def test_wayback_tier_uses_fallback(
@@ -421,10 +361,10 @@ class TestWorkerFallbackTiers:
     ) -> None:
         worker, _ = _make_worker()
         job = _make_job(tier=CaptureTier.WAYBACK)
-        worker._archive_repo.get_by_id = AsyncMock(
-            return_value=_make_archive()
+        worker._archive_repo.get_by_id = AsyncMock(return_value=_make_archive())
+        mock_wayback.return_value = (
+            "https://web.archive.org/web/2024/https://example.com"
         )
-        mock_wayback.return_value = "https://web.archive.org/web/2024/https://example.com"
         mock_capture.return_value = _make_capture_result()
         worker._browser_pool.get_browser = AsyncMock()
 
@@ -441,9 +381,7 @@ class TestWorkerFallbackTiers:
     ) -> None:
         worker, mock_conn = _make_worker()
         job = _make_job(tier=CaptureTier.WAYBACK)
-        worker._archive_repo.get_by_id = AsyncMock(
-            return_value=_make_archive()
-        )
+        worker._archive_repo.get_by_id = AsyncMock(return_value=_make_archive())
         mock_wayback.return_value = None
         mock_conn.fetchval = AsyncMock(return_value=1)
 
@@ -461,13 +399,10 @@ class TestWorkerFallbackTiers:
         """Direct-fetch short-circuit: timemap found + html fetched via httpx."""
         worker, _ = _make_worker()
         job = _make_job(tier=CaptureTier.ARCHIVE_TODAY)
-        worker._archive_repo.get_by_id = AsyncMock(
-            return_value=_make_archive()
-        )
+        worker._archive_repo.get_by_id = AsyncMock(return_value=_make_archive())
         mock_find.return_value = "https://archive.today/2024/foo"
         mock_fetch.return_value = (
-            "<html><title>Real Article</title>"
-            "<body>actual content here</body></html>"
+            "<html><title>Real Article</title><body>actual content here</body></html>"
         )
 
         with patch(
@@ -483,7 +418,11 @@ class TestWorkerFallbackTiers:
         assert not worker._browser_pool.get_browser.called
         worker._job_repo.complete.assert_awaited_once()
 
-    @patch("archiver.worker.save_artifacts", new_callable=AsyncMock, return_value="hash/20260101")
+    @patch(
+        "archiver.worker.save_artifacts",
+        new_callable=AsyncMock,
+        return_value="hash/20260101",
+    )
     @patch("archiver.worker.capture_page", new_callable=AsyncMock)
     @patch("archiver.worker.fetch_archive_today_snapshot_html", new_callable=AsyncMock)
     @patch("archiver.worker.find_archive_today_snapshot", new_callable=AsyncMock)
@@ -497,9 +436,7 @@ class TestWorkerFallbackTiers:
         """Direct-fetch returns None (CF blocked) → Camoufox renders."""
         worker, _ = _make_worker()
         job = _make_job(tier=CaptureTier.ARCHIVE_TODAY)
-        worker._archive_repo.get_by_id = AsyncMock(
-            return_value=_make_archive()
-        )
+        worker._archive_repo.get_by_id = AsyncMock(return_value=_make_archive())
         mock_find.return_value = "https://archive.today/2024/foo"
         mock_fetch.return_value = None  # simulate CF block
         mock_capture.return_value = _make_capture_result()
@@ -564,9 +501,7 @@ class TestWorkerFallbackTiers:
             attempts=3,
             max_attempts=3,
         )
-        worker._archive_repo.get_by_id = AsyncMock(
-            return_value=_make_archive()
-        )
+        worker._archive_repo.get_by_id = AsyncMock(return_value=_make_archive())
         # No gate-passers in the pool → submit tier raises immediately.
         worker._proxy_status_repo.list_passing = AsyncMock(return_value=[])
         mock_find.return_value = None
@@ -579,7 +514,8 @@ class TestWorkerFallbackTiers:
 
         calls = worker._archive_repo.update_status.call_args_list
         fail_call = [
-            c for c in calls
+            c
+            for c in calls
             if len(c[0]) >= 3 and c[0][2] == ArchiveStatus.FAILED  # noqa: PLR2004
         ]
         assert len(fail_call) == 1
@@ -591,9 +527,7 @@ class TestWorkerFallbackTiers:
     ) -> None:
         worker, mock_conn = _make_worker()
         job = _make_job(tier=CaptureTier.ARCHIVE_TODAY)
-        worker._archive_repo.get_by_id = AsyncMock(
-            return_value=_make_archive()
-        )
+        worker._archive_repo.get_by_id = AsyncMock(return_value=_make_archive())
         mock_find.return_value = None
         mock_conn.fetchval = AsyncMock(return_value=1)
 
@@ -607,9 +541,7 @@ class TestWorkerFallbackTiers:
     ) -> None:
         worker, mock_conn = _make_worker()
         job = _make_job()
-        worker._archive_repo.get_by_id = AsyncMock(
-            return_value=_make_archive()
-        )
+        worker._archive_repo.get_by_id = AsyncMock(return_value=_make_archive())
         mock_capture.side_effect = RuntimeError("unexpected")
         worker._browser_pool.get_browser = AsyncMock()
         mock_conn.fetchval = AsyncMock(return_value=1)
@@ -634,7 +566,10 @@ class TestCaptureViaCommonCrawl:
             timestamp="20260101120000",
             crawl_id="CC-MAIN-2026-12",
             filename="x.warc.gz",
-            offset=0, length=100, status=200, mime="text/html",
+            offset=0,
+            length=100,
+            status=200,
+            mime="text/html",
         )
         mock_fetch.return_value = b"<html><body>cc body</body></html>"
         result = await worker._capture_via_commoncrawl("https://example.com/")
@@ -672,7 +607,10 @@ class TestCaptureViaCommonCrawl:
             timestamp="20140101120000",
             crawl_id="CC-MAIN-2014-10",
             filename="x.warc.gz",
-            offset=0, length=100, status=200, mime="text/html",
+            offset=0,
+            length=100,
+            status=200,
+            mime="text/html",
         )
         mock_fetch.return_value = b"<html>old archive from 2014</html>"
         result = await worker._capture_via_commoncrawl("https://example.com/")
@@ -694,7 +632,10 @@ class TestCaptureViaCommonCrawl:
             timestamp="20260101120000",
             crawl_id="CC-MAIN-2026-12",
             filename="x.warc.gz",
-            offset=0, length=100, status=200, mime="text/html",
+            offset=0,
+            length=100,
+            status=200,
+            mime="text/html",
         )
         mock_fetch.side_effect = RuntimeError("range fetch 500")
         import pytest as _pt
@@ -712,7 +653,8 @@ class TestAntibotExhaustion:
         # Archive must have been marked FAILED.
         calls = worker._archive_repo.update_status.call_args_list
         fail_calls = [
-            c for c in calls
+            c
+            for c in calls
             if len(c[0]) >= 3 and c[0][2] == ArchiveStatus.FAILED  # noqa: PLR2004
         ]
         assert len(fail_calls) == 1
@@ -735,15 +677,16 @@ class TestCommonCrawlSuccessSource:
 
         worker, _ = _make_worker()
         job = _make_job(tier=CaptureTier.COMMONCRAWL)
-        worker._archive_repo.get_by_id = AsyncMock(
-            return_value=_make_archive()
-        )
+        worker._archive_repo.get_by_id = AsyncMock(return_value=_make_archive())
         mock_find.return_value = CCSnapshot(
             url="https://example.com/",
             timestamp="20260101120000",
             crawl_id="CC-MAIN-2026-12",
             filename="x.warc.gz",
-            offset=0, length=100, status=200, mime="text/html",
+            offset=0,
+            length=100,
+            status=200,
+            mime="text/html",
         )
         mock_fetch.return_value = b"<html>cc</html>"
         mock_save.return_value = "x/y"
@@ -753,7 +696,8 @@ class TestCommonCrawlSuccessSource:
         # Check source was COMMONCRAWL in update_status kwargs.
         calls = worker._archive_repo.update_status.call_args_list
         complete_calls = [
-            c for c in calls
+            c
+            for c in calls
             if len(c[0]) >= 3 and c[0][2] == ArchiveStatus.COMPLETE  # noqa: PLR2004
         ]
         assert any(
@@ -770,12 +714,8 @@ class TestCommonCrawlSuccessSource:
 
 
 class TestCaptureViaMemento:
-    _MEMENTO_URL = (
-        "https://arquivo.pt/wayback/20180304050607/https://example.com"
-    )
-    _RAW_URL = (
-        "https://arquivo.pt/wayback/20180304050607if_/https://example.com"
-    )
+    _MEMENTO_URL = "https://arquivo.pt/wayback/20180304050607/https://example.com"
+    _RAW_URL = "https://arquivo.pt/wayback/20180304050607if_/https://example.com"
 
     def _hit(self) -> object:
         from archiver.memento import MementoHit
@@ -790,7 +730,8 @@ class TestCaptureViaMemento:
     def _complete_calls(worker: Worker) -> list[object]:
         calls = worker._archive_repo.update_status.call_args_list
         return [
-            c for c in calls
+            c
+            for c in calls
             if len(c[0]) >= 3 and c[0][2] == ArchiveStatus.COMPLETE  # noqa: PLR2004
         ]
 
@@ -811,9 +752,7 @@ class TestCaptureViaMemento:
 
         worker, _ = _make_worker()
         job = _make_job(tier=CaptureTier.MEMENTO)
-        worker._archive_repo.get_by_id = AsyncMock(
-            return_value=_make_archive()
-        )
+        worker._archive_repo.get_by_id = AsyncMock(return_value=_make_archive())
         mock_find.return_value = [self._hit()]
         mock_fetch.return_value = (self._RAW_URL, "<html>probe</html>")
         mock_capture.return_value = _make_capture_result()
@@ -836,8 +775,7 @@ class TestCaptureViaMemento:
             for c in complete_calls
         )
         assert any(
-            "arquivo.pt" in (c.kwargs.get("metadata") or "")
-            for c in complete_calls
+            "arquivo.pt" in (c.kwargs.get("metadata") or "") for c in complete_calls
         )
 
     @patch("archiver.worker.save_artifacts", new_callable=AsyncMock)
@@ -855,9 +793,7 @@ class TestCaptureViaMemento:
         escalate past the tier — text-only beats the write tier."""
         worker, _ = _make_worker()
         job = _make_job(tier=CaptureTier.MEMENTO)
-        worker._archive_repo.get_by_id = AsyncMock(
-            return_value=_make_archive()
-        )
+        worker._archive_repo.get_by_id = AsyncMock(return_value=_make_archive())
         mock_find.return_value = [self._hit()]
         mock_fetch.return_value = (self._RAW_URL, "<html>probe</html>")
         mock_capture.side_effect = CaptureError("renderer crashed")
@@ -896,14 +832,11 @@ class TestCaptureViaMemento:
 
         worker, _ = _make_worker()
         job = _make_job(tier=CaptureTier.MEMENTO)
-        worker._archive_repo.get_by_id = AsyncMock(
-            return_value=_make_archive()
-        )
+        worker._archive_repo.get_by_id = AsyncMock(return_value=_make_archive())
         junk = MementoHit(
             archive_id="arquivo.pt",
             memento_url=(
-                "https://arquivo.pt/wayback/20260624210628mp_/"
-                "https://example.com"
+                "https://arquivo.pt/wayback/20260624210628mp_/https://example.com"
             ),
             timestamp=datetime(2026, 6, 24, 21, 6, 28, tzinfo=UTC),
         )
@@ -963,18 +896,15 @@ class TestCaptureViaArchiveTodaySubmit:
         worker._proxy_status_repo.list_passing = AsyncMock(return_value=[])
 
         import pytest
+
         with pytest.raises(CaptureError, match="no gate-passing"):
-            await worker._capture_via_archive_today_submit(
-                "https://example.com/"
-            )
+            await worker._capture_via_archive_today_submit("https://example.com/")
 
     @patch(
         "archiver.worker.fetch_archive_today_snapshot_html",
         new_callable=AsyncMock,
     )
-    @patch(
-        "archiver.worker.save_to_archive_today", new_callable=AsyncMock
-    )
+    @patch("archiver.worker.save_to_archive_today", new_callable=AsyncMock)
     @patch("camoufox.async_api.AsyncCamoufox")
     async def test_success_path(
         self,
@@ -1001,9 +931,7 @@ class TestCaptureViaArchiveTodaySubmit:
         mock_browser.new_context = AsyncMock(return_value=mock_context)
         mock_camoufox_cls.return_value.__aenter__.return_value = mock_browser
 
-        result = await worker._capture_via_archive_today_submit(
-            "https://example.com/"
-        )
+        result = await worker._capture_via_archive_today_submit("https://example.com/")
 
         mock_save.assert_awaited_once()
         mock_fetch.assert_awaited_once()
@@ -1033,10 +961,9 @@ class TestCaptureViaArchiveTodaySubmit:
         mock_camoufox_cls.return_value.__aenter__.return_value = mock_browser
 
         import pytest
+
         with pytest.raises(CaptureError, match="submit failed"):
-            await worker._capture_via_archive_today_submit(
-                "https://example.com/"
-            )
+            await worker._capture_via_archive_today_submit("https://example.com/")
 
 
 class TestCaptureViaPrivacyFrontend:
@@ -1046,14 +973,14 @@ class TestCaptureViaPrivacyFrontend:
 
         worker, _ = _make_worker()
         import pytest
+
         with pytest.raises(CaptureError, match="No privacy frontend"):
-            await worker._capture_via_privacy_frontend(
-                "https://example.com/article"
-            )
+            await worker._capture_via_privacy_frontend("https://example.com/article")
 
     @patch("archiver.worker.capture_page", new_callable=AsyncMock)
     async def test_no_gate_passer_falls_through_to_direct(
-        self, mock_capture: AsyncMock,
+        self,
+        mock_capture: AsyncMock,
     ) -> None:
         """Empty SOCKS5 pool no longer fatal — most frontends are
         Anubis-walled and Camoufox solves those direct. The capture
@@ -1089,10 +1016,9 @@ class TestCaptureViaPrivacyFrontend:
         )
         worker._frontend_status_repo.list_passing = AsyncMock(return_value=[])
         import pytest
+
         with pytest.raises(CaptureError, match="no content-verified"):
-            await worker._capture_via_privacy_frontend(
-                "https://medium.com/@vgr/foo"
-            )
+            await worker._capture_via_privacy_frontend("https://medium.com/@vgr/foo")
 
     @patch("archiver.worker.capture_page", new_callable=AsyncMock)
     async def test_first_verified_instance_succeeds(
@@ -1165,6 +1091,7 @@ class TestCaptureViaPrivacyFrontend:
         # First instance returns the not-found shell — second has it.
         good = _make_capture_result()
         from dataclasses import replace
+
         bad = replace(
             good,
             snapshot_html=b"<html><body>This article is missing</body></html>",
@@ -1203,10 +1130,9 @@ class TestCaptureViaPrivacyFrontend:
         mock_capture.side_effect = CaptureError("dead")
 
         import pytest
+
         with pytest.raises(CaptureError, match="All privacy frontend"):
-            await worker._capture_via_privacy_frontend(
-                "https://medium.com/@vgr/foo"
-            )
+            await worker._capture_via_privacy_frontend("https://medium.com/@vgr/foo")
 
 
 class TestWorkerShortCircuit:
@@ -1219,8 +1145,12 @@ class TestWorkerShortCircuit:
         job = _make_job()
         done = _make_archive()
         done = ArchiveRecord(
-            id=done.id, url=done.url, url_hash=done.url_hash,
-            status=ArchiveStatus.COMPLETE, tier=done.tier, source=done.source,
+            id=done.id,
+            url=done.url,
+            url_hash=done.url_hash,
+            status=ArchiveStatus.COMPLETE,
+            tier=done.tier,
+            source=done.source,
             created_at=done.created_at,
         )
         worker._archive_repo.get_by_id = AsyncMock(return_value=done)
@@ -1245,6 +1175,7 @@ class TestGateProbeBatch:
     @staticmethod
     def _socks_proxy(server: str):
         from archiver.proxy import ProxyConfig
+
         return ProxyConfig(server=server)
 
     async def test_empty_rotator_returns_early(self) -> None:
@@ -1256,7 +1187,8 @@ class TestGateProbeBatch:
 
     @patch("archiver.worker.filter_socks5")
     async def test_no_socks_returns_early(
-        self, mock_filter_socks5: MagicMock,
+        self,
+        mock_filter_socks5: MagicMock,
     ) -> None:
         worker, _ = _make_worker()
         worker._proxy_rotator.proxies = (self._socks_proxy("http://1.2.3.4:8080"),)
@@ -1304,7 +1236,7 @@ class TestGateProbeBatch:
         worker, _ = _make_worker()
         worker._proxy_rotator.proxies = tuple(proxies)
         mock_filter_socks5.return_value = proxies
-        mock_filter_by_asn.return_value = []   # no consumer-ASN passers
+        mock_filter_by_asn.return_value = []  # no consumer-ASN passers
         # One of the three passed the gate.
         mock_filter_gate.return_value = [proxies[1]]
 
@@ -1330,9 +1262,7 @@ class TestGateProbeBatch:
         mock_filter_gate: AsyncMock,
     ) -> None:
         """Consumer-ASN subset preferred over datacenter sample."""
-        all_proxies = [
-            self._socks_proxy(f"socks5://1.2.3.{i}:1080") for i in range(5)
-        ]
+        all_proxies = [self._socks_proxy(f"socks5://1.2.3.{i}:1080") for i in range(5)]
         consumer_subset = all_proxies[:2]  # first two flagged consumer
         worker, _ = _make_worker()
         worker._proxy_rotator.proxies = tuple(all_proxies)
@@ -1345,8 +1275,7 @@ class TestGateProbeBatch:
         expected_consumer_recorded = 2
         # Only consumer proxies should have been gate-probed and recorded.
         assert (
-            worker._proxy_status_repo.record.await_count
-            == expected_consumer_recorded
+            worker._proxy_status_repo.record.await_count == expected_consumer_recorded
         )
         recorded_servers = {
             c.args[1] for c in worker._proxy_status_repo.record.await_args_list
@@ -1358,18 +1287,20 @@ class TestProcessJobDispatch:
     """Cover the _dispatch() dispatcher inside _process_job_inner, which the
     unit-level _capture_via_X tests bypass by calling the methods directly."""
 
-    @patch("archiver.worker.save_artifacts", new_callable=AsyncMock,
-           return_value="ar/20260514")
+    @patch(
+        "archiver.worker.save_artifacts",
+        new_callable=AsyncMock,
+        return_value="ar/20260514",
+    )
     async def test_privacy_frontend_tier_dispatch_sets_source(
-        self, _mock_save: AsyncMock,
+        self,
+        _mock_save: AsyncMock,
     ) -> None:
         """job.tier=PRIVACY_FRONTEND routes to _capture_via_privacy_frontend
         and the COMPLETE row gets source=PRIVACY_FRONTEND."""
         worker, _ = _make_worker()
         job = _make_job(tier=CaptureTier.PRIVACY_FRONTEND)
-        worker._archive_repo.get_by_id = AsyncMock(
-            return_value=_make_archive()
-        )
+        worker._archive_repo.get_by_id = AsyncMock(return_value=_make_archive())
         worker._capture_via_privacy_frontend = AsyncMock(
             return_value=_make_capture_result(),
         )
@@ -1394,8 +1325,8 @@ class TestCaptureViaWaybackErrors:
         from archiver.errors import CaptureError
 
         worker, _ = _make_worker()
-        mock_check.return_value = None       # not in Wayback
-        mock_save.return_value = None        # SPN failed
+        mock_check.return_value = None  # not in Wayback
+        mock_save.return_value = None  # SPN failed
         worker._browser_pool.get_browser = AsyncMock(return_value=AsyncMock())
 
         with pytest.raises(CaptureError, match="not in Wayback"):
@@ -1418,12 +1349,14 @@ class TestCapturePageWithProxyRetry:
 
     @patch("archiver.worker.capture_page", new_callable=AsyncMock)
     async def test_failure_with_proxy_marks_failed(
-        self, mock_capture: AsyncMock,
+        self,
+        mock_capture: AsyncMock,
     ) -> None:
         """When capture raises and a proxy was passed in, the rotator
         records the failure so subsequent jobs don't re-try the same
         dead proxy. The exception still propagates."""
         from archiver.proxy import ProxyConfig
+
         worker, _ = _make_worker()
         job = _make_job(tier=CaptureTier.CAMOUFOX_PROXY)
         proxy = ProxyConfig(server="socks5://1.2.3.4:1080")
@@ -1434,13 +1367,17 @@ class TestCapturePageWithProxyRetry:
         browser = AsyncMock()
         with pytest.raises(RuntimeError, match="upstream blew up"):
             await worker._capture_page_with_proxy_retry(
-                job, "https://example.com", browser, proxy,
+                job,
+                "https://example.com",
+                browser,
+                proxy,
             )
         worker._proxy_rotator.mark_failed.assert_called_once_with(proxy)
 
     @patch("archiver.worker.capture_page", new_callable=AsyncMock)
     async def test_failure_without_proxy_does_not_mark(
-        self, mock_capture: AsyncMock,
+        self,
+        mock_capture: AsyncMock,
     ) -> None:
         """No proxy passed → mark_failed must NOT be called."""
         worker, _ = _make_worker()
@@ -1452,6 +1389,9 @@ class TestCapturePageWithProxyRetry:
         browser = AsyncMock()
         with pytest.raises(RuntimeError):
             await worker._capture_page_with_proxy_retry(
-                job, "https://example.com", browser, None,
+                job,
+                "https://example.com",
+                browser,
+                None,
             )
         worker._proxy_rotator.mark_failed.assert_not_called()
