@@ -16,7 +16,7 @@ from archiver.memento import (
     MementoHit,
     _raw_replay_variants,
     fetch_memento_html,
-    find_latest_memento,
+    find_memento_candidates,
 )
 
 _URL = "https://example.com/page"
@@ -78,8 +78,17 @@ class TestRoster:
         for archive in MEMENTO_ARCHIVES:
             assert archive.timemap_prefix.endswith("/")
 
+    def test_strip_selectors_cover_both_replay_families(self) -> None:
+        """Roster archives run OpenWayback or pywb — the render-time
+        strip list must know both banner styles."""
+        from archiver.memento import MEMENTO_STRIP_SELECTORS
 
-class TestFindLatestMemento:
+        joined = " ".join(MEMENTO_STRIP_SELECTORS)
+        assert "#wm-ipp" in joined          # OpenWayback
+        assert "_wb_frame_top_banner" in joined  # pywb
+
+
+class TestFindMementoCandidates:
     @respx.mock
     async def test_single_archive_hit(self) -> None:
         _mock_rosters({
@@ -88,13 +97,15 @@ class TestFindLatestMemento:
                 "Wed, 01 Jan 2020 12:00:00 GMT",
             ),
         })
-        hit = await find_latest_memento(_URL)
-        assert hit is not None
-        assert hit.archive_id == "arquivo.pt"
-        assert hit.timestamp == datetime(2020, 1, 1, 12, 0, tzinfo=UTC)
+        hits = await find_memento_candidates(_URL)
+        assert len(hits) == 1
+        assert hits[0].archive_id == "arquivo.pt"
+        assert hits[0].timestamp == datetime(2020, 1, 1, 12, 0, tzinfo=UTC)
 
     @respx.mock
-    async def test_newest_across_archives_wins(self) -> None:
+    async def test_newest_across_archives_first(self) -> None:
+        """Candidates interleave archives, newest first — the older
+        archive's copy stays available as a fallback candidate."""
         _mock_rosters({
             "arquivo.pt": (
                 "https://arquivo.pt/wayback/20150101000000/" + _URL,
@@ -105,12 +116,11 @@ class TestFindLatestMemento:
                 "Thu, 01 Jun 2023 00:00:00 GMT",
             ),
         })
-        hit = await find_latest_memento(_URL)
-        assert hit is not None
-        assert hit.archive_id == "awa"
+        hits = await find_memento_candidates(_URL)
+        assert [h.archive_id for h in hits] == ["awa", "arquivo.pt"]
 
     @respx.mock
-    async def test_undated_memento_loses_to_dated(self) -> None:
+    async def test_undated_memento_sorts_last(self) -> None:
         for archive in MEMENTO_ARCHIVES:
             route = respx.get(archive.timemap_prefix + _URL)
             if archive.id == "vefsafn":
@@ -131,14 +141,13 @@ class TestFindLatestMemento:
                 ))
             else:
                 route.mock(return_value=httpx.Response(404))
-        hit = await find_latest_memento(_URL)
-        assert hit is not None
-        assert hit.archive_id == "banq"
+        hits = await find_memento_candidates(_URL)
+        assert [h.archive_id for h in hits] == ["banq", "vefsafn"]
 
     @respx.mock
-    async def test_all_miss_returns_none(self) -> None:
+    async def test_all_miss_returns_empty(self) -> None:
         _mock_rosters()
-        assert await find_latest_memento(_URL) is None
+        assert await find_memento_candidates(_URL) == []
 
     @respx.mock
     async def test_transport_errors_tolerated(self) -> None:
@@ -158,9 +167,8 @@ class TestFindLatestMemento:
                 ))
             else:
                 route.mock(return_value=httpx.Response(404))
-        hit = await find_latest_memento(_URL)
-        assert hit is not None
-        assert hit.archive_id == "lac"
+        hits = await find_memento_candidates(_URL)
+        assert [h.archive_id for h in hits] == ["lac"]
 
     @respx.mock
     async def test_timemap_without_mementos_is_miss(self) -> None:
@@ -170,7 +178,36 @@ class TestFindLatestMemento:
                 200, text=f'<{_URL}>; rel="original"\n'
             )
         )
-        assert await find_latest_memento(_URL) is None
+        assert await find_memento_candidates(_URL) == []
+
+    @respx.mock
+    async def test_per_archive_cap_and_global_limit(self) -> None:
+        """A dense single-archive history is capped so it can't crowd
+        out other archives, and the global limit bounds probe traffic."""
+        entries = "".join(
+            f'<https://arquivo.pt/wayback/2024010{d}120000/{_URL}>; '
+            f'rel="memento"; datetime="0{d} Jan 2024 12:00:00 GMT",\n'
+            for d in range(1, 6)  # five mementos in one archive
+        )
+        _mock_rosters({
+            "awa": (
+                "https://web.archive.org.au/awa/20200101000000/" + _URL,
+                "Wed, 01 Jan 2020 00:00:00 GMT",
+            ),
+        })
+        respx.get(
+            MEMENTO_ARCHIVES[0].timemap_prefix + _URL  # arquivo.pt
+        ).mock(return_value=httpx.Response(200, text=entries))
+
+        hits = await find_memento_candidates(_URL)
+
+        assert len(hits) == 4  # global _MAX_CANDIDATES  # noqa: PLR2004
+        # Three newest arquivo.pt entries (per-archive cap), then AWA.
+        assert [h.archive_id for h in hits] == [
+            "arquivo.pt", "arquivo.pt", "arquivo.pt", "awa",
+        ]
+        timestamps = [h.timestamp for h in hits if h.timestamp]
+        assert timestamps == sorted(timestamps, reverse=True)
 
 
 class TestRawReplayVariants:
@@ -186,6 +223,18 @@ class TestRawReplayVariants:
     def test_no_timestamp_yields_plain_only(self) -> None:
         assert _raw_replay_variants("https://perma.cc/AB12-CD34") == [
             "https://perma.cc/AB12-CD34"
+        ]
+
+    def test_replaces_existing_replay_modifier(self) -> None:
+        """arquivo.pt timemaps hand out URLs already carrying pywb's
+        `mp_` modifier — it must be swapped for `if_`, not left in
+        place (verified live: 2026-07-12)."""
+        variants = _raw_replay_variants(
+            "https://arquivo.pt/wayback/20260624210628mp_/https://x.example/"
+        )
+        assert variants == [
+            "https://arquivo.pt/wayback/20260624210628if_/https://x.example/",
+            "https://arquivo.pt/wayback/20260624210628mp_/https://x.example/",
         ]
 
     def test_only_first_timestamp_rewritten(self) -> None:
@@ -206,10 +255,13 @@ class TestFetchMementoHtml:
         plain = respx.get(
             "https://arquivo.pt/wayback/20200101120000/https://x.example/"
         ).mock(return_value=httpx.Response(200, text="<html>chrome</html>"))
-        html = await fetch_memento_html(
+        fetched = await fetch_memento_html(
             "https://arquivo.pt/wayback/20200101120000/https://x.example/"
         )
-        assert html == "<html>raw</html>"
+        assert fetched == (
+            "https://arquivo.pt/wayback/20200101120000if_/https://x.example/",
+            "<html>raw</html>",
+        )
         assert raw.called
         assert not plain.called
 
@@ -221,10 +273,13 @@ class TestFetchMementoHtml:
         respx.get(
             "https://a.example/20200101120000/https://x.example/"
         ).mock(return_value=httpx.Response(200, text="<html>plain</html>"))
-        html = await fetch_memento_html(
+        fetched = await fetch_memento_html(
             "https://a.example/20200101120000/https://x.example/"
         )
-        assert html == "<html>plain</html>"
+        assert fetched == (
+            "https://a.example/20200101120000/https://x.example/",
+            "<html>plain</html>",
+        )
 
     @respx.mock
     async def test_transport_error_falls_back(self) -> None:
@@ -234,10 +289,13 @@ class TestFetchMementoHtml:
         respx.get(
             "https://a.example/20200101120000/https://x.example/"
         ).mock(return_value=httpx.Response(200, text="<html>ok</html>"))
-        html = await fetch_memento_html(
+        fetched = await fetch_memento_html(
             "https://a.example/20200101120000/https://x.example/"
         )
-        assert html == "<html>ok</html>"
+        assert fetched == (
+            "https://a.example/20200101120000/https://x.example/",
+            "<html>ok</html>",
+        )
 
     @respx.mock
     async def test_all_variants_fail_returns_none(self) -> None:

@@ -56,8 +56,9 @@ from archiver.fallback import (
 )
 from archiver.memento import (
     MEMENTO_ARCHIVES,
+    MEMENTO_STRIP_SELECTORS,
     fetch_memento_html,
-    find_latest_memento,
+    find_memento_candidates,
 )
 from archiver.metrics import (
     artifacts_dir_bytes_free,
@@ -784,30 +785,97 @@ class Worker:
         all missed — these collections are smaller but nationally
         scoped, so they regularly hold long-tail pages the giants
         never crawled.
+
+        The winning memento is browser-rendered (like the wayback
+        tier) so the stored artifacts are full-fidelity: SingleFile
+        inlines the archive-hosted assets into a self-contained
+        snapshot, plus a real screenshot and WARC. The probe fetch
+        that precedes the render resolves the banner-free ``if_``
+        replay variant where supported and doubles as the fallback —
+        if the render fails we store its raw HTML rather than
+        escalating to the archive.today write tier.
+
+        Candidates are probed newest-first: archives faithfully replay
+        whatever the crawler got, so the newest memento of a bot-walled
+        site is often the block itself (empty CloudFront 202) and a
+        lapsed domain's is the parking page. A failed probe moves to
+        the next-newest memento instead of failing the tier.
         """
-        hit = await find_latest_memento(url)
-        if hit is None:
+        candidates = await find_memento_candidates(url)
+        if not candidates:
             raise CaptureError(
                 f"No memento across {len(MEMENTO_ARCHIVES)} federated"
                 f" archives: {url}"
             )
-        raw_html = await fetch_memento_html(hit.memento_url)
-        if raw_html is None:
-            raise CaptureError(
-                f"Memento found in {hit.archive_id} but fetch failed: "
-                f"{hit.memento_url}"
+
+        from dataclasses import replace
+        for hit in candidates:
+            fetched = await fetch_memento_html(hit.memento_url)
+            if fetched is None:
+                log.info(
+                    "worker.memento.candidate_unusable",
+                    url=url,
+                    archive=hit.archive_id,
+                    memento=hit.memento_url,
+                )
+                continue
+            render_url, raw_html = fetched
+            # Timemap datetime is authoritative; fall back to the
+            # 14-digit stamp in the memento URL when it carried none.
+            ts = hit.timestamp or memento_timestamp_from_url(
+                hit.memento_url
             )
-        log.info(
-            "worker.memento.snapshot_used",
-            url=url,
-            archive=hit.archive_id,
-            memento=hit.memento_url,
-        )
-        # Timemap datetime is authoritative; fall back to the 14-digit
-        # stamp in the memento URL when the entry carried none.
-        ts = hit.timestamp or memento_timestamp_from_url(hit.memento_url)
-        return self._capture_result_from_html(
-            raw_html, hit.memento_url, snapshot_timestamp=ts
+
+            try:
+                browser = await self._browser_pool.get_browser(
+                    CaptureTier.CHROMIUM
+                )
+                result = await capture_page(
+                    url=render_url,
+                    browser=browser,
+                    settings=self._settings,
+                    tier=CaptureTier.CHROMIUM,
+                    strip_selectors=MEMENTO_STRIP_SELECTORS,
+                    warc_original_url=url,
+                )
+            except Exception as exc:
+                # Render failures (archive-side JS breakage, renderer
+                # crash, anti-bot misfire on the archive host) must not
+                # sink the tier: the probed HTML is already in hand.
+                log.warning(
+                    "worker.memento.render_failed_using_direct_fetch",
+                    url=url,
+                    archive=hit.archive_id,
+                    memento=render_url,
+                    error_type=type(exc).__name__,
+                    error=str(exc)[:200],
+                )
+            else:
+                log.info(
+                    "worker.memento.snapshot_rendered",
+                    url=url,
+                    archive=hit.archive_id,
+                    memento=hit.memento_url,
+                )
+                return replace(
+                    result,
+                    source_url=hit.memento_url,
+                    snapshot_timestamp=ts,
+                )
+
+            log.info(
+                "worker.memento.snapshot_used",
+                url=url,
+                archive=hit.archive_id,
+                memento=hit.memento_url,
+            )
+            return self._capture_result_from_html(
+                raw_html, hit.memento_url, snapshot_timestamp=ts
+            )
+
+        raise CaptureError(
+            f"All {len(candidates)} newest memento candidates failed "
+            f"the probe fetch: {url}"
         )
 
     async def _capture_via_archive_today(self, url: str) -> CaptureResult:
