@@ -22,6 +22,9 @@ services:
       - ./src:/app/src
       - ./scripts:/app/scripts
       - artifacts:/data
+      # The dev image runs as root, so Camoufox caches under /root.
+      - camoufox_cache:/root/.cache
 
 volumes:
   artifacts:
+  camoufox_cache:

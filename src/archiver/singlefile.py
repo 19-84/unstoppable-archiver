@@ -19,9 +19,13 @@ log = structlog.get_logger()
 
 
 # Candidate Chromium paths to try for single-file-cli when none is
-# explicitly configured. The Playwright base image lays Chromium down
-# at a versioned path; we glob to tolerate upgrades.
+# explicitly configured. Playwright lays Chromium down at a versioned
+# path; we glob to tolerate upgrades. /ms-playwright is the production
+# image's PLAYWRIGHT_BROWSERS_PATH (readable by the non-root user);
+# /root/.cache is Playwright's default, used by the root dev image.
 _CHROMIUM_CANDIDATES: tuple[str, ...] = (
+    "/ms-playwright/chromium-*/chrome-linux64/chrome",
+    "/ms-playwright/chromium-*/chrome-linux/chrome",
     "/root/.cache/ms-playwright/chromium-*/chrome-linux64/chrome",
     "/root/.cache/ms-playwright/chromium-*/chrome-linux/chrome",
     "/usr/bin/chromium",
