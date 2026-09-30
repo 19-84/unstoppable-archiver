@@ -62,6 +62,7 @@ async def submit_report(  # noqa: PLR0913
     archive_id: str,
     request: Request,
     conn: Annotated[PgConnection, Depends(get_db)],
+    *,
     reason: Annotated[str, Form()],
     details: Annotated[str, Form()] = "",
     reporter_email: Annotated[str, Form()] = "",
@@ -115,7 +116,9 @@ async def submit_report(  # noqa: PLR0913
         reporter_email=reporter_email.strip() or None,
     )
     await _report_repo.create(
-        conn, archive_id, report_data,
+        conn,
+        archive_id,
+        report_data,
         reporter_ip_hash=get_client_ip_hash(request),
     )
     reports_total.labels(reason=parsed_reason.value).inc()
