@@ -340,6 +340,7 @@ class TestCapturePageSuccess:
         settings = Settings(
             artifacts_dir=tmp_path,
             singlefile_bundle_path=Path("fake.js"),
+            singlefile_chromium_path="/opt/chromium/chrome",
         )
 
         result = await capture_page(
@@ -349,7 +350,11 @@ class TestCapturePageSuccess:
             tier=CaptureTier.CAMOUFOX,
         )
         assert isinstance(result, CaptureResult)
-        mock_cli.assert_awaited_once()
+        mock_cli.assert_awaited_once_with(
+            "https://example.com",
+            cli_path="single-file",
+            browser_path="/opt/chromium/chrome",
+        )
 
     @patch("archiver.capture.load_bundle", return_value="// fake JS")
     async def test_post_timeout_page_check_failure(
