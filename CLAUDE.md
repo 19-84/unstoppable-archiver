@@ -67,6 +67,7 @@ Schema managed in `src/archiver/db.py`.
 
 - `app` — FastAPI server (port 8000)
 - `worker` — Capture job processor
+- `volume-perms` — One-shot chown of the artifacts/camoufox volumes to the non-root `archiver` user (UID 10001)
 - `postgres` — PostgreSQL 17
 - `caddy` — TLS reverse proxy (public overlay only)
 - `backup` — Scheduled pg_dump + artifact tar (profile: backup)
